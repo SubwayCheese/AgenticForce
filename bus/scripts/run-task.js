@@ -23,16 +23,22 @@
 //   3. Builds the full prompt (payload + mandatory as-of/invalid-premise
 //      suffix from task_template.md + injected dependency context if any).
 //   4. Runs `codex exec` for real, captures the actual output.
-//   5. Writes status + the exact captured output back into the task file's
+//   5. Verifies the output before trusting it as "done" (added 2026-08-31,
+//      see verifyOutput()): non-empty, has the mandatory SOURCE tag (Codex
+//      tasks), and matches expectedType if the task declared one. A task
+//      that fails this lands as status "unverified" with the specific
+//      reason logged, never silently marked done.
+//   6. Writes status + the exact captured output back into the task file's
 //      own `output:` field (fenced code block), so later tasks can depend
 //      on THIS task deterministically too.
-//   6. Appends a structured entry to /bus/log.md documenting exactly what
-//      was injected (value + source task_id) or why the task was blocked,
-//      the exact prompt sent, and the exact response received -- not just
-//      that the task ran.
+//   7. Appends a structured entry to /bus/log.md documenting exactly what
+//      was injected (value + source task_id) or why the task was blocked/
+//      unverified, the exact prompt sent, and the exact response received
+//      -- not just that the task ran.
 //
 // Deliberately no guessing anywhere: a missing/pending/malformed dependency
-// always blocks, never falls back to a recalled or assumed value.
+// always blocks, and a malformed/incomplete response is marked unverified
+// rather than rubber-stamped done.
 
 const fs = require('fs');
 const path = require('path');
@@ -86,7 +92,13 @@ function readTaskFile(taskId) {
   if (!fs.existsSync(p)) return null;
   const text = fs.readFileSync(p, 'utf8');
   const field = (name) => {
-    const m = new RegExp(`^${name}:\\s*(.*)$`, 'm').exec(text);
+    // [ \t]* not \s* after the colon -- \s matches newlines too, so a
+    // BLANK field (e.g. "dependsOnTaskId:" with nothing after it) would
+    // greedily consume the newline and capture the start of the NEXT
+    // line's content instead of an empty string. Verified bug, not
+    // theoretical: this exact regex mis-parsed "expectedType: number" as
+    // the value of a blank "dependsOnTaskId:" line above it.
+    const m = new RegExp(`^${name}:[ \\t]*(.*)$`, 'm').exec(text);
     return m ? m[1].trim() : '';
   };
   const outputMatch = /^output:\s*\n```\n([\s\S]*?)\n```/m.exec(text);
@@ -100,28 +112,55 @@ function readTaskFile(taskId) {
     payload: field('payload'),
     timestamp: field('timestamp'),
     dependsOnTaskId: field('dependsOnTaskId'),
+    expectedType: field('expectedType'),
     output: outputMatch ? outputMatch[1] : null,
   };
 }
 
-function writeTaskResult(taskId, { status, output, blockedReason }) {
+function writeTaskResult(taskId, { status, output, reason }) {
   const p = taskFilePath(taskId);
   let text = fs.readFileSync(p, 'utf8');
   text = text.replace(/^status:\s*.*$/m, `status: ${status}`);
 
-  // Strip any prior output/blocked-reason block before appending the new one
+  // Strip any prior output/reason block before appending the new one
   text = text.replace(/\n## Result \(auto\)[\s\S]*$/m, '');
 
   let resultBlock = '\n## Result (auto)\n';
   resultBlock += `resolved_at: ${nowIso()}\n`;
-  if (blockedReason) {
-    resultBlock += `blocked_reason: ${blockedReason}\n`;
+  if (reason) {
+    resultBlock += `reason: ${reason}\n`;
   }
   if (output !== undefined && output !== null) {
     resultBlock += 'output:\n```\n' + output + '\n```\n';
   }
   text = text.trimEnd() + '\n' + resultBlock;
   fs.writeFileSync(p, text, 'utf8');
+}
+
+// --- Verification: a second, independent check before a task can be
+// trusted as "done" -- added 2026-08-31 to close the gap agent-comms hit
+// for a real reason (Antigravity self-reporting fake/unverified
+// completion). Deliberately minimal: non-empty, has the mandatory SOURCE
+// tag (Codex tasks only), and matches expectedType if the task declared
+// one. Does not attempt semantic correctness -- that's a different,
+// harder problem than "did this task even produce a checkable result."
+function verifyOutput(task, output) {
+  const text = String(output || '').trim();
+  if (!text) {
+    return { ok: false, reason: 'output is empty' };
+  }
+  if (task.to === 'codex') {
+    const hasSourceTag =
+      text.includes('SOURCE: training-data recall, not verified live') ||
+      text.includes('SOURCE: supplied by orchestrator from a prior verified step');
+    if (!hasSourceTag) {
+      return { ok: false, reason: 'missing the mandatory SOURCE tag -- neither accepted variant found in the response' };
+    }
+  }
+  if (task.expectedType === 'number' && !/\d/.test(text)) {
+    return { ok: false, reason: 'expectedType is "number" but output contains no digit characters' };
+  }
+  return { ok: true };
 }
 
 function appendLog(entry) {
@@ -197,7 +236,7 @@ function main() {
       logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
       logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
       appendLog(logEntry);
-      writeTaskResult(taskId, { status: 'blocked', blockedReason: dep.reason });
+      writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
       console.log(`BLOCKED: ${dep.reason}`);
       process.exit(0);
     }
@@ -220,13 +259,32 @@ function main() {
   logEntry += `Exit code: ${result.exitCode}\n`;
   logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;
 
-  const status = result.exitCode === 0 && result.output ? 'done' : 'error';
+  let status;
+  let reason;
+  if (result.exitCode !== 0 || !result.output) {
+    status = 'error';
+  } else {
+    const verification = verifyOutput(task, result.output);
+    if (verification.ok) {
+      status = 'done';
+    } else {
+      status = 'unverified';
+      reason = verification.reason;
+      logEntry += `VERIFICATION FAILED: ${verification.reason}\n`;
+    }
+  }
   logEntry += `status -> ${status}\n`;
 
   appendLog(logEntry);
-  writeTaskResult(taskId, { status, output: result.output });
+  writeTaskResult(taskId, { status, output: result.output, reason });
 
-  console.log(status === 'done' ? `DONE: ${result.output}` : `ERROR (exit ${result.exitCode})`);
+  if (status === 'done') console.log(`DONE: ${result.output}`);
+  else if (status === 'unverified') console.log(`UNVERIFIED: ${reason}`);
+  else console.log(`ERROR (exit ${result.exitCode})`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { readTaskFile, writeTaskResult, resolveDependency, verifyOutput, runCodex, MANDATORY_SUFFIX };

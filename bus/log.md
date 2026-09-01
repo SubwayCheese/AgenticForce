@@ -493,3 +493,98 @@ known open items, and an explicit statement of what this system does not
 do (no broker integration, trade execution, position sizing, risk
 management, or live order flow). To be kept current going forward -- update
 it whenever the architecture materially changes.
+
+## task_20260831_verify_pass (run-task.js)
+
+**2026-09-01T00:34:23.222Z -- run-task.js**
+dependsOnTaskId: expectedType: number
+Dependency resolution FAILED: dependency task_id "expectedType: number" not found (no file at tasks/expectedType: number.md)
+Task NOT dispatched to Codex. status -> blocked.
+
+---
+
+## SECOND SCRIPT BUG FOUND & FIXED (2026-08-31T01:41:00Z)
+
+First run of task_20260831_verify_pass failed: "BLOCKED: dependency
+task_id 'expectedType: number' not found". Root cause: readTaskFile()'s
+field() regex used `:\s*(.*)$` after the field name -- \s matches
+newlines too, so a BLANK field (dependsOnTaskId: with nothing after it,
+immediately followed by another field line with no blank line between)
+greedily consumed the newline and captured the START OF THE NEXT LINE as
+its own value. dependsOnTaskId ended up reading "expectedType: number"
+instead of empty string. Latent since the script was written -- every
+prior task happened to have dependsOnTaskId either non-blank or as the
+last line before EOF/a blank line, so this never triggered until a task
+had a blank dependsOnTaskId directly followed by another field.
+
+Fixed: changed the regex to `:[ \t]*(.*)$` (horizontal whitespace only,
+not \s). Verified directly: readTaskFile() now correctly parses
+dependsOnTaskId as "" and expectedType as "number" for the same file.
+Logging this rather than silently re-running until it worked.
+
+## task_20260831_verify_pass (run-task.js)
+
+**2026-09-01T00:36:09.397Z -- run-task.js**
+
+Sent (exact):
+"""
+What is MSFT's most recent full-year total revenue, in billions USD to one decimal place? This is a trivial verification-mechanism test, not a real research request.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: training-data recall, not verified live  
+As of: Microsoft fiscal year ended June 30, 2025.
+
+MSFT total revenue: **$281.7 billion USD**.
+"""
+status -> done
+
+---
+
+## VERIFICATION MECHANISM: implemented and tested (2026-08-31T01:43:00Z)
+
+Implemented per the user's request: a minimal second check
+(verifyOutput() in run-task.js) that must pass before a task can land as
+status "done". Checks: output non-empty; for Codex tasks, the mandatory
+SOURCE tag is actually present (one of the two accepted exact phrasings);
+if the task declares expectedType: number, the output contains at least
+one digit. A task that fails lands as status "unverified" with the exact
+reason logged -- never silently rubber-stamped done. Deliberately minimal,
+no semantic-correctness checking (a different, harder problem).
+
+## task_20260831_verify_pass (clean pass test)
+
+MSFT revenue query, expectedType: number set. Real codex exec call.
+Response included the mandatory SOURCE tag and a numeric figure ($281.7
+billion). verifyOutput() passed silently. status -> done.
+
+## task_20260831_verify_sabotage (deliberate failure test)
+
+Took the real, verified output from task_20260831_verify_pass and
+stripped only its SOURCE tag line, then ran the result through
+verifyOutput() directly (not a live codex call -- a direct test of the
+check function against a corrupted real response). Result: caught
+correctly -- {"ok":false,"reason":"missing the mandatory SOURCE tag --
+neither accepted variant found in the response"}. Control check: the same
+function against the unmodified real output returned {"ok":true},
+confirming the check discriminates correctly rather than failing
+everything. status -> unverified.
+
+Both tests confirm the mechanism closes the gap: a task cannot land as
+"done" purely because Codex responded -- the response has to actually
+carry the properties a caller can check.

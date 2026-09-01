@@ -38,12 +38,16 @@ eventual use case.
    as-of/invalid-premise suffix) and dispatches to Codex via `codex exec`
    (stdin-piped, not argv -- argv silently mangles multi-line/quoted
    prompts on Windows).
-5. The exact captured response is written back into the task file's own
+5. The response is verified before being trusted (`verifyOutput()`,
+   section 6's now-closed item): non-empty, has the mandatory SOURCE tag,
+   matches `expectedType` if declared. Fails -> status `unverified` with
+   the reason recorded, not silently `done`.
+6. The exact captured response is written back into the task file's own
    `output:` field (fenced, verbatim) and appended to `bus/log.md` with
    what was sent and received.
-6. Later tasks can `dependsOnTaskId` on this one deterministically.
+7. Later `done` tasks can `dependsOnTaskId` on this one deterministically.
 
-**Orchestrator-sourced tasks** (real data, not Codex) skip steps 3-4:
+**Orchestrator-sourced tasks** (real data, not Codex) skip steps 3-5:
 Claude fetches a verifiable figure directly and writes the task file by
 hand (`to: claude`, `type: response`, a `source:` citation). Downstream
 tasks consume it identically via `dependsOnTaskId`.
@@ -84,9 +88,17 @@ tasks consume it identically via `dependsOnTaskId`.
       can, in-session. Orchestrator-sourced tasks are written by hand each
       time; the grounding step itself isn't scripted, only its consumption
       (via `dependsOnTaskId`) is.
-- [ ] No verification/peer-review gate exists in `/bus/` yet (agent-comms
-      has one; `/bus/` doesn't -- a task's self-reported `done` is
-      currently trusted outright).
+- [x] ~~No verification/peer-review gate exists in `/bus/`~~ -- **closed
+      2026-08-31.** `verifyOutput()` in `bus/scripts/run-task.js` is a
+      second, independent check (non-empty output, mandatory SOURCE tag
+      present for Codex tasks, `expectedType` match if declared) that must
+      pass before a task can land as `done`; a failing task lands as
+      `unverified` with the reason recorded, never silently passed.
+      Deliberately minimal -- checks the response has the right shape, not
+      that it's semantically correct. Tested against a clean pass
+      (`task_20260831_verify_pass`) and a deliberately sabotaged response
+      with the SOURCE tag stripped (`task_20260831_verify_sabotage`,
+      correctly caught).
 - [ ] Antigravity has no real invocation mechanism in `/bus/` -- fully
       deferred.
 - [ ] Dependency chains tested only for a single linear hop (task A ->

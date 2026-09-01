@@ -6,10 +6,11 @@ Copy this into a new file under /tasks/ named for the task_id.
 from:
 to:
 type: request | response | error
-status: pending | in_progress | done | blocked
+status: pending | in_progress | done | blocked | unverified
 payload:
 timestamp:
 dependsOnTaskId: (optional -- see below)
+expectedType: (optional -- "number", or blank for no type check)
 
 ## Mandatory prompt suffix (Codex tasks, added 2026-08-31, upgraded same day)
 
@@ -64,11 +65,27 @@ Do not hand-copy a prior task's output into `payload:` yourself when
 dependsOnTaskId is available -- that reintroduces the exact manual-habit
 failure mode this field exists to close.
 
+## Verification (added 2026-08-31)
+
+Before a Codex task can land as `done`, bus/scripts/run-task.js's
+verifyOutput() runs a second, independent check -- closing the same gap
+agent-comms needed a verification gate for (an agent's own self-report was
+trusted with no check). Deliberately minimal:
+  - output is non-empty
+  - for Codex tasks: the mandatory SOURCE tag is actually present (one of
+    the two accepted exact phrasings), not just requested
+  - if `expectedType: number` is set: output contains at least one digit
+
+If any check fails, the task lands as `unverified` (not `done`, not
+silently passed) with the specific reason recorded. This does not check
+semantic correctness -- only that the response has the checkable
+properties it's supposed to have.
+
 ## Result (auto)
 
 Do not create this section by hand. bus/scripts/run-task.js appends it
-after running a task: `resolved_at`, `blocked_reason` (if blocked), and
-the exact captured `output:` (if dispatched), fenced verbatim so later
+after running a task: `resolved_at`, `reason` (if blocked or unverified),
+and the exact captured `output:` (if dispatched), fenced verbatim so later
 tasks can depend on it deterministically.
 
 ## How to run a task
