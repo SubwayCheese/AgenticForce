@@ -1,2 +1,4 @@
 .obsidian/workspace*.json
 bus/status.json
+bus/research-crew-state.json
+bus/inbox-check-state.json

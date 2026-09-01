@@ -1065,3 +1065,90 @@ average, near 52-week high). All observation-only, no trading advice.
 
 bus/status.json added to .gitignore -- regenerated live artifact, not a
 durable record (that's this log and the task files).
+
+## research-crew entry: 2026-09-01_AAPL_attention_check_311b7e (2026-09-01T04:20:49.850Z)
+
+ticker: AAPL
+category: attention_check
+Sent: """
+Is there anything about AAPL's recent situation, from what you know generally about the company, that seems worth a closer look right now? Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Received: """
+SOURCE: training-data recall, not verified live  
+AS OF: June 2024
+
+Worth reviewing: Apple’s growth sensitivity to iPhone upgrade cycles and China demand, alongside whether services growth and regulatory pressure on the App Store are changing its margins or valuation support.
+"""
+Written to tasks/UNVERIFIED_Cl/2026-09-01_AAPL_attention_check_311b7e.md, status unverified_new.
+
+---
+
+## BACKGROUND RESEARCH CREW: built, gated, single-cycle tested (2026-08-31)
+
+User requested a continuous background research crew (unverified_new
+entries in /tasks/UNVERIFIED_Cl/) plus ntfy phone notifications, with an
+explicit gate: propose scope + digest interval + queue-pause threshold,
+wait for confirmation, before wiring the loop to run unattended.
+
+Built and single-cycle tested (NOT scheduled continuously):
+- New status unverified_new (tasks/task_template.md,
+  tasks/unverified_entry_template.md): distinct from unverified (failed
+  verification) -- never submitted for verification, by design, pending
+  human review. SOURCE-tagging rule still applies.
+- bus/scripts/ntfy.js: HTTPS POST to ntfy.sh/ClaudeTeam, no auth needed
+  for a public topic (flagged: public topics are publicly readable by
+  anyone who knows the name, not private by default). Found and fixed a
+  real, silent bug before it shipped: ntfy content-sniffs the POST body,
+  and messages containing an em dash (confirmed specifically) get
+  reinterpreted as a file upload instead of delivered as text -- HTTP 200
+  either way, no error signal, phone shows "You received a file:
+  attachment.txt" instead of the real message. sanitizeForNtfy() strips
+  this class of problem. Verified via the topic's own message history
+  (https://ntfy.sh/ClaudeTeam/json) that every message actually delivered
+  as intended after the fix.
+- bus/scripts/run-research-crew.js: single-cycle, round-robins
+  bus/research-scope.json (8-ticker watchlist x 3 Codex-recall categories
+  = 24 items), dispatches via run-task.js's real runCodex(), writes one
+  unverified_new entry per cycle, checks the queue-pause threshold FIRST
+  each cycle, sends an immediate ntfy on pause or hard Codex failure
+  (never fabricates an entry from a broken call), tracks digest counters
+  and sends a summary ntfy on interval (not per-entry).
+- bus/scripts/crew-status.js: "what are they doing" query -- loop status,
+  queue size, last 5 entries -- human-readable, no raw-log reading
+  required.
+- bus/scripts/check-inbox.js: checks bus/inbox_claude.md for new content,
+  notifies either way ("nothing actionable found" vs "new content, needs
+  review") so liveness is visible. Deliberately does NOT interpret or
+  execute what it finds -- a plain script judging arbitrary instructions
+  unsupervised is exactly the failure mode from the earlier
+  claude-adapter.js --restricted incident this session. New content
+  always routes to a human/reviewed session, never auto-executed.
+
+REAL TEST RUN (not simulated): ran run-research-crew.js once -> real
+entry tasks/UNVERIFIED_Cl/2026-09-01_AAPL_attention_check_311b7e.md,
+correct SOURCE tag, correct fields. crew-status.js run against it,
+correctly showed queue size 1 and the real entry. check-inbox.js run
+twice: first run correctly reported new content (expected, no prior
+state existed); second run (no changes) correctly reported "nothing
+actionable found." Confirmed via ntfy.sh/ClaudeTeam's own message history
+that all of these notifications, plus the sanitizer test messages,
+actually delivered.
+
+STILL GATED, per user's explicit instruction: continuous scheduling
+(setInterval or Windows Task Scheduler, same pattern as agent-comms'
+supervisor.js) not wired. Proposed scope/thresholds delivered directly to
+the user; waiting on their confirmation before starting anything
+unattended.

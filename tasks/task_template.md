@@ -6,7 +6,7 @@ Copy this into a new file under /tasks/ named for the task_id.
 from:
 to:
 type: request | response | error
-status: pending | in_progress | done | blocked | unverified
+status: pending | in_progress | done | blocked | unverified | unverified_new
 payload:
 timestamp:
 dependsOnTaskId: (optional -- see below)
@@ -80,6 +80,13 @@ If any check fails, the task lands as `unverified` (not `done`, not
 silently passed) with the specific reason recorded. This does not check
 semantic correctness -- only that the response has the checkable
 properties it's supposed to have.
+
+**`unverified_new` is a different thing** (added 2026-08-31, see
+tasks/unverified_entry_template.md): it means an entry was never
+submitted for verification at all, by design -- background research crew
+output, queued for deliberate human review. Do not confuse the two:
+`unverified` = failed a real check; `unverified_new` = not checked yet on
+purpose.
 
 ## Result (auto)
 

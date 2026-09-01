@@ -1,0 +1,17 @@
+{
+  "watchlist": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM"],
+  "categories": [
+    {
+      "id": "attention_check",
+      "prompt": "Is there anything about {TICKER}'s recent situation, from what you know generally about the company, that seems worth a closer look right now? Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion."
+    },
+    {
+      "id": "risk_note",
+      "prompt": "Name one commonly-discussed, company-specific risk factor for {TICKER} worth keeping in mind right now, based on what you know generally about the company. Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion."
+    },
+    {
+      "id": "valuation_context",
+      "prompt": "Based on what you know generally about {TICKER}, how does its typical valuation or market sentiment compare to its own historical norm? Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion."
+    }
+  ]
+}

@@ -89,6 +89,26 @@ runs; this script cannot fetch real data itself (same constraint as
   fed a verified figure), followed by an explicit as-of date. Enforced by
   `run-task.js`'s mandatory prompt suffix, not by convention alone.
 
+**Background research crew** (added 2026-08-31, single-cycle mode --
+NOT yet scheduled continuously, awaiting user sign-off on scope/
+thresholds): `bus/scripts/run-research-crew.js` runs one research cycle
+per invocation against a bounded scope (`bus/research-scope.json`),
+writing raw, unreviewed output to `/tasks/UNVERIFIED_Cl/` with a new
+status, `unverified_new` -- distinct from `unverified` (failed the
+verification gate): `unverified_new` was never submitted for
+verification at all, by design, pending deliberate human review. The
+SOURCE-tag rule still applies to every entry. A queue-size pause
+threshold stops the crew from piling up entries unattended; `ntfy.js`
+sends phone notifications (digest on interval, immediate on pause/hard
+failure) to the "ClaudeTeam" ntfy.sh topic. `bus/scripts/crew-status.js`
+answers "what are they doing" without reading raw logs.
+`bus/scripts/check-inbox.js` is a separate small role that checks
+`bus/inbox_claude.md` for new content and always notifies either way
+(found something / nothing actionable) so its liveness is visible --
+deliberately scoped to detect-and-notify only, not to interpret or
+execute whatever it finds (see section 6 and the file's own header for
+why).
+
 ## 5. Agent roles and status
 
 - **Claude (orchestrator):** creates tasks, runs `run-task.js`, fetches
@@ -126,6 +146,18 @@ runs; this script cannot fetch real data itself (same constraint as
       broadcast task system, separate from the dashboard) is still a
       confirmed-fake stub. Doesn't affect `/bus/` correctness, but is real
       unresolved debt in the system being kept for dashboard use.
+- [ ] The background research crew (`run-research-crew.js`) and inbox
+      checker (`check-inbox.js`) are built and tested single-cycle, but
+      NOT wired to run continuously/unattended -- awaiting user
+      confirmation on scope, digest interval, and queue-pause threshold.
+- [ ] The autonomous research crew can only run Codex-recall categories
+      (SOURCE-tagged as such) -- same as `run-task.js`, it has no path to
+      the FMP connector, so real-data-grounded research categories can't
+      be part of an unattended loop without Claude present to fetch them.
+- [ ] `check-inbox.js` deliberately does not act on what it finds in
+      `bus/inbox_claude.md` -- it notifies either way, but interpreting
+      and executing new instructions still requires a real, reviewed
+      Claude session (see the file's own header for the reasoning).
 
 ## 7. What this system does NOT do
 
