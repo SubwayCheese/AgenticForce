@@ -43,12 +43,33 @@ const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
 const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'log.md');
 
+// Added 2026-08-31 after the AAPL revenue figure drifted between two
+// separate codex exec calls ($391.0B vs $416.2B) -- both were real, correct
+// figures for different fiscal years, but nothing marked them as unverified
+// training-data recall vs a checked fact, so the drift looked like an
+// error rather than what it actually was: two different years, neither one
+// labeled. codex exec has no live data source (confirmed: no web-search/
+// fetch flag in its CLI, and no evidence of one configured), so every
+// response dispatched through this script is, by construction, training-
+// data recall -- the SOURCE line is not a request, it's a statement of
+// fact this script can (and should) simply assert on Codex's behalf. Real
+// grounding (a verified figure from a live data source) is a categorically
+// different path -- see the "orchestrator-sourced" task pattern in
+// task_template.md -- and never flows through this function.
 const MANDATORY_SUFFIX = [
   '',
-  'Before answering: state the as-of date/period your answer is anchored',
-  'to (you have no live data lookup, so say what your knowledge reflects).',
+  'Before answering, your response MUST start with this exact line:',
+  'SOURCE: training-data recall, not verified live',
+  '(This is true for every response you give in this pipeline -- you have',
+  'no live data lookup. If a verified figure was explicitly supplied to you',
+  'earlier in this prompt from a prior pipeline step, say so instead:',
+  '"SOURCE: supplied by orchestrator from a prior verified step" -- but do',
+  'not claim verified/live status for anything you are recalling yourself.)',
+  '',
+  'On the next line, state the as-of date/period your answer is anchored',
+  'to (what your training knowledge actually reflects, not "current").',
   "If anything about this request's premise looks wrong, outdated, or",
-  'unanswerable, say so plainly as the first line of your response instead',
+  'unanswerable, say so plainly right after the SOURCE/as-of lines instead',
   'of answering around it.',
 ].join('\n');
 

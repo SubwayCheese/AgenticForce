@@ -402,3 +402,81 @@ status -> done
 dependsOnTaskId: task_20260831_does_not_exist
 Dependency resolution FAILED: dependency task_id "task_20260831_does_not_exist" not found (no file at tasks/task_20260831_does_not_exist.md)
 Task NOT dispatched to Codex. status -> blocked.
+
+---
+
+## task_20260831_chain3_a_revenue_verified (orchestrator-sourced, real grounding)
+
+**2026-08-31T01:20:00Z -- claude (orchestrator)**
+Root cause identified for the FY2025-vs-FY2024 drift between the two
+earlier AAPL revenue tests: both figures were REAL and CORRECT for their
+respective fiscal years ($391.035B FY2024, $416.161B FY2025) -- Codex
+wasn't wrong, it just had no fixed anchor telling it which fiscal year
+"latest" meant, so two separate training-memory recalls landed on two
+different (both accurate) years. Confirmed by querying FMP directly for
+both years.
+
+Implementing Option A (orchestrator fetches real data, not Codex): called
+the FMP income-statement endpoint for AAPL, annual period, 3 times
+back-to-back.
+
+Run 1 (2026-08-31T01:20:10Z): revenue=416161000000, fiscalYear=2025,
+  date=2025-09-27, filingDate=2025-10-31, acceptedDate=2025-10-31 06:01:26,
+  cik=0000320193
+Run 2 (2026-08-31T01:20:25Z): revenue=416161000000, fiscalYear=2025,
+  date=2025-09-27, filingDate=2025-10-31, acceptedDate=2025-10-31 06:01:26,
+  cik=0000320193
+Run 3 (2026-08-31T01:20:40Z): revenue=416161000000, fiscalYear=2025,
+  date=2025-09-27, filingDate=2025-10-31, acceptedDate=2025-10-31 06:01:26,
+  cik=0000320193
+
+Result: IDENTICAL across all 3 runs, every field, not just the headline
+number. This is expected for a real filed-data API lookup (deterministic
+retrieval, not generation) and confirms the grounding mechanism removes
+model-variance drift entirely for this class of fact.
+
+IMPORTANT CONSTRAINT: this grounding mechanism (FMP MCP connector) is only
+callable by Claude directly in-conversation -- it is NOT something
+bus/scripts/run-task.js or codex exec can invoke on their own (no API key
+is available to hand to a standalone script, and none was sought out).
+"Orchestrator-sourced" tasks like this one are written by Claude directly
+(to: claude, type: response, a source: field citing the exact endpoint/
+symbol/period/filing date), not run through run-task.js. Downstream tasks
+still consume them exactly the same way via dependsOnTaskId -- the
+dependency-resolution logic in run-task.js needed no changes, since it
+already just reads whatever is in a done task's output field regardless of
+who produced it.
+
+status: done (verified, not a recall)
+
+## task_20260831_source_tag_check (run-task.js)
+
+**2026-09-01T00:27:53.832Z -- run-task.js**
+
+Sent (exact):
+"""
+What is TSLA's most recent full-year total revenue, in billions USD to one decimal place? This is a trivial verification of a new mandatory response format, not a real research request.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: training-data recall, not verified live  
+AS OF: Tesla fiscal year ended December 31, 2024
+
+TSLA total revenue: **$97.7 billion USD**.
+"""
+status -> done
