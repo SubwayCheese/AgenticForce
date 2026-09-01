@@ -299,3 +299,106 @@ manual injection (I read the file and built the next prompt by hand) --
 the protocol has no automated dependsOnTaskId-style mechanism, so this
 reliability depends on the orchestrator doing the injection correctly
 every time, not on a system guarantee.
+
+## task_20260831_chain2_a_revenue (run-task.js)
+
+**2026-09-01T00:12:37.039Z -- run-task.js**
+
+Sent (exact):
+"""
+State AAPL's most recent full-year total revenue as a single number in billions USD, to one decimal place (e.g. "$123.4B"), with nothing else on that line besides the required as-of statement. This is a trivial orchestration test, a short honest-effort answer from your own knowledge is fine -- no tool calls needed.
+Before answering: state the as-of date/period your answer is anchored
+to (you have no live data lookup, so say what your knowledge reflects).
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly as the first line of your response instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 1
+Received (exact):
+"""
+
+"""
+status -> error
+
+---
+
+## SCRIPT BUG FOUND & FIXED (2026-08-31T01:01:00Z)
+
+First real run of bus/scripts/run-task.js (task_20260831_chain2_a_revenue)
+failed: codex exec returned exit 1 with empty output. Root cause: the
+script passed the prompt as a command-line argument via execFileSync with
+shell:true (needed to resolve codex's .cmd wrapper on Windows), but
+shell:true does not escape array args -- verified directly that a
+multi-line prompt containing a double quote gets silently truncated/
+mangled by cmd.exe's argument parser before it even reaches codex. This is
+the same class of bug documented previously in agents/codex-adapter.js's
+comments (execFileSync can't resolve codex without a shell).
+
+Fix: pass the prompt via stdin (`input:` option) instead of as an argv
+entry -- codex exec reads from stdin when no positional prompt is given.
+Verified directly: a 3-line prompt with an embedded quote survived intact
+via stdin, mangled via argv. run-task.js updated accordingly. Logging this
+rather than silently re-running until it happened to work.
+
+## task_20260831_chain2_a_revenue (run-task.js)
+
+**2026-09-01T00:15:14.791Z -- run-task.js**
+
+Sent (exact):
+"""
+State AAPL's most recent full-year total revenue as a single number in billions USD, to one decimal place (e.g. "$123.4B"), with nothing else on that line besides the required as-of statement. This is a trivial orchestration test, a short honest-effort answer from your own knowledge is fine -- no tool calls needed.
+Before answering: state the as-of date/period your answer is anchored
+to (you have no live data lookup, so say what your knowledge reflects).
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly as the first line of your response instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+As of Apple fiscal year ended September 27, 2025: $416.2B
+"""
+status -> done
+
+## task_20260831_chain2_b_derived (run-task.js)
+
+**2026-09-01T00:15:41.934Z -- run-task.js**
+dependsOnTaskId: task_20260831_chain2_a_revenue
+Dependency resolved OK. Injecting the following value, read verbatim from task "task_20260831_chain2_a_revenue"'s own output field (not retyped, not recalled):
+```
+As of Apple fiscal year ended September 27, 2025: $416.2B
+```
+
+Sent (exact):
+"""
+Using the revenue figure supplied below (from a prior pipeline step), compute 25% of it and show your work. This is a trivial orchestration test.
+
+A prior step in this pipeline (task_id: task_20260831_chain2_a_revenue) reported the following exact result:
+
+As of Apple fiscal year ended September 27, 2025: $416.2B
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering: state the as-of date/period your answer is anchored
+to (you have no live data lookup, so say what your knowledge reflects).
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly as the first line of your response instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+Anchored to Apple fiscal year ended September 27, 2025 (reflecting the supplied prior-pipeline figure; no live lookup).
+
+25% of $416.2B = 0.25 × $416.2B = **$104.05B**.
+"""
+status -> done
+
+## task_20260831_chain2_c_negative (run-task.js)
+
+**2026-09-01T00:16:28.844Z -- run-task.js**
+dependsOnTaskId: task_20260831_does_not_exist
+Dependency resolution FAILED: dependency task_id "task_20260831_does_not_exist" not found (no file at tasks/task_20260831_does_not_exist.md)
+Task NOT dispatched to Codex. status -> blocked.
