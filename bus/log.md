@@ -480,3 +480,16 @@ AS OF: Tesla fiscal year ended December 31, 2024
 TSLA total revenue: **$97.7 billion USD**.
 """
 status -> done
+
+---
+
+## ARCHITECTURE.md created (2026-08-31T01:35:00Z -- claude, orchestrator)
+
+Added /ARCHITECTURE.md at the vault root -- a single current-state
+overview (not a history log; this file remains that). Covers: what the
+system is, the two orchestration systems and why each exists, the task
+lifecycle end-to-end, the two-tier grounding system, agent roles/status,
+known open items, and an explicit statement of what this system does not
+do (no broker integration, trade execution, position sizing, risk
+management, or live order flow). To be kept current going forward -- update
+it whenever the architecture materially changes.
