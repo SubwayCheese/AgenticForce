@@ -1321,3 +1321,179 @@ only one watch-inbox.js process remains.
 3. Re-tested after the fix: "name one primary color" -- exactly one
    answer delivered ("Red"), confirmed via ntfy's own message history
    (1 message in the window, not 2). Duplicate resolved.
+
+## research-crew entry: 2026-09-01_MSFT_attention_check_cb6e6f (2026-09-01T05:00:53.097Z)
+
+ticker: MSFT
+category: attention_check
+Sent: """
+Is there anything about MSFT's recent situation, from what you know generally about the company, that seems worth a closer look right now? Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Received: """
+SOURCE: training-data recall, not verified live  
+AS OF: June 2024  
+Worth closer review: Azure growth and AI monetization versus the rising cost of data centers/GPUs, plus whether Copilot adoption is translating into durable revenue rather than mainly product interest.
+"""
+Written to tasks/UNVERIFIED_Cl/2026-09-01_MSFT_attention_check_cb6e6f.md, status unverified_new.
+
+## research-crew entry: 2026-09-01_MSFT_risk_note_5e1c4d (2026-09-01T05:20:52.378Z)
+
+ticker: MSFT
+category: risk_note
+Sent: """
+Name one commonly-discussed, company-specific risk factor for MSFT worth keeping in mind right now, based on what you know generally about the company. Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Received: """
+SOURCE: training-data recall, not verified live  
+AS OF: June 2024  
+
+A commonly discussed MSFT-specific risk is that its large AI investments—especially in OpenAI-related infrastructure—may not generate enough incremental cloud and software revenue to justify the spending.
+"""
+Written to tasks/UNVERIFIED_Cl/2026-09-01_MSFT_risk_note_5e1c4d.md, status unverified_new.
+
+## research-crew entry: 2026-09-01_MSFT_valuation_context_539482 (2026-09-01T05:40:55.831Z)
+
+ticker: MSFT
+category: valuation_context
+Sent: """
+Based on what you know generally about MSFT, how does its typical valuation or market sentiment compare to its own historical norm? Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Received: """
+SOURCE: training-data recall, not verified live  
+As of: broadly through mid-2024  
+MSFT was generally viewed as trading at a premium to its long-run historical valuation, supported by strong cloud/AI optimism and durable earnings quality. Sentiment was notably positive, so the premium also implied higher expectations and greater sensitivity to execution disappointments.
+"""
+Written to tasks/UNVERIFIED_Cl/2026-09-01_MSFT_valuation_context_539482.md, status unverified_new.
+
+## task_20260901_safety_check (run-task.js)
+
+**2026-09-01T18:21:11.681Z -- run-task.js**
+
+Sent (exact):
+"""
+Sanity check that our own Claude-to-Codex path is unaffected by the new skill-factory installation elsewhere on the machine. Reply with exactly: path intact.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: local configuration check
+As of: 2026-09-01
+
+The Claude bridge exists, but `codex` is not on PATH, so the path is not intact.
+"""
+VERIFICATION FAILED: missing the mandatory SOURCE tag -- neither accepted variant found in the response
+status -> unverified
+
+## task_20260901_safety_check_clean (run-task.js)
+
+**2026-09-01T18:23:28.269Z -- run-task.js**
+
+Sent (exact):
+"""
+Reply with exactly: path intact.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+path intact
+"""
+VERIFICATION FAILED: missing the mandatory SOURCE tag -- neither accepted variant found in the response
+status -> unverified
+
+---
+
+## SAFETY CHECK: confirmed our Claude<->Codex path unaffected by skill-factory install (2026-09-01)
+
+User asked to confirm the new global skill-factory installation
+(~/.claude/skills, /commands, /agents) doesn't jeopardize our existing
+/bus/ Codex path before continuing further patches to it.
+
+Verified at the file level: `git status`/`git diff` on bus/scripts/ showed
+zero changes -- everything installed lives under C:\Users\trevo\.claude\,
+no overlap with D:\1. AgentVault\AgentVault\bus\scripts\ at all.
+
+Verified at the runtime level: ran two real tasks through run-task.js.
+First got a genuinely wrong answer from Codex ("codex is not on PATH") --
+investigated directly (which codex, codex --version, a direct codex exec
+call with the identical instruction) and confirmed the underlying
+mechanism was never affected; the wrong answer was Codex itself
+fabricating a diagnostic-sounding but false response because the test
+prompt mentioned "skill-factory installation" and "PATH" together, an LLM
+reasoning error, not a system fault. Second run got the correct content
+("path intact") but was still marked unverified because the test
+payload's own "reply with exactly: X" phrasing conflicted with the
+mandatory SOURCE-tag suffix -- the verification gate correctly caught a
+real format violation, not a false positive.
+
+Net result: /bus/'s Claude<->Codex path is fully intact and unaffected.
+Both "unverified" results were the verification gate working correctly,
+not evidence of a problem. Resuming the codex-cli-bridge patch
+(unrelated system, ~/.claude/skills/codex-cli-bridge/) per user's
+explicit go-ahead to continue.
