@@ -892,3 +892,176 @@ actions.
 Summary written to new bus/research_log.md (separate from this
 operational log) -- one line per ticker, meant to be scanned over time,
 not a raw task dump.
+
+## daily/2026-08-31/META_flag (run-backlog.js)
+
+**2026-09-01T04:04:49.861Z -- run-backlog.js**
+dependsOnTaskId: daily/2026-08-31/META_fetch (resolved OK, injected)
+
+Sent (exact):
+"""
+You are reviewing a verified data point for META, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/META_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: META
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $200,966,000,000 ($200.966B). Filed 2026-01-29 (accepted 2026-01-28 19:13:46 UTC), CIK 0001326801.
+
+QUOTE (as of timestamp 1788206401): price=$572.34, change=-5.68 (-0.98%), open=$576.77, previousClose=$578.02, dayLow=$569.1386, dayHigh=$578.675, 50-day avg=$592.0466, 200-day avg=$622.44775, 52-week range=$520.26-$790.80, volume=13,275,274, marketCap=$1,458,028,463,474.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> (via stdin)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: general historical context through mid-2024; supplied figures are anchored to FY2025 and the provided quote timestamp.  
+FLAG: META is trading below both its 50-day and 200-day averages and about 28% beneath its 52-week high, a notable relative weakness pattern even though the single-day decline of 0.98% is not unusually large.
+"""
+status -> done
+
+## daily/2026-08-31/TSLA_flag (run-backlog.js)
+
+**2026-09-01T04:05:00.914Z -- run-backlog.js**
+dependsOnTaskId: daily/2026-08-31/TSLA_fetch (resolved OK, injected)
+
+Sent (exact):
+"""
+You are reviewing a verified data point for TSLA, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/TSLA_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: TSLA
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $94,827,000,000 ($94.827B). Filed 2026-01-29 (accepted 2026-01-28 20:55:03 UTC), CIK 0001318605.
+
+QUOTE (as of timestamp 1788206400): price=$367.95, change=+19.20 (+5.51%), open=$347.15, previousClose=$348.75, dayLow=$347.15, dayHigh=$368.92, 50-day avg=$359.823, 200-day avg=$400.57, 52-week range=$297.38-$498.83, volume=61,157,428, marketCap=$1,453,235,963,622.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> (via stdin)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: 2026-08-31
+
+FLAG: TSLA’s +5.51% one-day move is notable even for its typically volatile trading behavior, with the price closing near the day’s high on substantial volume.
+"""
+status -> done
+
+## daily/2026-08-31/JPM_flag (run-backlog.js)
+
+**2026-09-01T04:05:13.107Z -- run-backlog.js**
+dependsOnTaskId: daily/2026-08-31/JPM_fetch (resolved OK, injected)
+
+Sent (exact):
+"""
+You are reviewing a verified data point for JPM, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/JPM_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: JPM
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $279,745,000,000 ($279.745B). Filed 2026-02-13 (accepted 2026-02-13 16:20:00 UTC), CIK 0000019617.
+
+QUOTE (as of timestamp 1788206402): price=$356.02, change=-1.60 (-0.45%), open=$357.055, previousClose=$357.62, dayLow=$354.7701, dayHigh=$357.75, 50-day avg=$347.2056, 200-day avg=$317.1498, 52-week range=$279.10-$366.50, volume=7,742,145, marketCap=$953,959,150,200.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> (via stdin)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: 2026-08-31 quote timestamp; general context is training-data recall.
+
+FLAG: JPM is trading about 12% above its 200-day average and within roughly 3% of its 52-week high, a notably elevated position for this typically large, liquid bank stock despite the modest daily decline.
+"""
+status -> done
+
+---
+
+## LIVE DASHBOARD: run-backlog.js + status.json wired to real state (2026-08-31)
+
+User supplied a visual dashboard mockup (agent icons, pulse animation,
+live log feed) driven by a fake setTimeout sequence, and asked for it to
+be wired to real data. Found run-backlog.js did not exist -- only
+run-task.js did (single-task runner, invoked manually once per task_id).
+Flagged this before building rather than silently assuming it existed.
+
+Built bus/scripts/run-backlog.js: processes a seeded bus/backlog.json list
+of task_ids via run-task.js's real exported functions (resolveDependency,
+runCodex, verifyOutput, writeTaskResult, appendLog) -- not a separate
+execution engine, same dependency resolution / SOURCE-tag enforcement /
+verification gate as running a task individually. Writes bus/status.json
+after every real phase change (research -> write -> verify -> done/
+unverified/blocked), not just at the end.
+
+Seeded the backlog with 3 new tickers (META, TSLA, JPM) not yet covered
+today -- 3 real orchestrator-sourced fetches (FMP) + 3 real Codex flag
+tasks, 6 tasks total. Modified dashboard.html's JS only (visual design
+untouched): replaced the fake SEQUENCE/step() logic with a poll() that
+fetches status.json every 2s and renders exactly what it contains,
+including an honest "poll failed" message when status.json doesn't exist
+yet (verified this renders correctly before the backlog was run).
+
+Served via `npx http-server bus -p 8080` (tested working on this machine
+first, confirmed before promising it). Ran the backlog live while watching
+the dashboard in-browser via claude-in-chrome: confirmed genuine live
+progression through every phase (queued -> resolving dependency ->
+dispatched to Codex, awaiting response -> response received, verifying ->
+done), not simulated. All 6/6 tasks landed done and passed verification.
+No console errors.
+
+Flag results (all reviewed for drift, none found): META FLAG (below both
+50/200-day averages, ~28% off 52-week high), TSLA FLAG (+5.51% one-day
+move, notable even for typical volatility), JPM FLAG (~12% above 200-day
+average, near 52-week high). All observation-only, no trading advice.
+
+bus/status.json added to .gitignore -- regenerated live artifact, not a
+durable record (that's this log and the task files).

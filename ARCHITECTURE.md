@@ -61,6 +61,16 @@ recommendations/signals/price targets). A same-day summary is appended to
 `bus/research_log.md` (separate from `bus/log.md` -- one line per ticker,
 meant to be scanned over time, not a raw task dump).
 
+**Live dashboard** (added 2026-08-31): `bus/scripts/run-backlog.js`
+processes a seeded list (`bus/backlog.json`) of task IDs via `run-task.js`'s
+real functions, writing live progress to `bus/status.json` after every
+real phase change (not just at the end). `bus/dashboard.html`, served via
+`npx http-server bus -p 8080`, polls `status.json` every 2s and renders
+whatever it finds -- no simulated data. Orchestrator-sourced (`to:
+claude`) items in the backlog must already be `done` before the backlog
+runs; this script cannot fetch real data itself (same constraint as
+`run-task.js` -- see section 6).
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the

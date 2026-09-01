@@ -113,6 +113,7 @@ function readTaskFile(taskId) {
     timestamp: field('timestamp'),
     dependsOnTaskId: field('dependsOnTaskId'),
     expectedType: field('expectedType'),
+    source: field('source'),
     output: outputMatch ? outputMatch[1] : null,
   };
 }
@@ -287,4 +288,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { readTaskFile, writeTaskResult, resolveDependency, verifyOutput, runCodex, MANDATORY_SUFFIX };
+module.exports = { readTaskFile, writeTaskResult, resolveDependency, verifyOutput, runCodex, appendLog, taskFilePath, MANDATORY_SUFFIX };

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bus Console</title>
+<style>
+  :root{
+    --bg:#12161c;
+    --panel:#181d25;
+    --line:#262d38;
+    --ink:#dfe4ea;
+    --dim:#7a8494;
+    --amber:#e8a33d;
+    --teal:#4fb0a8;
+    --red:#d9695f;
+    --green:#6fae6a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Mono","SF Mono",Consolas,monospace;
+    padding:28px;
+    min-height:100vh;
+  }
+  .wrap{max-width:920px;margin:0 auto;}
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:22px;
+    padding-bottom:16px;
+    border-bottom:1px solid var(--line);
+  }
+  h1{
+    font-size:17px;
+    font-weight:600;
+    letter-spacing:0.02em;
+    margin:0;
+    color:var(--ink);
+  }
+  .subtitle{color:var(--dim);font-size:12.5px;margin-top:4px;}
+  .counts{display:flex;gap:18px;font-size:12.5px;}
+  .count b{color:var(--ink);font-weight:600;}
+  .count.done b{color:var(--green);}
+  .count.blocked b{color:var(--red);}
+
+  .lane{
+    display:flex;
+    gap:14px;
+    margin-bottom:12px;
+    align-items:center;
+    padding:13px 16px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:3px;
+    transition:border-color .3s ease;
+  }
+  .lane.active{border-color:var(--amber);}
+  .lane.done{opacity:0.55;}
+
+  .icon-slot{
+    width:34px;height:34px;
+    flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    position:relative;
+  }
+  .icon-slot svg{width:20px;height:20px;stroke:var(--dim);fill:none;stroke-width:1.6;transition:stroke .2s;}
+  .lane.active .icon-slot svg{stroke:var(--amber);}
+  .lane.done .icon-slot svg{stroke:var(--green);}
+  .lane.blocked .icon-slot svg{stroke:var(--red);}
+
+  .pulse{
+    position:absolute;
+    width:34px;height:34px;
+    border-radius:50%;
+    border:1px solid var(--amber);
+    opacity:0;
+  }
+  .lane.active .pulse{animation:pulse 1.6s ease-out infinite;}
+  @keyframes pulse{
+    0%{transform:scale(0.6);opacity:0.55;}
+    100%{transform:scale(1.5);opacity:0;}
+  }
+
+  .mag-glass{animation:scan 2.2s ease-in-out infinite;}
+  @keyframes scan{
+    0%,100%{transform:translate(0,0) rotate(0deg);}
+    50%{transform:translate(2px,-1px) rotate(-8deg);}
+  }
+  .pencil-tip{transform-origin:16px 16px;}
+  .lane.active .pencil-tip{animation:write 0.9s ease-in-out infinite;}
+  @keyframes write{
+    0%,100%{transform:rotate(0deg);}
+    50%{transform:rotate(-6deg) translateX(-1px);}
+  }
+  .gear{transform-origin:12px 12px;}
+  .lane.active .gear{animation:spin 3s linear infinite;}
+  @keyframes spin{ to{transform:rotate(360deg);} }
+  .check-mark{stroke-dasharray:20;stroke-dashoffset:20;}
+  .lane.done .check-mark{animation:draw 0.4s ease-out forwards;}
+  @keyframes draw{ to{stroke-dashoffset:0;} }
+
+  .body{flex:1;min-width:0;}
+  .row1{display:flex;justify-content:space-between;gap:12px;}
+  .task-name{font-size:13px;color:var(--ink);}
+  .agent-tag{
+    font-size:10.5px;color:var(--dim);
+    padding:1px 6px;border:1px solid var(--line);border-radius:2px;
+    white-space:nowrap;
+  }
+  .stage{font-size:11.5px;color:var(--dim);margin-top:3px;}
+  .lane.active .stage{color:var(--amber);}
+  .lane.blocked .stage{color:var(--red);}
+  .lane.done .stage{color:var(--green);}
+
+  .feed{
+    margin-top:24px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:14px 16px;
+    font-size:11.5px;
+    color:var(--dim);
+    max-height:150px;
+    overflow-y:auto;
+  }
+  .feed-title{
+    font-size:11px;color:var(--dim);letter-spacing:0.04em;
+    margin-bottom:9px;padding-bottom:8px;border-bottom:1px solid var(--line);
+  }
+  .feed-line{margin-bottom:5px;}
+  .feed-line .t{color:#54606f;margin-right:8px;}
+  .feed-line.new{color:var(--ink);}
+
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>bus / backlog runner</h1>
+      <div class="subtitle">watching background task execution — live from status.json</div>
+    </div>
+    <div class="counts">
+      <div class="count"><b id="cDone">0</b> done</div>
+      <div class="count"><b id="cActive">0</b> active</div>
+      <div class="count blocked"><b id="cBlocked">0</b> blocked</div>
+    </div>
+  </header>
+
+  <div id="lanes"></div>
+
+  <div class="feed">
+    <div class="feed-title">log</div>
+    <div id="feedLines"></div>
+  </div>
+
+</div>
+
+<script>
+// Wired to real data from bus/run-backlog.js via bus/status.json, polled
+// every 2s. There is no simulated sequence here -- whatever status.json
+// says is what renders, including blocked/unverified states. If the poll
+// itself fails (status.json missing, server down, bad JSON), that is
+// surfaced in the feed too, not hidden.
+
+const ICONS = {
+  research: `<svg viewBox="0 0 24 24" class="mag-glass"><circle cx="10" cy="10" r="6.5"/><line x1="15" y1="15" x2="21" y2="21"/></svg>`,
+  write:    `<svg viewBox="0 0 24 24"><g class="pencil-tip"><path d="M4 20l1-4.5L15 5l3.5 3.5L8 19l-4 1z"/><line x1="13" y1="7" x2="16.5" y2="10.5"/></g></svg>`,
+  verify:   `<svg viewBox="0 0 24 24"><g class="gear"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></g></svg>`,
+  done:     `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-opacity="0.4"/><path class="check-mark" d="M7 12.5l3 3 7-7"/></svg>`,
+  blocked:  `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="8" y1="8" x2="16" y2="16"/></svg>`,
+  pending:  `<svg viewBox="0 0 24 24" stroke-opacity="0.5"><circle cx="12" cy="12" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`
+};
+
+const STAGE_LABEL = {
+  research: "researching — fetching data",
+  write: "writing output",
+  verify: "verifying output shape",
+  done: "done",
+  blocked: "blocked",
+  pending: "queued"
+};
+
+const lanesEl = document.getElementById("lanes");
+const feedEl = document.getElementById("feedLines");
+
+let lastState = null; // last-rendered items, to avoid needless DOM churn
+let seenLogTimestamps = new Set();
+
+function render(items){
+  lanesEl.innerHTML = "";
+  items.forEach(t=>{
+    const lane = document.createElement("div");
+    const cls = t.status === "pending" ? "" : (["research","write","verify"].includes(t.status) ? "active" : t.status);
+    lane.className = "lane" + (cls ? " " + cls : "");
+    lane.innerHTML = `
+      <div class="icon-slot">
+        <div class="pulse"></div>
+        ${ICONS[t.status] || ICONS.pending}
+      </div>
+      <div class="body">
+        <div class="row1">
+          <div class="task-name">${escapeHtml(t.name)}</div>
+          <div class="agent-tag">${escapeHtml(t.agent)}</div>
+        </div>
+        <div class="stage">${STAGE_LABEL[t.status] || t.status}${t.status !== t.realStatus ? ' (' + escapeHtml(t.realStatus) + ')' : ''}</div>
+      </div>
+    `;
+    lanesEl.appendChild(lane);
+  });
+  document.getElementById("cDone").textContent = items.filter(t=>t.status==="done").length;
+  document.getElementById("cActive").textContent = items.filter(t=>["research","write","verify"].includes(t.status)).length;
+  document.getElementById("cBlocked").textContent = items.filter(t=>t.status==="blocked").length;
+}
+
+function escapeHtml(s){
+  return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+}
+
+function appendLogLine(ts, msg){
+  const key = ts + "|" + msg;
+  if (seenLogTimestamps.has(key)) return;
+  seenLogTimestamps.add(key);
+  const line = document.createElement("div");
+  line.className = "feed-line new";
+  const time = new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  line.innerHTML = `<span class="t">${time}</span>${escapeHtml(msg)}`;
+  feedEl.appendChild(line);
+  feedEl.scrollTop = feedEl.scrollHeight;
+  setTimeout(()=>line.classList.remove("new"), 800);
+}
+
+async function poll(){
+  try {
+    const res = await fetch('status.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    render(data.items || []);
+    (data.log || []).forEach(entry => appendLogLine(entry.ts, entry.msg));
+  } catch (err) {
+    appendLogLine(new Date().toISOString(), 'poll failed: ' + err.message + ' (is run-backlog.js running / has it written status.json yet?)');
+  }
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
