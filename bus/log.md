@@ -588,3 +588,307 @@ everything. status -> unverified.
 Both tests confirm the mechanism closes the gap: a task cannot land as
 "done" purely because Codex responded -- the response has to actually
 carry the properties a caller can check.
+
+## daily/2026-08-31/AAPL_flag (run-task.js)
+
+**2026-09-01T02:59:25.627Z -- run-task.js**
+dependsOnTaskId: daily/2026-08-31/AAPL_fetch
+Dependency resolved OK. Injecting the following value, read verbatim from task "daily/2026-08-31/AAPL_fetch"'s own output field (not retyped, not recalled):
+```
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: AAPL
+
+REVENUE: FY2025 (fiscal year ended 2025-09-27) total revenue = $416,161,000,000 ($416.161B). Filed 2025-10-31 (accepted 2025-10-31 06:01:26 UTC), CIK 0000320193.
+
+QUOTE (as of timestamp 1788206401): price=$316.85, change=-2.85 (-0.89%), open=$319.56, previousClose=$319.70, dayLow=$312.85, dayHigh=$321.235, 50-day avg=$312.00, 200-day avg=$282.602, 52-week range=$225.95-$344.57, volume=40,667,429, marketCap=$4,653,688,748,600.
+```
+
+Sent (exact):
+"""
+You are reviewing a verified data point for AAPL, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/AAPL_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: AAPL
+
+REVENUE: FY2025 (fiscal year ended 2025-09-27) total revenue = $416,161,000,000 ($416.161B). Filed 2025-10-31 (accepted 2025-10-31 06:01:26 UTC), CIK 0000320193.
+
+QUOTE (as of timestamp 1788206401): price=$316.85, change=-2.85 (-0.89%), open=$319.56, previousClose=$319.70, dayLow=$312.85, dayHigh=$321.235, 50-day avg=$312.00, 200-day avg=$282.602, 52-week range=$225.95-$344.57, volume=40,667,429, marketCap=$4,653,688,748,600.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: supplied quote timestamp 1788206401
+
+NO FLAG: A 0.89% daily decline and the stated intraday range appear broadly routine for AAPL. The price remains near its 50-day average and within its 52-week range.
+"""
+status -> done
+
+## daily/2026-08-31/MSFT_flag (run-task.js)
+
+**2026-09-01T02:59:46.249Z -- run-task.js**
+dependsOnTaskId: daily/2026-08-31/MSFT_fetch
+Dependency resolved OK. Injecting the following value, read verbatim from task "daily/2026-08-31/MSFT_fetch"'s own output field (not retyped, not recalled):
+```
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: MSFT
+
+REVENUE: FY2026 (fiscal year ended 2026-06-30) total revenue = $331,839,000,000 ($331.839B). Filed 2026-07-29 (accepted 2026-07-29 16:08:01 UTC), CIK 0000789019.
+
+QUOTE (as of timestamp 1788206401): price=$507.29, change=-6.24 (-1.22%), open=$510.325, previousClose=$513.53, dayLow=$506.40, dayHigh=$512.19, 50-day avg=$430.6526, 200-day avg=$431.17566, 52-week range=$349.20-$553.72, volume=26,637,042, marketCap=$3,766,907,259,500.
+```
+
+Sent (exact):
+"""
+You are reviewing a verified data point for MSFT, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/MSFT_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: MSFT
+
+REVENUE: FY2026 (fiscal year ended 2026-06-30) total revenue = $331,839,000,000 ($331.839B). Filed 2026-07-29 (accepted 2026-07-29 16:08:01 UTC), CIK 0000789019.
+
+QUOTE (as of timestamp 1788206401): price=$507.29, change=-6.24 (-1.22%), open=$510.325, previousClose=$513.53, dayLow=$506.40, dayHigh=$512.19, 50-day avg=$430.6526, 200-day avg=$431.17566, 52-week range=$349.20-$553.72, volume=26,637,042, marketCap=$3,766,907,259,500.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: FY ended 2026-06-30; quote timestamp 2026-08-31
+
+FLAG: The $507.29 price is roughly 18% above both the supplied 50- and 200-day averages (~$431), an unusually large premium for MSFT, while still about 8% below its 52-week high. The -1.22% daily move itself is not especially notable.
+"""
+status -> done
+
+## daily/2026-08-31/GOOGL_flag (run-task.js)
+
+**2026-09-01T03:00:10.708Z -- run-task.js**
+dependsOnTaskId: daily/2026-08-31/GOOGL_fetch
+Dependency resolved OK. Injecting the following value, read verbatim from task "daily/2026-08-31/GOOGL_fetch"'s own output field (not retyped, not recalled):
+```
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: GOOGL
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $402,836,000,000 ($402.836B). Filed 2026-02-05 (accepted 2026-02-04 21:56:03 UTC), CIK 0001652044.
+
+QUOTE (as of timestamp 1788206401): price=$339.35, change=-7.24 (-2.09%), open=$343.698, previousClose=$346.59, dayLow=$337.156, dayHigh=$344.59, 50-day avg=$349.7776, 200-day avg=$334.56894, 52-week range=$206.20-$408.61, volume=33,315,062, marketCap=$4,106,851,464,904.
+```
+
+Sent (exact):
+"""
+You are reviewing a verified data point for GOOGL, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/GOOGL_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: GOOGL
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $402,836,000,000 ($402.836B). Filed 2026-02-05 (accepted 2026-02-04 21:56:03 UTC), CIK 0001652044.
+
+QUOTE (as of timestamp 1788206401): price=$339.35, change=-7.24 (-2.09%), open=$343.698, previousClose=$346.59, dayLow=$337.156, dayHigh=$344.59, 50-day avg=$349.7776, 200-day avg=$334.56894, 52-week range=$206.20-$408.61, volume=33,315,062, marketCap=$4,106,851,464,904.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: 2026-08-31 (supplied quote)
+
+NO FLAG: A 2.09% daily decline is noticeable but generally within normal volatility for GOOGL, and the price remains above its 200-day average and well inside its 52-week range.
+"""
+status -> done
+
+## daily/2026-08-31/AMZN_flag (run-task.js)
+
+**2026-09-01T03:00:30.781Z -- run-task.js**
+dependsOnTaskId: daily/2026-08-31/AMZN_fetch
+Dependency resolved OK. Injecting the following value, read verbatim from task "daily/2026-08-31/AMZN_fetch"'s own output field (not retyped, not recalled):
+```
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: AMZN
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $716,924,000,000 ($716.924B). Filed 2026-02-06 (accepted 2026-02-05 18:44:31 UTC), CIK 0001018724.
+
+QUOTE (as of timestamp 1788206400): price=$259.77, change=-6.66 (-2.50%), open=$263.825, previousClose=$266.43, dayLow=$257.15, dayHigh=$264.36, 50-day avg=$251.6592, 200-day avg=$238.67966, 52-week range=$196.00-$287.20, volume=45,422,317, marketCap=$2,794,371,867,000.
+```
+
+Sent (exact):
+"""
+You are reviewing a verified data point for AMZN, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/AMZN_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: AMZN
+
+REVENUE: FY2025 (fiscal year ended 2025-12-31) total revenue = $716,924,000,000 ($716.924B). Filed 2026-02-06 (accepted 2026-02-05 18:44:31 UTC), CIK 0001018724.
+
+QUOTE (as of timestamp 1788206400): price=$259.77, change=-6.66 (-2.50%), open=$263.825, previousClose=$266.43, dayLow=$257.15, dayHigh=$264.36, 50-day avg=$251.6592, 200-day avg=$238.67966, 52-week range=$196.00-$287.20, volume=45,422,317, marketCap=$2,794,371,867,000.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: supplied quote timestamp 1788206400 (FY2025 revenue; quoted trading session)
+
+NO FLAG: A 2.5% down day is noticeable but not unusual for AMZN, and the price remains above both its 50-day and 200-day averages. Volume also does not appear clearly exceptional from the supplied data.
+"""
+status -> done
+
+## daily/2026-08-31/NVDA_flag (run-task.js)
+
+**2026-09-01T03:00:50.198Z -- run-task.js**
+dependsOnTaskId: daily/2026-08-31/NVDA_fetch
+Dependency resolved OK. Injecting the following value, read verbatim from task "daily/2026-08-31/NVDA_fetch"'s own output field (not retyped, not recalled):
+```
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: NVDA
+
+REVENUE: FY2026 (fiscal year ended 2026-01-25) total revenue = $215,938,000,000 ($215.938B). Filed 2026-02-25 (accepted 2026-02-25 16:42:19 UTC), CIK 0001045810.
+
+QUOTE (as of timestamp 1788206401): price=$220.78, change=+3.23 (+1.48%), open=$218.862, previousClose=$217.55, dayLow=$216.21, dayHigh=$221.27, 50-day avg=$208.42, 200-day avg=$195.8252, 52-week range=$164.07-$236.54, volume=124,033,835, marketCap=$5,347,512,380,000.
+```
+
+Sent (exact):
+"""
+You are reviewing a verified data point for NVDA, supplied below by the orchestrator (a real fetch from a financial data API, not your own recall). Your ONLY job: state whether anything in this data looks like a notable move or anomaly worth a closer look, given what you know generally about this company's typical range and behavior -- respond with either "FLAG:" or "NO FLAG:" as the first word, followed by one or two sentences of reasoning. Do NOT give a trade recommendation, a buy/sell signal, a price target, a suggestion to act, or any investment advice of any kind. This is observation-only, for a research log -- not investment advice, not a recommendation. If you find yourself about to suggest an action, stop and just describe the observation instead.
+
+A prior step in this pipeline (task_id: daily/2026-08-31/NVDA_fetch) reported the following exact result:
+
+SOURCE: verified live (FMP API, not training-data recall)
+TICKER: NVDA
+
+REVENUE: FY2026 (fiscal year ended 2026-01-25) total revenue = $215,938,000,000 ($215.938B). Filed 2026-02-25 (accepted 2026-02-25 16:42:19 UTC), CIK 0001045810.
+
+QUOTE (as of timestamp 1788206401): price=$220.78, change=+3.23 (+1.48%), open=$218.862, previousClose=$217.55, dayLow=$216.21, dayHigh=$221.27, 50-day avg=$208.42, 200-day avg=$195.8252, 52-week range=$164.07-$236.54, volume=124,033,835, marketCap=$5,347,512,380,000.
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+AS OF: 2026-08-31
+
+NO FLAG: A +1.48% session and the stated volume are not obviously unusual for NVDA. The price is above its 50- and 200-day averages but remains below the 52-week high.
+"""
+status -> done
+
+---
+
+## DAILY RESEARCH CHAIN: first production-shaped run (2026-08-31)
+
+First task type that resembles the actual eventual use case, not another
+infrastructure test. Watchlist: AAPL, MSFT, GOOGL, AMZN, NVDA (fixed list,
+for comparability over time). 5 tickers x 2-task chain (orchestrator fetch
+-> Codex flag) = 10 tasks under /tasks/daily/2026-08-31/, using
+dependsOnTaskId, SOURCE tags, and the verification gate throughout -- none
+of the hardened plumbing was skipped.
+
+Fetch step (orchestrator-sourced, to: claude) for each ticker: real FMP
+calls (income-statement annual + quote), written directly to
+tasks/daily/2026-08-31/<TICKER>_fetch.md with full source citations. Not
+auto-logged by run-task.js since these don't go through it -- recording
+here: all 5 fetches succeeded, real data, no gaps (every ticker had both a
+current annual filing and a live quote available).
+
+Flag step (Codex, dependsOnTaskId on the matching fetch task) for each
+ticker: full sent/received detail already logged automatically by
+run-task.js as each ran; see the individual entries above/below this one
+and the task files themselves for exact text. Every prompt explicitly
+constrained Codex to FLAG/NO FLAG + brief reasoning only, with an explicit
+"do not give trade recommendations/buy-sell signals/price targets"
+instruction and a self-check ("if you find yourself about to suggest an
+action, stop").
+
+RESULT: 10/10 tasks status done, 10/10 passed verification (SOURCE tag
+present and correct variant on all 5 Codex responses, non-empty output on
+all 10). 1 of 5 tickers flagged (MSFT -- price ~18% above both 50/200-day
+averages). Manually reviewed all 5 Codex responses for drift toward
+trading advice: NONE found -- every response stayed in FLAG/NO FLAG +
+observation format, no buy/sell language, no price targets, no suggested
+actions.
+
+Summary written to new bus/research_log.md (separate from this
+operational log) -- one line per ticker, meant to be scanned over time,
+not a raw task dump.

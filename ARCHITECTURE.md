@@ -52,6 +52,15 @@ Claude fetches a verifiable figure directly and writes the task file by
 hand (`to: claude`, `type: response`, a `source:` citation). Downstream
 tasks consume it identically via `dependsOnTaskId`.
 
+**Daily research chains** (first production-shaped task type, added
+2026-08-31): for a fixed watchlist, one fetch task (orchestrator-sourced)
++ one flag task (Codex, `dependsOnTaskId` on the fetch) per ticker, filed
+under `/tasks/daily/<date>/`. The flag task is constrained to
+observation-only (FLAG/NO FLAG + brief reasoning, explicitly no trade
+recommendations/signals/price targets). A same-day summary is appended to
+`bus/research_log.md` (separate from `bus/log.md` -- one line per ticker,
+meant to be scanned over time, not a raw task dump).
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the
