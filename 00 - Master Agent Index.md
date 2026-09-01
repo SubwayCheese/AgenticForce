@@ -2,6 +2,19 @@
 
 Welcome to **AgentVault** (`D:\1. AgentVault\AgentVault`), the shared memory, protocol store, and learning repository for **Antigravity**, **Claude Code**, and **Codex**.
 
+> [!TIP] If you are an AI reading this vault for the first time
+> This file is the entry point -- everything else is reachable from the
+> sections below. Two things worth knowing before you go further:
+> 1. **`/bus/`, `/tasks/`, `/roles/` are a separate system**, not part of
+>    the numbered knowledge-base sections below. They're structured task/
+>    log files (an auditable orchestration protocol between Claude and
+>    Codex), not Obsidian wikilink notes -- read `ARCHITECTURE.md` at the
+>    vault root first, it's a single current-state summary written for
+>    exactly this purpose.
+> 2. **Section 5 (Unverified Research Logs) is unreviewed by design.**
+>    Nothing there should be treated as fact -- see that section's own
+>    index for known data-quality issues found in it.
+
 ---
 
 ## 📂 Vault Organization
