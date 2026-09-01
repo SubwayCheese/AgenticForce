@@ -1152,3 +1152,172 @@ STILL GATED, per user's explicit instruction: continuous scheduling
 supervisor.js) not wired. Proposed scope/thresholds delivered directly to
 the user; waiting on their confirmation before starting anything
 unattended.
+
+## research-crew entry: 2026-09-01_AAPL_risk_note_7ce6cd (2026-09-01T04:28:25.937Z)
+
+ticker: AAPL
+category: risk_note
+Sent: """
+Name one commonly-discussed, company-specific risk factor for AAPL worth keeping in mind right now, based on what you know generally about the company. Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Received: """
+SOURCE: training-data recall, not verified live  
+As of: general knowledge through mid-2024  
+A commonly discussed AAPL-specific risk is its heavy reliance on iPhone revenue and the Apple ecosystem, making results sensitive to upgrade cycles, premium smartphone competition, and demand trends in key markets such as China.
+"""
+Written to tasks/UNVERIFIED_Cl/2026-09-01_AAPL_risk_note_7ce6cd.md, status unverified_new.
+
+## watch-inbox: answered (2026-09-01T04:38:33.740Z)
+
+Inbox content: """
+## test_question_1
+from: user
+to: claude
+type: request
+status: pending
+payload: What is the capital of France? This is a live test of the instant inbox-answer mechanism.
+timestamp: 2026-08-31T21:35:00Z
+"""
+Answer: """
+SOURCE: training-data recall, not verified live  
+As of: my general training knowledge through 2024
+
+Paris is the capital of France.
+"""
+
+## research-crew entry: 2026-09-01_AAPL_valuation_context_90e0eb (2026-09-01T04:40:44.561Z)
+
+ticker: AAPL
+category: valuation_context
+Sent: """
+Based on what you know generally about AAPL, how does its typical valuation or market sentiment compare to its own historical norm? Answer in 1-2 sentences. This is a raw, unverified note for a human to review later, not a conclusion.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Received: """
+SOURCE: training-data recall, not verified live  
+As of: broadly through mid-2024
+
+AAPL generally traded at a valuation premium to much of its own longer-term history, reflecting strong sentiment around its ecosystem, services growth, buybacks, and perceived durability. That premium also left sentiment more sensitive than usual to growth slowdowns or questions about new product/AI catalysts.
+"""
+Written to tasks/UNVERIFIED_Cl/2026-09-01_AAPL_valuation_context_90e0eb.md, status unverified_new.
+
+## watch-inbox: answered (2026-09-01T04:41:11.058Z)
+
+Inbox content: """
+## test_question_2
+from: user
+to: claude
+type: request
+status: pending
+payload: Quick test through the real scheduled-task process -- what is 7 times 8?
+timestamp: 2026-08-31T21:41:00Z
+"""
+Answer: """
+SOURCE: training-data recall, not verified live
+As of: timeless arithmetic
+7 × 8 = 56.
+"""
+
+## watch-inbox: answered (2026-09-01T04:41:11.430Z)
+
+Inbox content: """
+## test_question_2
+from: user
+to: claude
+type: request
+status: pending
+payload: Quick test through the real scheduled-task process -- what is 7 times 8?
+timestamp: 2026-08-31T21:41:00Z
+"""
+Answer: """
+SOURCE: training-data recall, not verified live  
+As of: timeless arithmetic  
+7 × 8 = 56.
+"""
+
+## watch-inbox: answered (2026-09-01T04:42:59.990Z)
+
+Inbox content: """
+## test_question_3
+from: user
+to: claude
+type: request
+status: pending
+payload: Final duplicate check -- name one primary color.
+timestamp: 2026-08-31T21:45:00Z
+"""
+Answer: """
+SOURCE: training-data recall, not verified live  
+As of: June 2024  
+Red
+"""
+
+---
+
+## INBOX RESPONSIVENESS FIX: instant watcher replaces 10-min poll (2026-08-31)
+
+User: "I would like to have more immediate responses to my questions
+instead of every 15 minutes." Distinguished this from just shrinking a
+poll interval -- check-inbox.js was deliberately detect-and-alert-only,
+never answering. Rebuilt as bus/scripts/watch-inbox.js: fs.watch-based
+instant reaction (no polling delay) that actually answers new inbox
+content via Codex and pushes the real answer over ntfy immediately.
+Still safe by construction, not a reversal of the earlier
+detect-only-don't-execute stance: every Codex call here goes through
+run-task.js's runCodex(), always `--sandbox read-only`, so it can only
+ever produce a text answer regardless of what's asked -- structurally
+incapable of taking a real action, unlike the earlier claude-adapter.js
+--restricted incident this stance was built to avoid repeating.
+
+Stopped the running 2-hour window, rebuilt run-continuous.js to spawn
+watch-inbox.js once as a long-lived child instead of re-spawning
+check-inbox.js every 10 minutes, re-registered the Scheduled Task, fresh
+2-hour window started.
+
+Tested live 3 times with real questions written to bus/inbox_claude.md:
+1. "What is the capital of France?" -- answered correctly (Paris),
+   reacted the same second the file was saved, ~7s total including the
+   real Codex call.
+2. "What is 7 times 8?" through the actual production (Task-Scheduler-
+   launched) process -- answered correctly (56), same-second reaction --
+   BUT delivered twice.
+
+Root cause of the duplicate, found and fixed: my earlier `kill <pid>`
+against the first standalone test watcher used bash's job-control PID,
+which did not map to the real Windows node.exe process on this
+Git-Bash/MSYS setup -- the old process (real PID 24220) kept running
+alongside the new production one (PID 36880), both independently
+watching and answering the same file write. Same class of lesson as the
+earlier agent-comms orphaned-process issue: verify via
+Get-CimInstance/PowerShell, don't trust a shell job-control PID killed
+the real OS process. Killed the correct PID via PowerShell, confirmed
+only one watch-inbox.js process remains.
+
+3. Re-tested after the fix: "name one primary color" -- exactly one
+   answer delivered ("Red"), confirmed via ntfy's own message history
+   (1 message in the window, not 2). Duplicate resolved.

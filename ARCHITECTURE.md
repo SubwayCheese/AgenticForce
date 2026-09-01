@@ -102,12 +102,18 @@ threshold stops the crew from piling up entries unattended; `ntfy.js`
 sends phone notifications (digest on interval, immediate on pause/hard
 failure) to the "ClaudeTeam" ntfy.sh topic. `bus/scripts/crew-status.js`
 answers "what are they doing" without reading raw logs.
-`bus/scripts/check-inbox.js` is a separate small role that checks
-`bus/inbox_claude.md` for new content and always notifies either way
-(found something / nothing actionable) so its liveness is visible --
-deliberately scoped to detect-and-notify only, not to interpret or
-execute whatever it finds (see section 6 and the file's own header for
-why).
+`bus/scripts/watch-inbox.js` (supersedes `check-inbox.js`'s role as of
+2026-08-31, after "more immediate responses" was requested) is a
+long-lived, `fs.watch`-based process that reacts to new content in
+`bus/inbox_claude.md` instantly (no polling delay) and actually answers
+it via Codex, pushing the real answer over ntfy immediately -- not just a
+"something needs review" alert. Still safe by construction: every call
+goes through `runCodex()`'s `--sandbox read-only` invocation, so it can
+only ever produce a text answer, never take a real action, regardless of
+what's asked. A reduced-frequency heartbeat (5 min) still confirms
+liveness when nothing new has come in. `check-inbox.js` (detect-and-alert
+only, 10-min poll) still exists but is no longer the one wired into
+`run-continuous.js`.
 
 ## 5. Agent roles and status
 
@@ -146,10 +152,17 @@ why).
       broadcast task system, separate from the dashboard) is still a
       confirmed-fake stub. Doesn't affect `/bus/` correctness, but is real
       unresolved debt in the system being kept for dashboard use.
-- [ ] The background research crew (`run-research-crew.js`) and inbox
-      checker (`check-inbox.js`) are built and tested single-cycle, but
-      NOT wired to run continuously/unattended -- awaiting user
-      confirmation on scope, digest interval, and queue-pause threshold.
+- [x] ~~Background research crew not wired to run continuously~~ --
+      **closed 2026-08-31.** User confirmed the proposed scope/thresholds
+      by requesting a run; wired via a Windows Scheduled Task
+      (`BusResearchCrewContinuous`) running `bus/scripts/run-continuous.js`
+      for a bounded 2-hour window (not indefinite -- matches what was
+      actually asked). Note found and fixed along the way: a shell
+      job-control PID from a background test process did not map to the
+      real Windows node.exe PID on this Git-Bash/MSYS setup, leaving an
+      orphaned duplicate watcher running -- same class of gotcha as
+      agent-comms' earlier orphaned-process issue. Verify process kills
+      via `Get-CimInstance`/PowerShell, not a shell-reported PID.
 - [ ] The autonomous research crew can only run Codex-recall categories
       (SOURCE-tagged as such) -- same as `run-task.js`, it has no path to
       the FMP connector, so real-data-grounded research categories can't
