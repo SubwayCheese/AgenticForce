@@ -192,3 +192,110 @@ invalid.
 status: in_progress -> blocked (NOT done -- output is well-formed and
 non-empty but fails the actual task: it neither answers correctly nor
 clearly refuses)
+
+---
+
+## SYSTEM DECISION (2026-08-31T00:38:00Z)
+
+/bus/ recommended and confirmed as the canonical system for real,
+auditable trading-research task execution, over agent-comms (kept only for
+its live browser dashboard, a capability /bus/ does not provide). Full
+comparison and reasoning delivered directly to the user, not duplicated
+here. From this point forward, task prompts sent to Codex must include the
+mandatory suffix defined in /tasks/task_template.md and
+/roles/codex_role.md (as-of date + invalid-premise flagging).
+
+---
+
+## task_20260831_chain_a_revenue (dependency-chain test, step A)
+
+**2026-08-31T00:40:00Z -- claude (orchestrator)**
+Created task: extract AAPL's most recent full-year total revenue as a
+single number, isolated on its own line, to be captured programmatically
+and fed verbatim into step B. This is the first task using the new
+mandatory prompt suffix (as-of date + invalid-premise flag). status:
+pending -> in_progress.
+
+**2026-08-31T00:41:00Z -- codex (response)**
+Sent (exact, including the new mandatory suffix):
+"State AAPL's most recent full-year total revenue as a single number in
+billions USD, to one decimal place (e.g. \"$123.4B\"), with nothing else on
+that line. This is a trivial orchestration test, a short honest-effort
+answer from your own knowledge is fine -- no tool calls needed.
+
+Before answering: state the as-of date/period your answer is anchored to
+(you have no live data lookup, so say what your knowledge reflects). If
+anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly as the first line of your response instead of
+answering around it."
+Command: `codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"`, exit code 0.
+
+Received (exact, raw file contents):
+"Anchored to Apple fiscal year ended September 28, 2024.
+
+$391.0B"
+
+Evaluation: both new mandatory requirements satisfied on the first try --
+explicit as-of anchor stated as the first line, no invalid premise present
+so correctly nothing flagged (this also confirms the instruction doesn't
+cause false-positive flagging on a normal valid request). Captured figure
+for step B: "$391.0B", read directly from the output file, not retyped.
+
+status: in_progress -> done
+
+---
+
+## task_20260831_chain_b_derived (dependency-chain test, step B)
+
+**2026-08-31T00:42:00Z -- claude (orchestrator)**
+Created task: feed task A's exact captured output ("Anchored to Apple
+fiscal year ended September 28, 2024.\n\n$391.0B") into a new prompt asking
+Codex to compute 25% of the stated revenue figure. The injected text is
+read programmatically from the task A output file into a shell variable,
+not retyped by hand, to make this a genuine handoff test rather than a
+test of my own transcription. status: pending -> in_progress.
+
+**2026-08-31T00:43:00Z -- codex (response)**
+Sent (exact, via shell-variable injection of task A's raw output file, not
+retyped): "A prior step in this pipeline reported the following exact
+result:
+
+Anchored to Apple fiscal year ended September 28, 2024.
+
+$391.0B
+
+Using that exact revenue figure (do not substitute a different number from
+your own knowledge, use the figure given above even if it differs from
+what you would otherwise recall), compute 25% of it and show your work.
+This is a trivial orchestration test.
+
+Before answering: state the as-of date/period your answer is anchored to.
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly as the first line of your response instead of
+answering around it."
+Command: identical invocation pattern, exit code 0.
+
+Received (exact, raw file contents):
+"Anchored to Apple fiscal year ended September 28, 2024.
+
+25% x $391.0B = 0.25 x $391.0B = $97.75B."
+
+Evaluation: PASS. The handoff figure survived fully intact -- $391.0B
+appears digit-for-digit identical to task A's output, not silently
+corrected to a different number Codex might independently "recall" (it
+was explicitly instructed not to substitute, and it complied). The as-of
+anchor also carried through correctly. Arithmetic independently verified:
+391.0 x 0.25 = 97.75, matches exactly. Both mandatory requirements
+(as-of date, invalid-premise flag) present again; no invalid premise here
+so correctly nothing flagged.
+
+status: in_progress -> done
+
+DEPENDENCY-CHAIN TEST RESULT: data handoff between steps is reliable when
+the orchestrator explicitly injects the prior step's literal captured
+output (not a re-typed or re-described version of it) and explicitly
+instructs Codex not to substitute its own recalled figures. This was a
+manual injection (I read the file and built the next prompt by hand) --
+the protocol has no automated dependsOnTaskId-style mechanism, so this
+reliability depends on the orchestrator doing the injection correctly
+every time, not on a system guarantee.
