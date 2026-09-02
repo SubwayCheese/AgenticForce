@@ -63,28 +63,19 @@ function runFullTask(taskId) {
   const task = runTask.readTaskFile(taskId);
   let logEntry = `## ${taskId} (run-verification-suite.js)\n\n**${new Date().toISOString()} -- run-verification-suite.js**\n`;
 
-  let injectedContext = '';
-  if (task.dependsOnTaskId) {
-    const dep = runTask.resolveDependency(taskId, task.dependsOnTaskId);
-    if (!dep.ok) {
-      logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-      logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
-      logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
-      runTask.appendLog(logEntry);
-      runTask.writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
-      return;
-    }
-    logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-    logEntry += `Dependency resolved OK, injecting value from "${dep.sourceTaskId}" verbatim.\n`;
-    injectedContext =
-      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-      dep.value +
-      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  const dep = runTask.resolveTaskDependencies(taskId, task);
+  if (!dep.ok) {
+    logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
+    logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
+    runTask.appendLog(logEntry);
+    runTask.writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+    return;
   }
+  if (dep.logNote) logEntry += dep.logNote + '\n';
   // getMandatorySuffix('codex'), not the flat MANDATORY_SUFFIX -- mirrors
   // the same fix applied to run-task.js's own main() (found 2026-09-02:
   // this direct-Codex mirror had the identical stale-suffix bug).
-  const prompt = task.payload + injectedContext + runTask.getMandatorySuffix('codex');
+  const prompt = task.payload + dep.injectedContext + runTask.getMandatorySuffix('codex');
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   const result = runTask.runCodex(prompt);
   logEntry += `Exit code: ${result.exitCode}\n`;
@@ -124,29 +115,20 @@ function runFullTaskGeneric(taskId) {
     return;
   }
 
-  let injectedContext = '';
-  if (task.dependsOnTaskId) {
-    const dep = runTask.resolveDependency(taskId, task.dependsOnTaskId);
-    if (!dep.ok) {
-      logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-      logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
-      logEntry += `Task NOT dispatched. status -> blocked.\n`;
-      runTask.appendLog(logEntry);
-      runTask.writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
-      return;
-    }
-    logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-    logEntry += `Dependency resolved OK, injecting value from "${dep.sourceTaskId}" verbatim.\n`;
-    injectedContext =
-      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-      dep.value +
-      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  const dep = runTask.resolveTaskDependencies(taskId, task);
+  if (!dep.ok) {
+    logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
+    logEntry += `Task NOT dispatched. status -> blocked.\n`;
+    runTask.appendLog(logEntry);
+    runTask.writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+    return;
   }
+  if (dep.logNote) logEntry += dep.logNote + '\n';
   // getMandatorySuffix(task.to), not a flat MANDATORY_SUFFIX -- this
   // function dispatches to whichever agent config matches, and a flat
   // suffix would tell claude-agent it has "no live data lookup," which is
   // false for it (see run-task.js's LIVE_FILE_READ_CAPABLE comment).
-  const prompt = task.payload + injectedContext + runTask.getMandatorySuffix(task.to);
+  const prompt = task.payload + dep.injectedContext + runTask.getMandatorySuffix(task.to);
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   const result = engine.dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT });
   logEntry += `Exit code: ${result.exitCode}\n`;
@@ -310,6 +292,68 @@ function testDependencyBlocking() {
   record('resolveDependency: done-but-no-output dependency blocks', !dep.ok && /no parseable output/.test(dep.reason || ''), dep.reason);
 }
 
+// ---------- FAST: resolveTaskDependencies() unit checks (added
+// 2026-09-02 for fan-in, Phase 3 piece 2) ----------
+function testResolveTaskDependenciesFast() {
+  const problems = [];
+
+  // Neither field set.
+  let dep = runTask.resolveTaskDependencies('x', { dependsOnTaskId: '', dependsOnTaskIds: '' });
+  if (!(dep.ok && dep.injectedContext === '' && dep.logNote === '')) {
+    problems.push(`no-dependency case: expected ok with empty context/logNote, got ${JSON.stringify(dep)}`);
+  }
+
+  // Both fields set -- ambiguous, must be rejected without ever calling
+  // resolveDependency() (ids don't even need to be real for this case).
+  dep = runTask.resolveTaskDependencies('x', { dependsOnTaskId: 'a', dependsOnTaskIds: 'a,b' });
+  if (!(dep.ok === false && /both/.test(dep.reason || ''))) {
+    problems.push(`both-fields case: expected rejection mentioning "both", got ${JSON.stringify(dep)}`);
+  }
+
+  // Single-parent: must match resolveDependency() called directly --
+  // this is the regression check that collapsing 5 duplicated blocks
+  // into one function didn't change existing single-parent behavior.
+  const seedId = writeTask('fanin_dep_seed', [
+    '## seed', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated seed for resolveTaskDependencies regression check',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:00Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:00Z', 'output:', '```', '7', '```', '',
+  ]);
+  dep = runTask.resolveTaskDependencies('x', { dependsOnTaskId: seedId, dependsOnTaskIds: '' });
+  const directSingle = runTask.resolveDependency('x', seedId);
+  if (!(dep.ok && dep.injectedContext.includes('7') && dep.injectedContext.includes(directSingle.sourceTaskId))) {
+    problems.push(`single-parent case: expected injectedContext to include the resolved value, got ${JSON.stringify(dep)}`);
+  }
+
+  // Multi-parent: both dependencies done -> both values injected, clearly attributed.
+  const seedAId = writeTask('fanin_dep_a', [
+    '## a', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated fan-in seed A', 'payload: (n/a)', 'timestamp: 2026-09-02T00:00:00Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:00Z', 'output:', '```', '41', '```', '',
+  ]);
+  const seedBId = writeTask('fanin_dep_b', [
+    '## b', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated fan-in seed B', 'payload: (n/a)', 'timestamp: 2026-09-02T00:00:01Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:01Z', 'output:', '```', '9', '```', '',
+  ]);
+  dep = runTask.resolveTaskDependencies('x', { dependsOnTaskId: '', dependsOnTaskIds: `${seedAId}, ${seedBId}` });
+  if (!(dep.ok && dep.injectedContext.includes('41') && dep.injectedContext.includes('9') && dep.injectedContext.includes(seedAId) && dep.injectedContext.includes(seedBId))) {
+    problems.push(`multi-parent success case: expected both values+ids in injectedContext, got ${JSON.stringify(dep)}`);
+  }
+
+  // Multi-parent: one of two not done -> blocked, reason names which one.
+  const pendingId = writeTask('fanin_dep_pending', [
+    '## p', 'from: claude', 'to: claude', 'type: request', 'status: pending',
+    'payload: (left pending on purpose)', 'timestamp: 2026-09-02T00:00:02Z', 'dependsOnTaskId:', '',
+  ]);
+  dep = runTask.resolveTaskDependencies('x', { dependsOnTaskId: '', dependsOnTaskIds: `${seedAId}, ${pendingId}` });
+  if (!(dep.ok === false && dep.reason.includes(pendingId) && dep.reason.includes('1/2'))) {
+    problems.push(`multi-parent partial-failure case: expected reason naming "${pendingId}" and "1/2", got ${JSON.stringify(dep)}`);
+  }
+
+  record('resolveTaskDependencies(): no-dep / both-set / single-parent / multi-parent success / multi-parent partial failure', problems.length === 0, problems.join('; '));
+}
+
 // ---------- SLOW: live 2-hop numeric chain ----------
 function testLiveChain() {
   const seed = 41; // different from the earlier manual 137 test, still non-round
@@ -349,6 +393,49 @@ function testLiveChain() {
     `live 2-hop chain: seed=${seed} +${addN} then x${mulN} (expect ${expected})`,
     cTask.status === 'done' && got === expected,
     `status=${cTask.status}, got=${got}`
+  );
+}
+
+// ---------- SLOW: live fan-in (multi-parent dependencies, added
+// 2026-09-02 for Phase 3 piece 2) ----------
+// Mirrors testLiveChain's seeded-dependency pattern, but with TWO
+// independent seeds instead of one linear chain -- proves
+// dependsOnTaskIds actually resolves multiple parents and injects both
+// values into a single real dispatched task, through the real
+// run-task-generic.js path (via runFullTaskGeneric), not a fabricated
+// unit-level call.
+function testLiveFanIn() {
+  const seedA = 41;
+  const seedB = 9;
+  const expected = seedA + seedB;
+
+  const aId = writeTask('fanin_a', [
+    '## a', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated deterministic seed A for live fan-in regression test',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:00Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:00Z', 'output:', '```', String(seedA), '```', '',
+  ]);
+  const bId = writeTask('fanin_b', [
+    '## b', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated deterministic seed B for live fan-in regression test',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:01Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:01Z', 'output:', '```', String(seedB), '```', '',
+  ]);
+
+  const cId = writeTask('fanin_c', [
+    '## c', 'from: claude', 'to: claude-agent', 'type: request', 'status: pending',
+    'payload: You will be given exactly two numbers below, each from a different prior pipeline step. Add them together. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.',
+    'timestamp: 2026-09-02T00:00:02Z', 'dependsOnTaskId:', `dependsOnTaskIds: ${aId}, ${bId}`, 'expectedType: number', '',
+  ]);
+  runFullTaskGeneric(cId);
+  const cTask = runTask.readTaskFile(cId);
+  const matches = cTask.output ? cTask.output.match(/-?\d+/g) : null;
+  const got = matches ? parseInt(matches[matches.length - 1], 10) : null;
+  const usedSuppliedTag = cTask.output && cTask.output.includes('SOURCE: supplied by orchestrator from a prior verified step');
+  record(
+    `live fan-in: two seeds ${seedA} + ${seedB} (expect ${expected}) via dependsOnTaskIds`,
+    cTask.status === 'done' && got === expected && usedSuppliedTag,
+    `status=${cTask.status}, got=${got}, usedSuppliedTag=${usedSuppliedTag}`
   );
 }
 
@@ -784,8 +871,10 @@ function main() {
   testVaultSearch();
   testBusStatusSmoke();
   testPendingTaskIdsAgreement();
+  testResolveTaskDependenciesFast();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
+  testLiveFanIn();
   testSandboxBoundary();
   console.log('\n-- slow checks: generic engine, all configured agents --');
   testEnginePerAgentDispatch();

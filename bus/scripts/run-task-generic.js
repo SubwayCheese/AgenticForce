@@ -24,7 +24,7 @@ const path = require('path');
 const {
   readTaskFile,
   writeTaskResult,
-  resolveDependency,
+  resolveTaskDependencies,
   verifyOutput,
   appendLog,
   taskFilePath,
@@ -107,11 +107,12 @@ function main() {
   let logEntry = `## ${taskId} (run-task-generic.js -- agent: ${agentConfig.displayName}, mode: ${writeMode ? 'write' : 'read-only'})\n\n**${nowIso()} -- run-task-generic.js**\n`;
 
   if (writeMode) {
-    // Write mode intentionally does not support dependsOnTaskId, matching
-    // run-task-collab.js's own scoping decision: this path is for direct
-    // collaborative edits, not data pipelines.
-    if (task.dependsOnTaskId) {
-      console.error(`Task "${taskId}" declares dependsOnTaskId -- write mode does not support dependency resolution. Use read-only mode (no --write) instead.`);
+    // Write mode intentionally does not support dependsOnTaskId or
+    // dependsOnTaskIds, matching run-task-collab.js's own scoping
+    // decision: this path is for direct collaborative edits, not data
+    // pipelines.
+    if (task.dependsOnTaskId || task.dependsOnTaskIds) {
+      console.error(`Task "${taskId}" declares a dependency field -- write mode does not support dependency resolution. Use read-only mode (no --write) instead.`);
       process.exit(1);
     }
     const prompt = task.payload;
@@ -146,25 +147,17 @@ function main() {
   }
 
   // Read-only mode: full dependency resolution + verification gate.
-  let injectedContext = '';
-  if (task.dependsOnTaskId) {
-    const dep = resolveDependency(taskId, task.dependsOnTaskId);
-    if (!dep.ok) {
-      logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-      logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
-      logEntry += `Task NOT dispatched. status -> blocked.\n`;
-      appendLog(logEntry);
-      writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
-      console.log(`BLOCKED: ${dep.reason}`);
-      process.exit(0);
-    }
-    logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-    logEntry += `Dependency resolved OK. Injecting value from "${dep.sourceTaskId}" verbatim.\n`;
-    injectedContext =
-      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-      dep.value +
-      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  const dep = resolveTaskDependencies(taskId, task);
+  if (!dep.ok) {
+    logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
+    logEntry += `Task NOT dispatched. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+    console.log(`BLOCKED: ${dep.reason}`);
+    process.exit(0);
   }
+  if (dep.logNote) logEntry += dep.logNote + '\n';
+  const injectedContext = dep.injectedContext;
 
   const searchEnrichment = buildSearchEnrichment(task);
   if (task.enrichWithSearch === 'true') {

@@ -11,11 +11,14 @@
 // once their dependency finishes, so a multi-step chain no longer needs
 // a human to notice and manually reset the blocked step.
 //
-// Deliberately unchanged: the dependency model (dependsOnTaskId stays
-// single-parent), the dispatch/verification path itself (this is purely
-// a new caller of run-task-generic.js, not a new dispatch mechanism),
-// and persistence across logoff/reboot (Task Scheduler wiring is a
-// separate, later decision -- see the plan this was built from).
+// Deliberately unchanged: the dispatch/verification path itself (this is
+// purely a new caller of run-task-generic.js, not a new dispatch
+// mechanism), and persistence across logoff/reboot (Task Scheduler
+// wiring is a separate, later decision -- see the plan this was built
+// from). The dependency model itself gained multi-parent support
+// (dependsOnTaskIds) 2026-09-02, Phase 3 piece 2 -- retryBlocked() below
+// got that for free via resolveTaskDependencies(), no daemon-specific
+// fan-in logic needed.
 //
 // Usage: node run-queue-daemon.js  (long-lived; runs until killed)
 
@@ -25,7 +28,7 @@ const { execFileSync } = require('child_process');
 const {
   readTaskFile,
   taskFilePath,
-  resolveDependency,
+  resolveTaskDependencies,
   listPendingTaskIds,
   listTaskIdsByStatus,
 } = require('./run-task.js');
@@ -139,11 +142,13 @@ function retryBlocked() {
   for (const taskId of listTaskIdsByStatus('blocked')) {
     if (queuedOrProcessing.has(taskId)) continue;
     const task = readTaskFile(taskId);
-    if (!task || !task.dependsOnTaskId) continue; // blocked for a reason other than an unresolved dependency -- leave it, not this daemon's call to make
-    const dep = resolveDependency(taskId, task.dependsOnTaskId);
+    if (!task || (!task.dependsOnTaskId && !task.dependsOnTaskIds)) continue; // blocked for a reason other than an unresolved dependency -- leave it, not this daemon's call to make
+    // resolveTaskDependencies() handles single- and multi-parent alike --
+    // added 2026-09-02 for fan-in, no daemon-specific logic needed here.
+    const dep = resolveTaskDependencies(taskId, task);
     if (dep.ok) {
       resetBlockedToPending(taskId);
-      log(`AUTO-RETRY: ${taskId} -- dependency "${task.dependsOnTaskId}" is now done, reset status blocked -> pending`);
+      log(`AUTO-RETRY: ${taskId} -- ${task.dependsOnTaskIds ? `dependencies "${task.dependsOnTaskIds}"` : `dependency "${task.dependsOnTaskId}"`} now resolved, reset status blocked -> pending`);
       queuedOrProcessing.add(taskId);
       queue.push(taskId);
     }

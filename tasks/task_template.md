@@ -9,7 +9,9 @@ type: request | response | error
 status: pending | in_progress | done | blocked | unverified | unverified_new
 payload:
 timestamp:
-dependsOnTaskId: (optional -- see below)
+dependsOnTaskId: (optional -- see below; single parent)
+dependsOnTaskIds: (optional -- see below; comma-separated, multi-parent
+  fan-in. Set at most ONE of dependsOnTaskId/dependsOnTaskIds, never both.)
 expectedType: (optional -- "number", or blank for no type check)
 enrichWithSearch: (optional -- "true" to auto-prepend top-3 vault search
   results to the prompt via run-task-generic.js; see below. Omit/blank
@@ -116,6 +118,46 @@ will, before doing anything else:
 Do not hand-copy a prior task's output into `payload:` yourself when
 dependsOnTaskId is available -- that reintroduces the exact manual-habit
 failure mode this field exists to close.
+
+## dependsOnTaskIds (added 2026-09-02, fan-in / multi-parent)
+
+For a task that needs more than one prior result (e.g. "combine Codex's
+answer and Claude's answer"), which `dependsOnTaskId` can't express (one
+ID only). Set to a comma-separated list of task IDs instead:
+
+```
+dependsOnTaskIds: task_a, task_b
+```
+
+Set exactly one of `dependsOnTaskId` or `dependsOnTaskIds` on a given
+task, never both -- a task declaring both is treated as malformed and
+blocked with an explicit reason, not silently resolved using one of them.
+
+Resolution rules are the same as the single-parent case, applied to
+every listed ID: any dependency missing, not yet `done`, or `done` with
+no parseable `output:` blocks the whole task (the blocked reason names
+exactly which one(s) aren't ready, e.g. `"1/2 dependencies not ready --
+\"task_b\": ..."`). Once every dependency resolves, all of their values
+are injected together, each clearly attributed to its source task_id:
+
+```
+Prior pipeline steps reported the following exact results:
+
+- task_id "task_a": <value>
+- task_id "task_b": <value>
+```
+
+Both `dependsOnTaskId` and `dependsOnTaskIds` are resolved by the same
+shared function, `resolveTaskDependencies()` in `run-task.js` -- every
+dispatch script (`run-task.js`, `run-task-claude.js`,
+`run-task-generic.js`, `run-backlog.js`) and `run-queue-daemon.js`'s
+blocked-task auto-retry go through it, so single- and multi-parent tasks
+behave identically everywhere, including the daemon (a blocked
+multi-parent task gets auto-retried the moment its last dependency
+finishes, exactly like a single-parent one). Write mode (Codex-only
+`run-task-collab.js`, and `run-task-generic.js --write`) rejects either
+field the same way it already rejected `dependsOnTaskId` -- dependency
+resolution stays a read-only-mode capability.
 
 ## enrichWithSearch (added 2026-09-01, opt-in only)
 

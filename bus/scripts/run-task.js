@@ -198,6 +198,12 @@ function readTaskFile(taskId) {
     payload: field('payload'),
     timestamp: field('timestamp'),
     dependsOnTaskId: field('dependsOnTaskId'),
+    // Added 2026-09-02 for fan-in (Phase 3 piece 2): a task sets exactly
+    // one of dependsOnTaskId or dependsOnTaskIds, never both -- see
+    // resolveTaskDependencies() below. Comma-separated task IDs, parsed
+    // there, not here (this is just field extraction, matching every
+    // other field in this object).
+    dependsOnTaskIds: field('dependsOnTaskIds'),
     expectedType: field('expectedType'),
     source: field('source'),
     // Added 2026-09-01: opt-in vault-search enrichment, consumed by
@@ -361,6 +367,79 @@ function resolveDependency(taskId, dependsOnTaskId) {
   return { ok: true, value: dep.output, sourceTaskId: dependsOnTaskId };
 }
 
+// Added 2026-09-02 for fan-in (Phase 3 piece 2). Unifies single- and
+// multi-parent dependency resolution AND prompt-context formatting into
+// one call -- before this, the same ~15-line block (call
+// resolveDependency(), block on failure, hand-format an injectedContext
+// string on success) was independently duplicated across run-task.js's
+// own main(), run-task-claude.js, run-task-generic.js, run-backlog.js,
+// and run-verification-suite.js's two runFullTask* mirrors. Adding
+// multi-parent support as a 6th duplicated block in each would have made
+// that worse, and after this same session's SOURCE-tag suffix fix (where
+// a missed call site caused a real bug), more duplicated copies means
+// more places a future change can be missed -- so this collapses all of
+// it here instead. resolveDependency() itself is untouched, still
+// exported, and still what this function calls per-ID.
+//
+// `task` is the object readTaskFile() already returns (has both
+// dependsOnTaskId and dependsOnTaskIds parsed). Returns:
+//   { ok, reason?, injectedContext, logNote }
+// injectedContext/logNote are '' (not undefined) when there's nothing to
+// inject, so every call site can unconditionally append/log them.
+function resolveTaskDependencies(taskId, task) {
+  const hasSingle = !!task.dependsOnTaskId;
+  const hasMulti = !!task.dependsOnTaskIds;
+
+  if (hasSingle && hasMulti) {
+    return {
+      ok: false,
+      reason: `task declares both dependsOnTaskId ("${task.dependsOnTaskId}") and dependsOnTaskIds ("${task.dependsOnTaskIds}") -- ambiguous, refusing to guess which is authoritative`,
+    };
+  }
+
+  if (!hasSingle && !hasMulti) {
+    return { ok: true, injectedContext: '', logNote: '' };
+  }
+
+  if (hasSingle) {
+    const dep = resolveDependency(taskId, task.dependsOnTaskId);
+    if (!dep.ok) return { ok: false, reason: dep.reason };
+    return {
+      ok: true,
+      injectedContext:
+        `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
+        dep.value +
+        '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.',
+      logNote: `dependsOnTaskId: ${task.dependsOnTaskId}\nDependency resolved OK. Injecting value from "${dep.sourceTaskId}" verbatim.`,
+    };
+  }
+
+  // Multi-parent.
+  const ids = task.dependsOnTaskIds.split(',').map((s) => s.trim()).filter(Boolean);
+  if (ids.length === 0) {
+    return { ok: false, reason: 'dependsOnTaskIds is set but contains no parseable task IDs' };
+  }
+  const resolved = [];
+  const problems = [];
+  for (const id of ids) {
+    const dep = resolveDependency(taskId, id);
+    if (!dep.ok) problems.push(`"${id}": ${dep.reason}`);
+    else resolved.push({ sourceTaskId: dep.sourceTaskId, value: dep.value });
+  }
+  if (problems.length > 0) {
+    return { ok: false, reason: `${problems.length}/${ids.length} dependencies not ready -- ${problems.join('; ')}` };
+  }
+  const lines = resolved.map((r) => `- task_id "${r.sourceTaskId}": ${r.value}`);
+  return {
+    ok: true,
+    injectedContext:
+      '\n\nPrior pipeline steps reported the following exact results:\n\n' +
+      lines.join('\n') +
+      '\n\nUse these exact values -- do not substitute different numbers from your own knowledge, even if they differ from what you would otherwise recall.',
+    logNote: `dependsOnTaskIds: ${task.dependsOnTaskIds}\nAll ${ids.length} dependencies resolved OK. Injecting values verbatim.`,
+  };
+}
+
 function runCodex(prompt) {
   // The prompt is passed via stdin, not as a command-line argument.
   // codex.exe is a .cmd wrapper on Windows, so execFileSync needs
@@ -420,26 +499,17 @@ function main() {
 
   let logEntry = `## ${taskId} (run-task.js)\n\n**${nowIso()} -- run-task.js**\n`;
 
-  let injectedContext = '';
-  if (task.dependsOnTaskId) {
-    const dep = resolveDependency(taskId, task.dependsOnTaskId);
-    if (!dep.ok) {
-      logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-      logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
-      logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
-      appendLog(logEntry);
-      writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
-      console.log(`BLOCKED: ${dep.reason}`);
-      process.exit(0);
-    }
-    logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-    logEntry += `Dependency resolved OK. Injecting the following value, read verbatim from task "${dep.sourceTaskId}"'s own output field (not retyped, not recalled):\n`;
-    logEntry += '```\n' + dep.value + '\n```\n';
-    injectedContext =
-      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-      dep.value +
-      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  const dep = resolveTaskDependencies(taskId, task);
+  if (!dep.ok) {
+    logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
+    logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+    console.log(`BLOCKED: ${dep.reason}`);
+    process.exit(0);
   }
+  if (dep.logNote) logEntry += dep.logNote + '\n';
+  const injectedContext = dep.injectedContext;
 
   // getMandatorySuffix('codex'), not the flat MANDATORY_SUFFIX -- found
   // 2026-09-02 as a real bug (not caught by the regression suite, which
@@ -489,6 +559,7 @@ module.exports = {
   readTaskFile,
   writeTaskResult,
   resolveDependency,
+  resolveTaskDependencies,
   verifyOutput,
   runCodex,
   appendLog,

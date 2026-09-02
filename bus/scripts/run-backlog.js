@@ -32,7 +32,7 @@ const path = require('path');
 const {
   readTaskFile,
   writeTaskResult,
-  resolveDependency,
+  resolveTaskDependencies,
   verifyOutput,
   runCodex,
   appendLog,
@@ -135,28 +135,21 @@ function processCodexTask(taskId, task) {
   setItemStatus(taskId, 'research');
   log(`${taskId}: resolving dependency…`);
 
-  let injectedContext = '';
-  if (task.dependsOnTaskId) {
-    const dep = resolveDependency(taskId, task.dependsOnTaskId);
-    if (!dep.ok) {
-      setItemStatus(taskId, 'blocked');
-      log(`${taskId}: BLOCKED -- ${dep.reason}`);
-      writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
-      appendLog(
-        `## ${taskId} (run-backlog.js)\n\n**${nowIso()} -- run-backlog.js**\ndependsOnTaskId: ${task.dependsOnTaskId}\nDependency resolution FAILED: ${dep.reason}\nTask NOT dispatched to Codex. status -> blocked.\n`
-      );
-      return;
-    }
-    injectedContext =
-      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-      dep.value +
-      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  const dep = resolveTaskDependencies(taskId, task);
+  if (!dep.ok) {
+    setItemStatus(taskId, 'blocked');
+    log(`${taskId}: BLOCKED -- ${dep.reason}`);
+    writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+    appendLog(
+      `## ${taskId} (run-backlog.js)\n\n**${nowIso()} -- run-backlog.js**\nDependency resolution FAILED: ${dep.reason}\nTask NOT dispatched to Codex. status -> blocked.\n`
+    );
+    return;
   }
 
   setItemStatus(taskId, 'write');
   log(`${taskId}: dispatched to Codex, awaiting response…`);
 
-  const prompt = task.payload + injectedContext + getMandatorySuffix('codex');
+  const prompt = task.payload + dep.injectedContext + getMandatorySuffix('codex');
   const result = runCodex(prompt);
 
   setItemStatus(taskId, 'verify');
@@ -165,7 +158,7 @@ function processCodexTask(taskId, task) {
   let status;
   let reason;
   let logEntry = `## ${taskId} (run-backlog.js)\n\n**${nowIso()} -- run-backlog.js**\n`;
-  if (task.dependsOnTaskId) logEntry += `dependsOnTaskId: ${task.dependsOnTaskId} (resolved OK, injected)\n`;
+  if (dep.logNote) logEntry += dep.logNote + '\n';
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> (via stdin)\n`;
   logEntry += `Exit code: ${result.exitCode}\n`;

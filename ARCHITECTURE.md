@@ -560,6 +560,65 @@ separate, later decision); true multi-parent fan-in (`dependsOnTaskId`
 stays single-parent; this only makes existing single-parent chains
 hands-off).
 
+## 3h. Phase 3, piece 2: fan-in / multi-parent dependencies (added
+2026-09-02)
+
+The limitation piece 1's daemon exposed rather than solved: a task can
+depend on exactly one prior task. A task that genuinely needs two prior
+results (e.g. "combine Codex's answer and Claude's answer") couldn't be
+expressed at all. New field `dependsOnTaskIds` (plural, comma-separated
+task IDs) closes this, added alongside the existing `dependsOnTaskId`
+(singular) rather than changing it -- zero format/behavior change for
+any existing single-parent task file or test. A task sets exactly one
+of the two; declaring both is treated as malformed and blocked with an
+explicit reason, never silently resolved using one of them.
+
+**Collapsed duplication while adding the capability, not alongside
+it.** The same ~15-line block (call `resolveDependency()`, block on
+failure, hand-format an `injectedContext` string on success) was
+independently duplicated across `run-task.js`'s own `main()`,
+`run-task-claude.js`, `run-task-generic.js`, `run-backlog.js`, and
+`run-verification-suite.js`'s two `runFullTask*` mirrors -- 5 near-copies,
+confirmed by grep before writing anything. Adding multi-parent support
+as a 6th duplicated block in each would have made that worse, and after
+this same session's SOURCE-tag suffix fix (where a missed call site
+caused a real bug), more duplicated copies means more places a future
+change can be missed. All of it now goes through one new function in
+`run-task.js`, `resolveTaskDependencies(taskId, task)`, returning
+`{ ok, reason?, injectedContext, logNote }` -- `injectedContext`/
+`logNote` are always `''` (not `undefined`) when there's nothing to
+inject, so every call site can unconditionally append/log them.
+`resolveDependency()` itself is untouched and still exported -- the new
+function calls it once per ID, single or multi.
+
+`run-queue-daemon.js`'s `retryBlocked()` needed zero fan-in-specific
+logic: swapping its `resolveDependency()` call for
+`resolveTaskDependencies()` and widening its guard to
+`(dependsOnTaskId || dependsOnTaskIds)` was the entire change -- the
+daemon's blocked-retry mechanism itself (proven correct in piece 1)
+doesn't care whether one or two dependencies resolved, only whether
+`dep.ok` is now true. A blocked multi-parent task gets auto-retried the
+moment its *last* dependency finishes, same as a single-parent one.
+
+Write mode (`run-task-collab.js`, `run-task-generic.js --write`) rejects
+`dependsOnTaskIds` the same way it already rejected `dependsOnTaskId` --
+dependency resolution stays read-only-mode only, unchanged reasoning
+from before this piece.
+
+Verified: new fast unit checks
+(`testResolveTaskDependenciesFast` -- no-dependency, both-fields-set
+rejection, single-parent parity with calling `resolveDependency()`
+directly, multi-parent success, multi-parent partial-failure naming
+which dependency) plus a new live dispatch test (`testLiveFanIn` --
+two independent deterministic seeds, one real dispatched task with
+`dependsOnTaskIds` pointing at both, asserting the correct combined sum
+AND that the response used the "supplied by orchestrator" SOURCE tag,
+not recall, proving both values were actually injected). Full suite run
+alongside every existing single-parent check
+(`testLiveChain`, `testCrossAgentChain`, `testDependencyBlocking`,
+`testQueueDaemon`) to confirm the refactor changed nothing about
+existing behavior.
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the

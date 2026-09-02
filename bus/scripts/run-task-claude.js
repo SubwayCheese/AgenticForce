@@ -61,7 +61,7 @@ const { execFileSync } = require('child_process');
 const {
   readTaskFile,
   writeTaskResult,
-  resolveDependency,
+  resolveTaskDependencies,
   verifyOutput,
   appendLog,
   taskFilePath,
@@ -118,28 +118,18 @@ function main() {
 
   let logEntry = `## ${taskId} (run-task-claude.js)\n\n**${nowIso()} -- run-task-claude.js**\n`;
 
-  let injectedContext = '';
-  if (task.dependsOnTaskId) {
-    const dep = resolveDependency(taskId, task.dependsOnTaskId);
-    if (!dep.ok) {
-      logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-      logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
-      logEntry += `Task NOT dispatched to Claude. status -> blocked.\n`;
-      appendLog(logEntry);
-      writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
-      console.log(`BLOCKED: ${dep.reason}`);
-      process.exit(0);
-    }
-    logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
-    logEntry += `Dependency resolved OK. Injecting the following value, read verbatim from task "${dep.sourceTaskId}"'s own output field:\n`;
-    logEntry += '```\n' + dep.value + '\n```\n';
-    injectedContext =
-      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-      dep.value +
-      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  const dep = resolveTaskDependencies(taskId, task);
+  if (!dep.ok) {
+    logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
+    logEntry += `Task NOT dispatched to Claude. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+    console.log(`BLOCKED: ${dep.reason}`);
+    process.exit(0);
   }
+  if (dep.logNote) logEntry += dep.logNote + '\n';
 
-  const prompt = task.payload + injectedContext + getMandatorySuffix('claude-agent');
+  const prompt = task.payload + dep.injectedContext + getMandatorySuffix('claude-agent');
 
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: claude -p --permission-mode plan (stdin-piped) "<prompt above>"\n`;

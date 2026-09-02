@@ -28,9 +28,10 @@
 // Codex's own summary of what it did.
 //
 // Usage: node run-task-collab.js <task_id>
-// (dependsOnTaskId resolution is intentionally NOT supported here -- this
-// is for direct collaborative edits, not data pipelines. Use run-task.js
-// for anything that needs dependency chaining.)
+// (dependsOnTaskId/dependsOnTaskIds resolution is intentionally NOT
+// supported here -- this is for direct collaborative edits, not data
+// pipelines. Use run-task.js for anything that needs dependency
+// chaining, single- or multi-parent.)
 
 const fs = require('fs');
 const path = require('path');
@@ -167,8 +168,8 @@ function main() {
     console.error(`Task "${taskId}" has to: "${task.to}", expected "codex". This script is Codex-only write mode; use run-task-generic.js <task_id> --write for either agent.`);
     process.exit(1);
   }
-  if (task.dependsOnTaskId) {
-    console.error(`Task "${taskId}" declares dependsOnTaskId -- this script does not support dependency resolution. Use run-task.js instead.`);
+  if (task.dependsOnTaskId || task.dependsOnTaskIds) {
+    console.error(`Task "${taskId}" declares a dependency field -- this script does not support dependency resolution. Use run-task.js instead.`);
     process.exit(1);
   }
 
