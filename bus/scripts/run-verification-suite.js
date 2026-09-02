@@ -139,7 +139,11 @@ function runFullTaskGeneric(taskId) {
       dep.value +
       '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
   }
-  const prompt = task.payload + injectedContext + runTask.MANDATORY_SUFFIX;
+  // getMandatorySuffix(task.to), not a flat MANDATORY_SUFFIX -- this
+  // function dispatches to whichever agent config matches, and a flat
+  // suffix would tell claude-agent it has "no live data lookup," which is
+  // false for it (see run-task.js's LIVE_FILE_READ_CAPABLE comment).
+  const prompt = task.payload + injectedContext + runTask.getMandatorySuffix(task.to);
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   const result = engine.dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT });
   logEntry += `Exit code: ${result.exitCode}\n`;
@@ -241,12 +245,20 @@ function testVerifyOutputFast() {
   const okCases = [
     { to: 'codex', expectedType: '', text: 'SOURCE: training-data recall, not verified live\nAs of: 2026\n42' },
     { to: 'codex', expectedType: 'number', text: 'SOURCE: supplied by orchestrator from a prior verified step\n7' },
+    // Added 2026-09-02, closes the section-6 SOURCE-tag honesty gap:
+    // claude-agent is the one specialist verified to retain live
+    // Read/Grep/Glob access, so it alone gets a third accepted tag.
+    { to: 'claude-agent', expectedType: '', text: 'SOURCE: verified live via direct file read in this pipeline\nFile read: roles/claude_role.md\nAs of: this file as read just now\n42' },
   ];
   const failCases = [
     { to: 'codex', expectedType: '', text: '', why: 'empty output' },
     { to: 'codex', expectedType: '', text: 'the answer is 42', why: 'missing SOURCE tag' },
     { to: 'codex', expectedType: 'number', text: 'SOURCE: training-data recall, not verified live\nAs of: not applicable\nno digits here', why: 'expectedType number but no digit' },
     { to: 'codex', expectedType: 'number', text: 'SOURCE: training-data recall, not verified live\nAs of: 2026\nthe answer is not a number', why: 'digit only in as-of preamble, not the actual answer -- the exact false positive the 2026-09-01 tightening closed' },
+    // Added 2026-09-02: the live-file-read tag must NOT pass for Codex --
+    // nobody has verified its read-only sandbox actually has that
+    // property, so accepting it here would let a false claim through.
+    { to: 'codex', expectedType: '', text: 'SOURCE: verified live via direct file read in this pipeline\n42', why: 'live-file-read tag is not an accepted variant for codex (unverified capability -- see run-task.js LIVE_FILE_READ_CAPABLE)' },
   ];
   const problems = [];
   for (const [i, c] of okCases.entries()) {
@@ -517,7 +529,7 @@ function testEnginePerAgentDispatch() {
     const agentConfig = engine.loadAgentConfig(agentId);
     const prompt =
       `What is 17 plus 5? Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.` +
-      runTask.MANDATORY_SUFFIX;
+      runTask.getMandatorySuffix(agentId);
     const result = engine.dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT });
     const verification = runTask.verifyOutput({ to: agentId, expectedType: 'number' }, result.output);
     const matches = result.output ? result.output.match(/-?\d+/g) : null;

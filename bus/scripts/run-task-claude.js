@@ -21,8 +21,15 @@
 //     directly via require('./run-task.js'). These were never actually
 //     Codex-specific, just never exercised against anything else.
 //   - MANDATORY_SUFFIX's wording ("you have no live data lookup") was
-//     already agent-neutral -- reused verbatim, no Claude-specific
-//     variant needed.
+//     initially reused verbatim, no Claude-specific variant. That turned
+//     out to be wrong, not just unfinished: found 2026-09-01/fixed
+//     2026-09-02 -- Claude retains native Read/Grep/Glob tools scoped to
+//     VAULT_ROOT even under `--permission-mode plan` (it blocks writes,
+//     not reads), so the blanket "no live data lookup" claim is false for
+//     this specialist specifically. Now uses getMandatorySuffix(), which
+//     gives claude-agent a three-way honest SOURCE tag instead of forcing
+//     a choice between two options that are both false when it actually
+//     opened a file. See run-task.js's LIVE_FILE_READ_CAPABLE comment.
 //   - verifyOutput()'s SOURCE-tag check WAS hardcoded to `to === 'codex'`
 //     specifically -- generalized to a DISPATCHED_SPECIALISTS set (see
 //     run-task.js) once this file needed it too. A real, not
@@ -58,7 +65,7 @@ const {
   verifyOutput,
   appendLog,
   taskFilePath,
-  MANDATORY_SUFFIX,
+  getMandatorySuffix,
 } = require('./run-task.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
@@ -132,7 +139,7 @@ function main() {
       '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
   }
 
-  const prompt = task.payload + injectedContext + MANDATORY_SUFFIX;
+  const prompt = task.payload + injectedContext + getMandatorySuffix('claude-agent');
 
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: claude -p --permission-mode plan (stdin-piped) "<prompt above>"\n`;

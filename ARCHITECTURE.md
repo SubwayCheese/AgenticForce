@@ -445,6 +445,26 @@ for an agent that legitimately *can* read local files live?), not a
 rushed edit alongside an unrelated feature. Tracked as a new open item
 in section 6.
 
+**Fixed 2026-09-02**, as its own careful pass, not folded into an
+unrelated change. `run-task.js` now exports `getMandatorySuffix(to)`
+instead of a single flat `MANDATORY_SUFFIX`: a new
+`LIVE_FILE_READ_CAPABLE` set names every specialist actually verified to
+retain live file-read access (today, only `claude-agent`), and only
+those specialists get a third, honest SOURCE tag option --
+`SOURCE: verified live via direct file read in this pipeline`, naming
+the exact file(s) read -- alongside the original two. `verifyOutput()`
+now checks a per-specialist accepted-tag list instead of one fixed pair
+for everyone, so the third tag is accepted for `claude-agent` and
+deliberately still rejected for `codex` (whose `--sandbox read-only`
+read-but-not-write property remains unverified -- see the still-open
+item below). Every dispatch call site (`run-task-claude.js`,
+`run-task-generic.js`, `run-verification-suite.js`'s generic/per-agent
+paths) now goes through `getMandatorySuffix()` rather than hardcoding
+the suffix, so this is decided in exactly one place. Verified via the
+suite's `testVerifyOutputFast` (new cases: claude-agent's live-read tag
+accepted, the same tag rejected for codex) and a live re-run of the full
+suite, not just unit-level reasoning.
+
 ## 3f. Phase 3: `bus-status.js` (added 2026-09-01)
 
 A single, human-readable snapshot of the whole `/bus/` system --
@@ -521,22 +541,32 @@ only, 10-min poll) still exists but is no longer the one wired into
   vault directory (section 3a) -- unattended paths never get this.
 - **Antigravity (deferred):** no CLI/API exists. Only a documented,
   untested-in-`/bus/` async path (write to a shared channel, wait for a
-  voluntary reply) -- see `roles/antigravity_role.md`. Not wired into
+  voluntary reply) -- see [[antigravity_role]]. Not wired into
   `run-task.js` or the dependency mechanism.
 
 ## 6. Known open items
 
-- [ ] `MANDATORY_SUFFIX`'s claim "you have no live data lookup... this is
+- [x] ~~`MANDATORY_SUFFIX`'s claim "you have no live data lookup... this is
       true for every response you give in this pipeline" is not actually
-      true for the Claude specialist -- found 2026-09-01 while testing
-      opt-in search enrichment (section 3e). `--permission-mode plan`
-      blocks writes, not reads; Claude retains native Read/Grep/Glob
-      tools scoped to `VAULT_ROOT` and used them directly in a real
-      dispatched task, correctly refusing to mislabel the result as
-      training-data recall. Whether Codex's `--sandbox read-only` has the
-      same read-but-not-write property is untested. Needs its own
-      careful pass (how should the SOURCE tag actually work for an agent
-      that legitimately can read local files live?), not a rushed fix.
+      true for the Claude specialist~~ -- **closed 2026-09-02.** Found
+      2026-09-01 while testing opt-in search enrichment (section 3e).
+      Fixed via `getMandatorySuffix(to)` + `LIVE_FILE_READ_CAPABLE` (see
+      section 3e's 2026-09-02 update for the full design). Whether
+      Codex's `--sandbox read-only` has the same read-but-not-write
+      property remains untested -- deliberately NOT added to
+      `LIVE_FILE_READ_CAPABLE` without that verification, tracked as its
+      own new open item directly below.
+- [ ] Whether Codex's `--sandbox read-only` invocation (`run-task.js`'s
+      `runCodex()`, `codex exec --sandbox read-only ...`) actually has the
+      same read-but-not-write property Claude's `--permission-mode plan`
+      does -- i.e. can a bare `codex exec` call read local files live via
+      shell commands (`cat`, etc.) even though it can't write them? If so,
+      `MANDATORY_SUFFIX`'s claim ("you have no live data lookup") is
+      *also* not fully accurate for Codex, and `codex` would need adding
+      to `LIVE_FILE_READ_CAPABLE` once confirmed the same rigorous way
+      this was confirmed for Claude (a real dispatched task, not
+      documentation-reading). Plausible given the sandbox name, not
+      confirmed either way yet.
 - [x] ~~`verifyOutput()`'s `expectedType: number` check scans the entire
       response for any digit, not specifically the answer~~ -- **closed
       2026-09-01.** Tightened to check only the last non-empty line
@@ -572,7 +602,7 @@ only, 10-min poll) still exists but is no longer the one wired into
       current ("Antigravity 2.0," launched at Google I/O 2026, a
       standalone desktop app for agentic AI) and **now ships a CLI and
       SDK**, not just a GUI. This directly contradicts
-      `roles/antigravity_role.md`'s long-standing "no CLI/API exists"
+      [[antigravity_role]]'s long-standing "no CLI/API exists"
       claim -- that file has been updated to say so. Still NOT tested:
       whether the CLI is actually installed on this machine, its real
       flags, or whether it can be wired into `/bus/` the same way Codex

@@ -39,15 +39,16 @@ enrichWithSearch: (optional -- "true" to auto-prepend top-3 vault search
 `agent-engine.js`. This is where a third agent would be added --
 a new JSON config, not a new script.
 
-## Mandatory prompt suffix (added 2026-08-31, generalized 2026-09-01)
+## Mandatory prompt suffix (added 2026-08-31, generalized 2026-09-01,
+made per-specialist 2026-09-02)
 
 Every prompt actually sent to a dispatched specialist (Codex or
 claude-agent -- see `run-task.js`'s `DISPATCHED_SPECIALISTS` set) for
-this task must end with this block verbatim -- see /roles/codex_role.md
-and /roles/claude_role.md for why. A bare headless call has no live data
-source by construction (no web-search/fetch tool attached), so every
-response it gives is training-data recall -- this is a mandatory,
-unmissable tag, not just an as-of date:
+this task must end with the block `run-task.js`'s `getMandatorySuffix(to)`
+returns for that specialist -- see /roles/codex_role.md and
+/roles/claude_role.md for why. Codex's variant (a bare headless call, no
+web-search/fetch tool attached, so every response is training-data
+recall by construction):
 
   Before answering, your response MUST start with this exact line:
   SOURCE: training-data recall, not verified live
@@ -63,8 +64,16 @@ unmissable tag, not just an as-of date:
   unanswerable, say so plainly right after the SOURCE/as-of lines instead
   of answering around it.
 
-This suffix is appended automatically by bus/scripts/run-task.js -- do not
-duplicate it in `payload:` by hand.
+claude-agent's variant offers a third, honest option instead --
+`SOURCE: verified live via direct file read in this pipeline`, naming
+the file(s) actually read -- because it retains live Read/Grep/Glob
+access unlike Codex; see the caveat under `enrichWithSearch` below and
+`ARCHITECTURE.md` section 3e/6 for why this distinction exists and how
+it was found.
+
+This suffix is appended automatically by bus/scripts/run-task.js (via
+`getMandatorySuffix()`, consumed by run-task-claude.js and
+run-task-generic.js too) -- do not duplicate it in `payload:` by hand.
 
 WHY THIS EXISTS (found 2026-08-31): the same "AAPL latest revenue" query
 returned $391.0B in one run and $416.2B in another. Both were real,
@@ -112,8 +121,11 @@ specialist specifically, this may be redundant -- dispatched read-only,
 Claude retains its own native Read/Grep/Glob tools scoped to the vault
 directory and has been observed using them directly instead of (or
 alongside) this enrichment. See `ARCHITECTURE.md` section 3e/6 for the
-full finding; this also means `MANDATORY_SUFFIX`'s "no live data lookup"
-claim is not fully accurate for Claude today.
+full finding. **Fixed 2026-09-02**: this used to also mean
+`MANDATORY_SUFFIX`'s "no live data lookup" claim was inaccurate for
+Claude -- closed by giving claude-agent its own suffix variant with a
+third, honest SOURCE tag (see the "Mandatory prompt suffix" section
+above) instead of forcing it to misdescribe a real file read as recall.
 
 ## Verification (added 2026-08-31, generalized 2026-09-01)
 

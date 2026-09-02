@@ -79,6 +79,69 @@ const MANDATORY_SUFFIX = [
   'of answering around it.',
 ].join('\n');
 
+// Added 2026-09-02, closes the section-6 open item found 2026-09-01: a
+// dispatched read-only Claude specialist directly read ARCHITECTURE.md
+// with its own Read tool and correctly refused to mislabel that as
+// "training-data recall, not verified live" -- because for Claude that
+// line is simply false. `--permission-mode plan` blocks writes, not
+// reads; Claude retains native Read/Grep/Glob tools scoped to VAULT_ROOT
+// even in this dispatch. MANDATORY_SUFFIX's blanket "you have no live
+// data lookup" claim was accurate for Codex (the only specialist that
+// existed when it was written) but not for Claude. This set names every
+// specialist for which that's been actually verified true (not assumed)
+// -- today, only 'claude-agent'. Whether Codex's `--sandbox read-only`
+// has the same read-but-not-write property is a separate, still-open
+// question (untested) -- do NOT add 'codex' here without first verifying
+// it the same rigorous way, or this suffix would coach Codex into
+// claiming a live-read capability nobody has confirmed it has.
+const LIVE_FILE_READ_CAPABLE = new Set(['claude-agent']);
+
+const SOURCE_TAG_TRAINING_RECALL = 'SOURCE: training-data recall, not verified live';
+const SOURCE_TAG_ORCHESTRATOR_SUPPLIED = 'SOURCE: supplied by orchestrator from a prior verified step';
+const SOURCE_TAG_LIVE_FILE_READ = 'SOURCE: verified live via direct file read in this pipeline';
+
+// Same shape as MANDATORY_SUFFIX, but offers a third, honest SOURCE tag
+// instead of forcing a choice between two options that are both false
+// when the specialist actually opened a file. Only used for specialists
+// in LIVE_FILE_READ_CAPABLE.
+const MANDATORY_SUFFIX_LIVE_READ_CAPABLE = [
+  '',
+  'Before answering, your response MUST start with exactly one of these',
+  'three lines -- pick whichever is actually true for how you produced',
+  'this specific answer. Do not default to the first one out of habit:',
+  '',
+  SOURCE_TAG_TRAINING_RECALL,
+  '(use this only if you answered from what you already know, without',
+  'opening any file in this vault to check)',
+  '',
+  SOURCE_TAG_ORCHESTRATOR_SUPPLIED,
+  '(use this only if a verified figure was explicitly supplied to you',
+  'earlier in this prompt from a prior pipeline step -- not for anything',
+  'you looked up yourself)',
+  '',
+  SOURCE_TAG_LIVE_FILE_READ,
+  '(use this if you actually used your own Read/Grep/Glob tools to open a',
+  'file in this vault to answer -- you retain that access, scoped to this',
+  'vault directory, even in this read-only dispatch. Name the exact file',
+  'path(s) you read on the next line.)',
+  '',
+  'On the line after your SOURCE tag, state the as-of date/period your',
+  'answer is anchored to (your training cutoff, or the file(s) you',
+  'actually read -- not just "current"). If anything about this',
+  "request's premise looks wrong, outdated, or unanswerable, say so",
+  'plainly right after the SOURCE/as-of lines instead of answering',
+  'around it.',
+].join('\n');
+
+// Picks the right suffix for a given `to:` value. Every dispatch call
+// site (run-task.js's own main(), run-task-claude.js, run-task-generic.js,
+// and the verification suite's generic/per-agent paths) should go through
+// this rather than hardcoding MANDATORY_SUFFIX, so a specialist's honesty
+// contract is decided in exactly one place.
+function getMandatorySuffix(to) {
+  return LIVE_FILE_READ_CAPABLE.has(to) ? MANDATORY_SUFFIX_LIVE_READ_CAPABLE : MANDATORY_SUFFIX;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -174,11 +237,19 @@ function verifyOutput(task, output) {
     return { ok: false, reason: 'output is empty' };
   }
   if (DISPATCHED_SPECIALISTS.has(task.to)) {
-    const hasSourceTag =
-      text.includes('SOURCE: training-data recall, not verified live') ||
-      text.includes('SOURCE: supplied by orchestrator from a prior verified step');
+    // Added 2026-09-02: accepted tags are now per-specialist, not a fixed
+    // pair for everyone -- a specialist in LIVE_FILE_READ_CAPABLE (today,
+    // only claude-agent) additionally accepts the live-file-read tag.
+    // Deliberately NOT accepted for Codex: nobody has verified Codex's
+    // `--sandbox read-only` actually has the read-but-not-write property
+    // that would make that claim true for it (see the note above
+    // LIVE_FILE_READ_CAPABLE) -- accepting it there would let a false
+    // claim pass verification.
+    const acceptedTags = [SOURCE_TAG_TRAINING_RECALL, SOURCE_TAG_ORCHESTRATOR_SUPPLIED];
+    if (LIVE_FILE_READ_CAPABLE.has(task.to)) acceptedTags.push(SOURCE_TAG_LIVE_FILE_READ);
+    const hasSourceTag = acceptedTags.some((tag) => text.includes(tag));
     if (!hasSourceTag) {
-      return { ok: false, reason: 'missing the mandatory SOURCE tag -- neither accepted variant found in the response' };
+      return { ok: false, reason: `missing the mandatory SOURCE tag -- none of the ${acceptedTags.length} accepted variant(s) for "${task.to}" found in the response` };
     }
   }
   if (task.expectedType === 'number') {
@@ -337,4 +408,16 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { readTaskFile, writeTaskResult, resolveDependency, verifyOutput, runCodex, appendLog, taskFilePath, MANDATORY_SUFFIX };
+module.exports = {
+  readTaskFile,
+  writeTaskResult,
+  resolveDependency,
+  verifyOutput,
+  runCodex,
+  appendLog,
+  taskFilePath,
+  MANDATORY_SUFFIX,
+  MANDATORY_SUFFIX_LIVE_READ_CAPABLE,
+  LIVE_FILE_READ_CAPABLE,
+  getMandatorySuffix,
+};

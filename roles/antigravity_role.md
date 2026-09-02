@@ -10,7 +10,7 @@ and **now ships a CLI and SDK**, not just a GUI. This directly
 contradicts this file's own long-standing "no headless entry point"
 claim. Whether that CLI is actually installed on this machine, what its
 real invocation flags are, and whether it can be wired into `/bus/` the
-same way Codex and Claude were (see `ARCHITECTURE.md` section 3c/3d) is
+same way Codex and Claude were (see [[ARCHITECTURE]] section 3c/3d) is
 **not yet tested** -- this is a confirmed lead, not a completed
 integration. Treat any of this file's text below as describing the OLD,
 no-CLI state until someone actually verifies the new CLI locally

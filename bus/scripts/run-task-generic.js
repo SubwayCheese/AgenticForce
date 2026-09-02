@@ -28,7 +28,7 @@ const {
   verifyOutput,
   appendLog,
   taskFilePath,
-  MANDATORY_SUFFIX,
+  getMandatorySuffix,
 } = require('./run-task.js');
 
 const { loadAgentConfig, dispatch, dispatchWrite, listAgentConfigs } = require('./agent-engine.js');
@@ -173,7 +173,12 @@ function main() {
       : `Search enrichment: requested but unavailable or no hits -- dispatched without it\n`;
   }
 
-  const prompt = task.payload + injectedContext + searchEnrichment + MANDATORY_SUFFIX;
+  // getMandatorySuffix() picks the right honesty contract per specialist
+  // (added 2026-09-02) -- a flat MANDATORY_SUFFIX here would tell every
+  // agent config, including claude-agent, that it has "no live data
+  // lookup," which is false for claude-agent specifically. See
+  // run-task.js's LIVE_FILE_READ_CAPABLE comment.
+  const prompt = task.payload + injectedContext + searchEnrichment + getMandatorySuffix(task.to);
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: ${agentConfig.binary} ${agentConfig.modes.readOnly.args.join(' ')} (stdin-piped)\n`;
 
