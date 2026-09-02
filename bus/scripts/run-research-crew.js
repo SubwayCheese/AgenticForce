@@ -31,7 +31,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { runCodex, MANDATORY_SUFFIX } = require('./run-task.js');
+const { runCodex, getMandatorySuffix } = require('./run-task.js');
 const { sendNtfy } = require('./ntfy.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
@@ -133,7 +133,7 @@ function main() {
   const ticker = scope.watchlist[tickerIdx];
   const category = scope.categories[categoryIdx];
 
-  const prompt = category.prompt.replace(/\{TICKER\}/g, ticker) + MANDATORY_SUFFIX;
+  const prompt = category.prompt.replace(/\{TICKER\}/g, ticker) + getMandatorySuffix('codex');
 
   console.log(`Cycle: ${ticker} / ${category.id}`);
   const result = runCodex(prompt);

@@ -54,14 +54,19 @@ const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'log.md');
 // figures for different fiscal years, but nothing marked them as unverified
 // training-data recall vs a checked fact, so the drift looked like an
 // error rather than what it actually was: two different years, neither one
-// labeled. codex exec has no live data source (confirmed: no web-search/
-// fetch flag in its CLI, and no evidence of one configured), so every
-// response dispatched through this script is, by construction, training-
-// data recall -- the SOURCE line is not a request, it's a statement of
-// fact this script can (and should) simply assert on Codex's behalf. Real
-// grounding (a verified figure from a live data source) is a categorically
-// different path -- see the "orchestrator-sourced" task pattern in
-// task_template.md -- and never flows through this function.
+// labeled. codex exec has no live WEB data source (confirmed: no web-
+// search/fetch flag in its CLI, and no evidence of one configured), so a
+// figure like this -- nothing in the local vault could supply it -- is,
+// by construction, training-data recall. This suffix is still exactly
+// right for that case. (Updated 2026-09-02: "no live data source" is no
+// longer accurate as a blanket claim, though -- Codex's read-only sandbox
+// turns out to allow real local file reads, confirmed via its own sandbox
+// audit log; see LIVE_FILE_READ_CAPABLE below and getMandatorySuffix(),
+// which give Codex a third, honest option for exactly that case instead
+// of forcing this one.) Real grounding (a verified figure from a live
+// data source) is a categorically different path -- see the
+// "orchestrator-sourced" task pattern in task_template.md -- and never
+// flows through this function.
 const MANDATORY_SUFFIX = [
   '',
   'Before answering, your response MUST start with this exact line:',
@@ -85,16 +90,33 @@ const MANDATORY_SUFFIX = [
 // "training-data recall, not verified live" -- because for Claude that
 // line is simply false. `--permission-mode plan` blocks writes, not
 // reads; Claude retains native Read/Grep/Glob tools scoped to VAULT_ROOT
-// even in this dispatch. MANDATORY_SUFFIX's blanket "you have no live
-// data lookup" claim was accurate for Codex (the only specialist that
-// existed when it was written) but not for Claude. This set names every
-// specialist for which that's been actually verified true (not assumed)
-// -- today, only 'claude-agent'. Whether Codex's `--sandbox read-only`
-// has the same read-but-not-write property is a separate, still-open
-// question (untested) -- do NOT add 'codex' here without first verifying
-// it the same rigorous way, or this suffix would coach Codex into
-// claiming a live-read capability nobody has confirmed it has.
-const LIVE_FILE_READ_CAPABLE = new Set(['claude-agent']);
+// even in this dispatch. This set names every specialist for which
+// that's been actually verified true (not assumed) -- add a specialist
+// here only after real evidence, the way both entries below were found,
+// not from what a sandbox flag's name merely suggests.
+//
+// 'claude-agent': confirmed 2026-09-02 as above.
+//
+// 'codex': confirmed 2026-09-02 -- initially left OUT of this set
+// (untested, and `--sandbox read-only`'s name alone isn't proof), then
+// tested directly: dispatched a task instructing Codex to `Get-Content`
+// a live vault file. It returned the correct content (vault-specific
+// text with no plausible training-data-recall explanation) -- but still
+// opened with "SOURCE: training-data recall, not verified live", simply
+// parroting the (then-blanket) suffix rather than catching the
+// contradiction the way Claude did. Ground truth wasn't taken on Codex's
+// self-report alone: cross-checked against
+// `~/.codex/.sandbox/sandbox.*.log`, which recorded the literal
+// `Get-Content -LiteralPath 'roles/antigravity_role.md'` PowerShell call
+// actually executing, with no denial/error logged around it. So Codex's
+// `--sandbox read-only` DOES have the same read-but-not-write property
+// Claude's `--permission-mode plan` does -- MANDATORY_SUFFIX's blanket
+// "no live data lookup" claim was never actually true for either
+// dispatched specialist, only for a specialist with no shell/tool access
+// to the filesystem at all (which is why MANDATORY_SUFFIX stays as the
+// *default* for anything not in this set, not deleted -- a future
+// specialist without local file access would still need it verbatim).
+const LIVE_FILE_READ_CAPABLE = new Set(['claude-agent', 'codex']);
 
 const SOURCE_TAG_TRAINING_RECALL = 'SOURCE: training-data recall, not verified live';
 const SOURCE_TAG_ORCHESTRATOR_SUPPLIED = 'SOURCE: supplied by orchestrator from a prior verified step';
@@ -120,9 +142,10 @@ const MANDATORY_SUFFIX_LIVE_READ_CAPABLE = [
   'you looked up yourself)',
   '',
   SOURCE_TAG_LIVE_FILE_READ,
-  '(use this if you actually used your own Read/Grep/Glob tools to open a',
-  'file in this vault to answer -- you retain that access, scoped to this',
-  'vault directory, even in this read-only dispatch. Name the exact file',
+  '(use this if you actually opened a file in this vault to answer --',
+  'whether via a native file-reading tool or a real shell command like',
+  'cat/Get-Content -- you retain that access, scoped to this vault',
+  'directory, even in this read-only dispatch. Name the exact file',
   'path(s) you read on the next line.)',
   '',
   'On the line after your SOURCE tag, state the as-of date/period your',
@@ -370,7 +393,13 @@ function main() {
       '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
   }
 
-  const prompt = task.payload + injectedContext + MANDATORY_SUFFIX;
+  // getMandatorySuffix('codex'), not the flat MANDATORY_SUFFIX -- found
+  // 2026-09-02 as a real bug (not caught by the regression suite, which
+  // only exercises this via engine.dispatch()/run-task-generic.js, never
+  // this script's own main()): this direct Codex-only path was missed
+  // when getMandatorySuffix() was introduced, so two live re-verification
+  // tests of the Codex live-read fix both silently got the OLD suffix.
+  const prompt = task.payload + injectedContext + getMandatorySuffix('codex');
 
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"\n`;

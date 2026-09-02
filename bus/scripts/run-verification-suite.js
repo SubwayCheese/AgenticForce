@@ -81,7 +81,10 @@ function runFullTask(taskId) {
       dep.value +
       '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
   }
-  const prompt = task.payload + injectedContext + runTask.MANDATORY_SUFFIX;
+  // getMandatorySuffix('codex'), not the flat MANDATORY_SUFFIX -- mirrors
+  // the same fix applied to run-task.js's own main() (found 2026-09-02:
+  // this direct-Codex mirror had the identical stale-suffix bug).
+  const prompt = task.payload + injectedContext + runTask.getMandatorySuffix('codex');
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   const result = runTask.runCodex(prompt);
   logEntry += `Exit code: ${result.exitCode}\n`;
@@ -246,20 +249,34 @@ function testVerifyOutputFast() {
     { to: 'codex', expectedType: '', text: 'SOURCE: training-data recall, not verified live\nAs of: 2026\n42' },
     { to: 'codex', expectedType: 'number', text: 'SOURCE: supplied by orchestrator from a prior verified step\n7' },
     // Added 2026-09-02, closes the section-6 SOURCE-tag honesty gap:
-    // claude-agent is the one specialist verified to retain live
-    // Read/Grep/Glob access, so it alone gets a third accepted tag.
+    // claude-agent is verified to retain live Read/Grep/Glob access, so
+    // it gets the third accepted tag.
     { to: 'claude-agent', expectedType: '', text: 'SOURCE: verified live via direct file read in this pipeline\nFile read: roles/claude_role.md\nAs of: this file as read just now\n42' },
+    // Added 2026-09-02, same-day follow-up finding: Codex's
+    // `--sandbox read-only` was cross-checked against its own sandbox
+    // audit log during a real dispatched task and confirmed to allow the
+    // same local file reads (only writes are blocked) -- so it gets the
+    // third tag too, not just claude-agent. See run-task.js's
+    // LIVE_FILE_READ_CAPABLE comment for the log evidence.
+    { to: 'codex', expectedType: '', text: 'SOURCE: verified live via direct file read in this pipeline\nFile read: roles/antigravity_role.md\nAs of: this file as read just now\n42' },
   ];
   const failCases = [
     { to: 'codex', expectedType: '', text: '', why: 'empty output' },
     { to: 'codex', expectedType: '', text: 'the answer is 42', why: 'missing SOURCE tag' },
     { to: 'codex', expectedType: 'number', text: 'SOURCE: training-data recall, not verified live\nAs of: not applicable\nno digits here', why: 'expectedType number but no digit' },
     { to: 'codex', expectedType: 'number', text: 'SOURCE: training-data recall, not verified live\nAs of: 2026\nthe answer is not a number', why: 'digit only in as-of preamble, not the actual answer -- the exact false positive the 2026-09-01 tightening closed' },
-    // Added 2026-09-02: the live-file-read tag must NOT pass for Codex --
-    // nobody has verified its read-only sandbox actually has that
-    // property, so accepting it here would let a false claim through.
-    { to: 'codex', expectedType: '', text: 'SOURCE: verified live via direct file read in this pipeline\n42', why: 'live-file-read tag is not an accepted variant for codex (unverified capability -- see run-task.js LIVE_FILE_READ_CAPABLE)' },
   ];
+  // No negative test for "the live-file-read tag is rejected for a
+  // specialist not in LIVE_FILE_READ_CAPABLE" right now (there was one
+  // here briefly, targeting codex, until codex itself turned out to
+  // belong in the set too -- see the 2026-09-02 finding above). Both
+  // real DISPATCHED_SPECIALISTS members are currently LIVE_FILE_READ_
+  // CAPABLE, so there's no genuine specialist left to write that case
+  // against; a task.to string outside DISPATCHED_SPECIALISTS entirely
+  // skips the SOURCE-tag check altogether (a different code path) and
+  // would silently pass, not exercise the branch it's meant to test.
+  // Add a real negative case here if a future specialist is dispatched
+  // without live file-read access -- don't fabricate one now.
   const problems = [];
   for (const [i, c] of okCases.entries()) {
     const v = runTask.verifyOutput({ to: c.to, expectedType: c.expectedType }, c.text);

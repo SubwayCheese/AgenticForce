@@ -33,7 +33,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { runCodex, MANDATORY_SUFFIX } = require('./run-task.js');
+const { runCodex, getMandatorySuffix } = require('./run-task.js');
 const { sendNtfy } = require('./ntfy.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
@@ -76,7 +76,7 @@ function handleChange() {
     '',
     'New inbox content:',
     added,
-  ].join('\n') + MANDATORY_SUFFIX;
+  ].join('\n') + getMandatorySuffix('codex');
 
   const result = runCodex(prompt);
 

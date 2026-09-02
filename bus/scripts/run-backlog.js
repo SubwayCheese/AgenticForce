@@ -36,7 +36,7 @@ const {
   verifyOutput,
   runCodex,
   appendLog,
-  MANDATORY_SUFFIX,
+  getMandatorySuffix,
 } = require('./run-task.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
@@ -156,7 +156,7 @@ function processCodexTask(taskId, task) {
   setItemStatus(taskId, 'write');
   log(`${taskId}: dispatched to Codex, awaiting response…`);
 
-  const prompt = task.payload + injectedContext + MANDATORY_SUFFIX;
+  const prompt = task.payload + injectedContext + getMandatorySuffix('codex');
   const result = runCodex(prompt);
 
   setItemStatus(taskId, 'verify');

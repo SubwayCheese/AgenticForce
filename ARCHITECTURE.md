@@ -449,21 +449,33 @@ in section 6.
 unrelated change. `run-task.js` now exports `getMandatorySuffix(to)`
 instead of a single flat `MANDATORY_SUFFIX`: a new
 `LIVE_FILE_READ_CAPABLE` set names every specialist actually verified to
-retain live file-read access (today, only `claude-agent`), and only
-those specialists get a third, honest SOURCE tag option --
-`SOURCE: verified live via direct file read in this pipeline`, naming
-the exact file(s) read -- alongside the original two. `verifyOutput()`
-now checks a per-specialist accepted-tag list instead of one fixed pair
-for everyone, so the third tag is accepted for `claude-agent` and
-deliberately still rejected for `codex` (whose `--sandbox read-only`
-read-but-not-write property remains unverified -- see the still-open
-item below). Every dispatch call site (`run-task-claude.js`,
-`run-task-generic.js`, `run-verification-suite.js`'s generic/per-agent
-paths) now goes through `getMandatorySuffix()` rather than hardcoding
-the suffix, so this is decided in exactly one place. Verified via the
-suite's `testVerifyOutputFast` (new cases: claude-agent's live-read tag
-accepted, the same tag rejected for codex) and a live re-run of the full
-suite, not just unit-level reasoning.
+retain live file-read access, and only those specialists get a third,
+honest SOURCE tag option -- `SOURCE: verified live via direct file read
+in this pipeline`, naming the exact file(s) read -- alongside the
+original two. `verifyOutput()` now checks a per-specialist accepted-tag
+list instead of one fixed pair for everyone.
+
+Landed in two passes the same day, not one: first with
+`LIVE_FILE_READ_CAPABLE` containing only `claude-agent` (Codex's
+read-but-not-write property was still an open question, tracked in
+section 6). That question was then answered the same day -- see section
+6's now-closed Codex item -- and Codex was added too, so **both real
+dispatched specialists are in `LIVE_FILE_READ_CAPABLE` today**.
+Answering that question also surfaced a second real bug (`run-task.js`'s
+own `main()`, plus three more scripts -- `run-research-crew.js`,
+`run-backlog.js`, `watch-inbox.js` -- had been missed and still
+hardcoded the flat suffix); all fixed the same pass, see section 6.
+
+Every dispatch call site now goes through `getMandatorySuffix()` rather
+than hardcoding a suffix, so this is decided in exactly one place.
+Verified via the suite's `testVerifyOutputFast` (both specialists'
+live-read tags accepted) and multiple live full-suite runs -- one run
+recorded a single genuine flake (`engine dispatch (Claude)` failed
+verification once with `verified=false`), reproduced manually 4/4 times
+clean afterward and clean again on a full re-run; consistent with this
+mechanism's pre-existing exact-string-match brittleness against live LLM
+output (already an accepted tradeoff before this change, not a
+regression introduced by it), not investigated further as its own item.
 
 ## 3f. Phase 3: `bus-status.js` (added 2026-09-01)
 
@@ -556,17 +568,44 @@ only, 10-min poll) still exists but is no longer the one wired into
       property remains untested -- deliberately NOT added to
       `LIVE_FILE_READ_CAPABLE` without that verification, tracked as its
       own new open item directly below.
-- [ ] Whether Codex's `--sandbox read-only` invocation (`run-task.js`'s
-      `runCodex()`, `codex exec --sandbox read-only ...`) actually has the
+- [x] ~~Whether Codex's `--sandbox read-only` invocation actually has the
       same read-but-not-write property Claude's `--permission-mode plan`
-      does -- i.e. can a bare `codex exec` call read local files live via
-      shell commands (`cat`, etc.) even though it can't write them? If so,
-      `MANDATORY_SUFFIX`'s claim ("you have no live data lookup") is
-      *also* not fully accurate for Codex, and `codex` would need adding
-      to `LIVE_FILE_READ_CAPABLE` once confirmed the same rigorous way
-      this was confirmed for Claude (a real dispatched task, not
-      documentation-reading). Plausible given the sandbox name, not
-      confirmed either way yet.
+      does~~ -- **closed 2026-09-02, same day.** Tested directly: dispatched
+      `tasks/verify_codex_live_read.md`, instructing Codex to
+      `Get-Content` a live vault file (`roles/antigravity_role.md`) via a
+      real shell command. It returned the correct content (vault-specific
+      text -- "Antigravity" -- with no plausible training-data-recall
+      explanation), but still opened with "SOURCE: training-data recall,
+      not verified live," simply parroting the then-blanket suffix rather
+      than catching the contradiction the way Claude did. Codex's
+      self-report was NOT trusted alone -- cross-checked against
+      `~/.codex/.sandbox/sandbox.*.log`, which recorded the literal
+      `Get-Content -LiteralPath 'roles/antigravity_role.md'` PowerShell
+      call actually executing at the matching timestamp, with no
+      denial/error logged around it. Confirmed: yes, same property.
+      `codex` added to `LIVE_FILE_READ_CAPABLE` alongside `claude-agent`;
+      `MANDATORY_SUFFIX`'s old blanket claim now has no real dispatched
+      specialist it's actually true for (it remains `getMandatorySuffix()`'s
+      default for a future specialist without local file access, not
+      deleted).
+
+      **A second real bug found immediately after, re-verifying this
+      fix**: `tasks/verify_codex_live_read2.md` re-ran the same live-read
+      test expecting the new three-way tag -- and Codex still opened with
+      the old two-tag line, this time visibly confused by the
+      contradiction ("Premise wrong: I read the local file directly."
+      instead of actually answering). Not a model failure: `run-task.js`'s
+      own `main()` (the direct `node run-task.js <task_id>` path used by
+      both this test and the suite's `runFullTask()`) had been missed
+      when `getMandatorySuffix()` was introduced and still hardcoded the
+      flat `MANDATORY_SUFFIX`. A vault-wide sweep for every remaining
+      flat-suffix call site turned up three more real, still-live ones
+      with the same staleness -- `run-research-crew.js`,
+      `run-backlog.js`, `watch-inbox.js` -- all fixed the same way.
+      `tasks/verify_codex_live_read3.md` then confirmed the actual fix:
+      `SOURCE: verified live via direct file read in this pipeline` /
+      `As of: roles/antigravity_role.md` / `Antigravity` -- correct tag,
+      correct file cited, correct answer.
 - [x] ~~`verifyOutput()`'s `expectedType: number` check scans the entire
       response for any digit, not specifically the answer~~ -- **closed
       2026-09-01.** Tightened to check only the last non-empty line

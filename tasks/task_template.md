@@ -46,30 +46,44 @@ Every prompt actually sent to a dispatched specialist (Codex or
 claude-agent -- see `run-task.js`'s `DISPATCHED_SPECIALISTS` set) for
 this task must end with the block `run-task.js`'s `getMandatorySuffix(to)`
 returns for that specialist -- see /roles/codex_role.md and
-/roles/claude_role.md for why. Codex's variant (a bare headless call, no
-web-search/fetch tool attached, so every response is training-data
-recall by construction):
+/roles/claude_role.md for why.
 
-  Before answering, your response MUST start with this exact line:
+As of 2026-09-02, **both** real dispatched specialists get the same
+three-way honest variant (they're both in `LIVE_FILE_READ_CAPABLE`,
+confirmed by real evidence, not assumed -- see `ARCHITECTURE.md`
+section 3e/6):
+
+  Before answering, your response MUST start with exactly one of these
+  three lines -- pick whichever is actually true for how you produced
+  this specific answer:
+
   SOURCE: training-data recall, not verified live
-  (This is true for every response you give in this pipeline -- you have
-  no live data lookup. If a verified figure was explicitly supplied to you
-  earlier in this prompt from a prior pipeline step, say so instead:
-  "SOURCE: supplied by orchestrator from a prior verified step" -- but do
-  not claim verified/live status for anything you are recalling yourself.)
+  (use this only if you answered from what you already know, without
+  opening any file in this vault to check)
 
-  On the next line, state the as-of date/period your answer is anchored
-  to (what your training knowledge actually reflects, not "current").
-  If anything about this request's premise looks wrong, outdated, or
-  unanswerable, say so plainly right after the SOURCE/as-of lines instead
-  of answering around it.
+  SOURCE: supplied by orchestrator from a prior verified step
+  (use this only if a verified figure was explicitly supplied to you
+  earlier in this prompt from a prior pipeline step -- not for anything
+  you looked up yourself)
 
-claude-agent's variant offers a third, honest option instead --
-`SOURCE: verified live via direct file read in this pipeline`, naming
-the file(s) actually read -- because it retains live Read/Grep/Glob
-access unlike Codex; see the caveat under `enrichWithSearch` below and
-`ARCHITECTURE.md` section 3e/6 for why this distinction exists and how
-it was found.
+  SOURCE: verified live via direct file read in this pipeline
+  (use this if you actually opened a file in this vault to answer --
+  whether via a native file-reading tool or a real shell command like
+  cat/Get-Content -- you retain that access, scoped to this vault
+  directory, even in this read-only dispatch. Name the exact file
+  path(s) you read on the next line.)
+
+  On the line after your SOURCE tag, state the as-of date/period your
+  answer is anchored to. If anything about this request's premise looks
+  wrong, outdated, or unanswerable, say so plainly right after the
+  SOURCE/as-of lines instead of answering around it.
+
+The plain two-tag suffix (`MANDATORY_SUFFIX`, no live-read option) still
+exists in `run-task.js` as `getMandatorySuffix()`'s default for anything
+NOT in `LIVE_FILE_READ_CAPABLE` -- currently nothing, since both real
+specialists were verified live-read-capable, but it stays ready for a
+future specialist genuinely without local file access (a pure API-only
+call with no shell/tool access to the filesystem).
 
 This suffix is appended automatically by bus/scripts/run-task.js (via
 `getMandatorySuffix()`, consumed by run-task-claude.js and
