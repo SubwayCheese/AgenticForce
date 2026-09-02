@@ -31,7 +31,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const runTask = require('./run-task.js');
 const runCollab = require('./run-task-collab.js');
 const engine = require('./agent-engine.js');
@@ -379,6 +379,109 @@ function testSandboxBoundary() {
   );
 }
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// ---------- SLOW: run-queue-daemon.js end-to-end (added 2026-09-02) ----------
+// The actual proof the daemon's "runs on its own" claim is real: neither
+// task here is ever passed to run-task-generic.js directly -- both are
+// just files dropped on disk, exactly the way a human would create work,
+// and a real daemon child process (spawned here, watching the real
+// tasks/ directory) has to notice and dispatch them entirely unprompted.
+//
+// Files can't live under tasks/verification_suite/ for this one test --
+// that directory is deliberately excluded from listPendingTaskIds()
+// (same exclusion bus-status.js's pending report uses), so anything
+// placed there would never be seen by the daemon, which would make this
+// test pass without proving anything. Written directly under tasks/
+// instead, with a unique suite-run prefix, and cleaned up afterward
+// (unlike this suite's other generated tasks) so repeated suite runs
+// don't permanently litter tasks/ root the way a genuine one-off
+// hand-dispatched proof task legitimately does.
+function testQueueDaemon() {
+  const prefix = `suite_queue_daemon_${RUN_ID.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const parentId = `${prefix}_parent`;
+  const childId = `${prefix}_child`;
+  const parentPath = path.join(VAULT_ROOT, 'tasks', `${parentId}.md`);
+  const childPath = path.join(VAULT_ROOT, 'tasks', `${childId}.md`);
+
+  if (fs.existsSync(parentPath) || fs.existsSync(childPath)) {
+    record('run-queue-daemon.js: auto-dispatch + blocked-retry end-to-end', false, 'test task path already existed -- refusing to run to avoid a false result');
+    return;
+  }
+
+  const seed = 500;
+  const addN = 5;
+  const cleanup = () => {
+    for (const p of [parentPath, childPath]) {
+      try { fs.unlinkSync(p); } catch (e) { /* best-effort */ }
+    }
+  };
+
+  // Child first, parent deliberately absent -- forces a genuine blocked
+  // state, the same shape as the real 2026-09-02 manual smoke test.
+  fs.writeFileSync(childPath, [
+    'from: claude', 'to: claude-agent', 'type: task', 'status: pending',
+    `payload: You will be given a number from a prior pipeline step below. Add exactly ${addN} to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.`,
+    `timestamp: ${new Date().toISOString()}`, `dependsOnTaskId: ${parentId}`, 'expectedType: number', '',
+  ].join('\n'), 'utf8');
+
+  const daemon = spawn('node', [path.join(__dirname, 'run-queue-daemon.js')], {
+    cwd: VAULT_ROOT,
+    env: { ...process.env, QUEUE_DAEMON_BLOCKED_RETRY_MS: '3000' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  try {
+    let blockedConfirmed = false;
+    let deadline = Date.now() + 25000;
+    while (Date.now() < deadline) {
+      const text = fs.existsSync(childPath) ? fs.readFileSync(childPath, 'utf8') : '';
+      if (/^status:\s*blocked/m.test(text)) { blockedConfirmed = true; break; }
+      sleepSync(400);
+    }
+    if (!blockedConfirmed) {
+      record('run-queue-daemon.js: auto-dispatch + blocked-retry end-to-end', false, 'child never reached status: blocked within 25s -- daemon did not auto-dispatch the dropped-in file');
+      return;
+    }
+
+    // Parent written directly as status: done (deterministic seed, no
+    // live call needed for it) -- mirrors testLiveChain's chain_a step.
+    // Only the child needs a real dispatch; this just needs to exist and
+    // be resolvable for the daemon's blocked-retry tick to find.
+    fs.writeFileSync(parentPath, [
+      'from: claude', 'to: claude', 'type: response', 'status: done',
+      'source: suite-generated deterministic seed for the daemon regression test',
+      'payload: (n/a)', `timestamp: ${new Date().toISOString()}`, 'dependsOnTaskId: ', '',
+      '## Result (auto)', `resolved_at: ${new Date().toISOString()}`, 'output:', '```', String(seed), '```', '',
+    ].join('\n'), 'utf8');
+
+    // Longer budget than the blocked check: this leg needs a real
+    // subprocess dispatch (node startup + a live LLM call), not just a
+    // local dependency-resolution check -- 25s was measured too tight
+    // once (a real completion at ~26s got recorded as a false failure).
+    let doneConfirmed = false;
+    deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      const text = fs.existsSync(childPath) ? fs.readFileSync(childPath, 'utf8') : '';
+      if (/^status:\s*done/m.test(text)) { doneConfirmed = true; break; }
+      sleepSync(400);
+    }
+    const finalTask = runTask.readTaskFile(childId);
+    const matches = finalTask && finalTask.output ? finalTask.output.match(/-?\d+/g) : null;
+    const got = matches ? parseInt(matches[matches.length - 1], 10) : null;
+    record(
+      `run-queue-daemon.js: auto-dispatch + blocked-retry end-to-end (seed=${seed} +${addN}, expect ${seed + addN})`,
+      doneConfirmed && got === seed + addN,
+      `blockedConfirmed=${blockedConfirmed}, doneConfirmed=${doneConfirmed}, got=${got}`
+    );
+  } finally {
+    daemon.kill();
+    cleanup();
+  }
+}
+
 // ---------- FAST: dispatch-guard regression tests (2026-09-01) ----------
 // Turns the four manual guard tests run once by hand that day into
 // permanent coverage -- everything else this session got this treatment,
@@ -534,6 +637,36 @@ function testBusStatusSmoke() {
   record('bus-status.js: all report functions run without throwing', problems.length === 0, problems.join('; '));
 }
 
+// ---------- FAST: listPendingTaskIds() / bus-status.js agreement
+// (added 2026-09-02) ----------
+// reportPendingTasks() used to walk tasks/ itself; now it just prints
+// listPendingTaskIds()'s result. Structurally guaranteed to agree by the
+// refactor itself, but kept as a permanent regression guard -- if
+// bus-status.js ever grows its own inline walk again by mistake (instead
+// of calling the shared function), this catches the drift immediately
+// rather than relying on someone noticing visually.
+function testPendingTaskIdsAgreement() {
+  const direct = runTask.listPendingTaskIds().slice().sort();
+  const originalLog = console.log;
+  const printed = [];
+  console.log = (line) => printed.push(String(line));
+  try {
+    busStatus.reportPendingTasks();
+  } finally {
+    console.log = originalLog;
+  }
+  const fromReport = printed
+    .map((l) => l.trim())
+    .filter((l) => l && l !== '(none)' && !l.startsWith('==='))
+    .sort();
+  const agree = JSON.stringify(direct) === JSON.stringify(fromReport);
+  record(
+    'listPendingTaskIds() and bus-status.js reportPendingTasks() agree',
+    agree,
+    agree ? `${direct.length} pending task id(s), matched` : `direct=${JSON.stringify(direct)} report=${JSON.stringify(fromReport)}`
+  );
+}
+
 // ---------- SLOW: generic engine parity (all configured agents) ----------
 // Added 2026-09-01 alongside agent-engine.js, the Phase 2 config-driven
 // scaffold. Dispatches the SAME simple prompt through engine.dispatch()
@@ -650,6 +783,7 @@ function main() {
   testDispatchGuards();
   testVaultSearch();
   testBusStatusSmoke();
+  testPendingTaskIdsAgreement();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testSandboxBoundary();
@@ -658,6 +792,8 @@ function main() {
   testEngineWriteSuccess();
   testEngineSandboxBoundaries();
   testCrossAgentChain();
+  console.log('\n-- slow checks: run-queue-daemon.js (Phase 3) --');
+  testQueueDaemon();
 
   const passed = results.filter((r) => r.pass).length;
   console.log(`\n=== ${passed}/${results.length} passed ===`);

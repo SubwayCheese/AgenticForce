@@ -492,6 +492,74 @@ arguments. Has a fast smoke test in the verification suite
 (`testBusStatusSmoke`) confirming all four report functions run without
 throwing.
 
+## 3g. Phase 3, piece 1: `run-queue-daemon.js` (added 2026-09-02)
+
+Closes the most concrete Phase 3 gap: every `/bus/` dispatch, chain or
+not, required a human to type `node run-task-generic.js <task_id>` by
+hand. This is the real "runs on its own" piece -- long-lived (like
+`watch-inbox.js`, runs until killed, no duration cap; this is standing
+infrastructure, not a bounded content-generation window like
+`run-continuous.js`'s research-crew run), watches `tasks/` via
+`fs.watch(..., { recursive: true })`, and dispatches any new
+`status: pending` file through the existing, unchanged `run-task-generic.js`
+path (as a subprocess -- `execFileSync`, same pattern
+`run-continuous.js`'s `runScriptOnce()` already used, so a crash/hang in
+one task's dispatch can't take the daemon down). `to: claude` tasks
+(orchestrator-reserved) are filtered out at scan time, never dispatched.
+
+**The actual payoff, not just automation of the existing manual step**:
+a periodic tick (2 min in production, overridable via
+`QUEUE_DAEMON_BLOCKED_RETRY_MS` for fast testing) re-checks every
+`status: blocked` task's dependency; once it resolves, the daemon flips
+`status:` back to `pending` and re-dispatches automatically. Before
+this, a multi-step chain still needed a human to notice a dependency
+finished and manually reset the blocked step -- this closes that
+without touching `dependsOnTaskId`'s single-parent format at all.
+
+`listPendingTaskIds()` (and the more general `listTaskIdsByStatus(status)`
+it's built on) is new in `run-task.js`, extracted from `bus-status.js`'s
+`reportPendingTasks()` -- that function used to walk `tasks/` inline;
+now it calls the shared function, so there's one definition of "pending"
+for both the report and the daemon, not two that can drift (kept honest
+by `testPendingTaskIdsAgreement()` in the suite).
+
+**A real, non-hypothetical risk found before ever running this against
+the live vault, not after**: six 2026-08-31/09-01 hand-authored
+guard-test task files were sitting `status: pending` forever by design
+(deliberately left unfinished, or meant to prove a script rejects them)
+-- exactly the kind of historical audit record this vault's own
+convention (see `run-verification-suite.js`'s header) says must never
+be silently modified. A daemon that dispatches anything pending would
+have done exactly that on its very first live scan. Moved to
+`tasks/archive_pre_daemon/` (`git mv`, content untouched) instead, and
+that directory is excluded from `listTaskIdsByStatus()`'s walk the same
+way `verification_suite/` already was.
+
+Verified live, not assumed: a manual smoke test (daemon running, single
+trivial task dropped in by hand, zero manual dispatch command, correctly
+auto-dispatched) plus a real 2-hop dependency chain dropped in at once
+(both files pending simultaneously -- daemon dispatched the parent,
+then the child, entirely unprompted, 30+11 then x2 = 82, correct). The
+blocked-then-auto-retry path specifically was proven separately: a
+child task was dropped in with its parent deliberately not yet
+existing (forcing a genuine `blocked` status), then the parent was
+created -- the next retry tick correctly detected the now-resolved
+dependency, flipped status back to pending, and re-dispatched, landing
+on 7*6+100=142 with zero manual intervention (`tasks/daemon_smoke_test_*.md`,
+kept as historical proof records). This exact scenario is now permanent
+suite coverage too (`testQueueDaemon()`, spawns a real daemon child
+process against `tasks/` root -- deliberately NOT under
+`verification_suite/`, since that directory is excluded from the
+daemon's own scan and would prove nothing; its own two test task files
+are cleaned up after assertion, unlike the suite's other generated
+tasks, so repeated suite runs don't permanently litter `tasks/` root).
+
+**Deliberately out of scope, named so it isn't silently assumed**:
+persistence across logoff/reboot (Windows Task Scheduler wiring -- a
+separate, later decision); true multi-parent fan-in (`dependsOnTaskId`
+stays single-parent; this only makes existing single-parent chains
+hands-off).
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the

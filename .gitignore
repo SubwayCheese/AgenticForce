@@ -3,5 +3,6 @@ bus/status.json
 bus/research-crew-state.json
 bus/inbox-check-state.json
 bus/continuous-run.log
+bus/queue-daemon.log
 .graph/
 tasks/verification_suite/

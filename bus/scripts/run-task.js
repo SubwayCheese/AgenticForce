@@ -211,6 +211,56 @@ function readTaskFile(taskId) {
   };
 }
 
+// Added 2026-09-02 for run-queue-daemon.js: extracted from bus-status.js's
+// reportPendingTasks(), which had this exact walk (skip verification_suite/
+// and UNVERIFIED_Cl/ -- transient/queued content, not real backlog; skip
+// the two template files) inline as a print-only function. Two definitions
+// of "pending" that could silently drift was a real risk the moment a
+// second real consumer (the daemon) needed the same list -- this is now
+// the one definition; bus-status.js calls this instead of walking itself.
+// Returns task IDs (no ".md", ready to pass straight to readTaskFile()/
+// taskFilePath()), not display strings.
+//
+// archive_pre_daemon/ (added 2026-09-02, same day as the daemon): six
+// 2026-08-31/09-01 hand-authored guard-test task files were left
+// deliberately `status: pending` forever, to be depended-on-but-unfinished
+// or to prove a script rejects them -- exactly the kind of historical
+// audit record run-verification-suite.js's own header says must never be
+// silently modified. A daemon that dispatches anything pending would have
+// done exactly that on its first live scan. Moved here (git mv, content
+// untouched) instead, and excluded from this walk the same way
+// verification_suite/ already is, rather than letting new automation
+// quietly mutate old evidence.
+// Generalized from a pending-only walk (found needed again the same day,
+// for run-queue-daemon.js's blocked-task auto-retry -- rather than write
+// the same tree-walk a third time with 'blocked' hardcoded instead of
+// 'pending').
+function listTaskIdsByStatus(status) {
+  if (!fs.existsSync(TASKS_DIR)) return [];
+  const matches = [];
+  function walk(dir, relBase) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'verification_suite' || entry.name === 'UNVERIFIED_Cl' || entry.name === 'archive_pre_daemon') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, path.join(relBase, entry.name));
+      } else if (entry.name.endsWith('.md') && entry.name !== 'task_template.md' && entry.name !== 'unverified_entry_template.md') {
+        const text = fs.readFileSync(full, 'utf8');
+        const statusMatch = text.match(/^status:\s*(\w+)/m);
+        if (statusMatch && statusMatch[1] === status) {
+          matches.push(path.join(relBase, entry.name.replace(/\.md$/, '')));
+        }
+      }
+    }
+  }
+  walk(TASKS_DIR, '');
+  return matches;
+}
+
+function listPendingTaskIds() {
+  return listTaskIdsByStatus('pending');
+}
+
 function writeTaskResult(taskId, { status, output, reason }) {
   const p = taskFilePath(taskId);
   let text = fs.readFileSync(p, 'utf8');
@@ -261,13 +311,11 @@ function verifyOutput(task, output) {
   }
   if (DISPATCHED_SPECIALISTS.has(task.to)) {
     // Added 2026-09-02: accepted tags are now per-specialist, not a fixed
-    // pair for everyone -- a specialist in LIVE_FILE_READ_CAPABLE (today,
-    // only claude-agent) additionally accepts the live-file-read tag.
-    // Deliberately NOT accepted for Codex: nobody has verified Codex's
-    // `--sandbox read-only` actually has the read-but-not-write property
-    // that would make that claim true for it (see the note above
-    // LIVE_FILE_READ_CAPABLE) -- accepting it there would let a false
-    // claim pass verification.
+    // pair for everyone -- a specialist in LIVE_FILE_READ_CAPABLE
+    // additionally accepts the live-file-read tag. Both real dispatched
+    // specialists are in that set today (see the note above it for how
+    // each was verified); a future specialist stays on the plain
+    // two-tag set until it's verified the same rigorous way.
     const acceptedTags = [SOURCE_TAG_TRAINING_RECALL, SOURCE_TAG_ORCHESTRATOR_SUPPLIED];
     if (LIVE_FILE_READ_CAPABLE.has(task.to)) acceptedTags.push(SOURCE_TAG_LIVE_FILE_READ);
     const hasSourceTag = acceptedTags.some((tag) => text.includes(tag));
@@ -445,6 +493,8 @@ module.exports = {
   runCodex,
   appendLog,
   taskFilePath,
+  listPendingTaskIds,
+  listTaskIdsByStatus,
   MANDATORY_SUFFIX,
   MANDATORY_SUFFIX_LIVE_READ_CAPABLE,
   LIVE_FILE_READ_CAPABLE,

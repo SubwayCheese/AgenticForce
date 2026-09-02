@@ -18,10 +18,10 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { listAgentConfigs } = require('./agent-engine.js');
 const { validate: validateAgentConfig } = require('./validate-agent-config.js');
+const { listPendingTaskIds } = require('./run-task.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'log.md');
-const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
 
 function section(title) {
   console.log(`\n=== ${title} ===`);
@@ -65,29 +65,13 @@ function reportRecentActivity(limit = 8) {
 }
 
 // --- Pending tasks (created but never run) ---
+// Walk logic lives in run-task.js's listPendingTaskIds() (added
+// 2026-09-02 for run-queue-daemon.js) -- this just formats it, so the
+// daemon and this report share one definition of "pending," not two
+// that can drift.
 function reportPendingTasks() {
   section('Pending tasks (created, never dispatched)');
-  if (!fs.existsSync(TASKS_DIR)) {
-    console.log('  (no tasks/ directory found)');
-    return;
-  }
-  const pending = [];
-  function walk(dir, relBase) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'verification_suite' || entry.name === 'UNVERIFIED_Cl') continue; // noisy, expected transient/queued content
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full, path.join(relBase, entry.name));
-      } else if (entry.name.endsWith('.md') && entry.name !== 'task_template.md' && entry.name !== 'unverified_entry_template.md') {
-        const text = fs.readFileSync(full, 'utf8');
-        const statusMatch = text.match(/^status:\s*(\w+)/m);
-        if (statusMatch && statusMatch[1] === 'pending') {
-          pending.push(path.join(relBase, entry.name));
-        }
-      }
-    }
-  }
-  walk(TASKS_DIR, '');
+  const pending = listPendingTaskIds();
   if (pending.length === 0) {
     console.log('  (none)');
   } else {
