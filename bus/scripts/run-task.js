@@ -142,15 +142,31 @@ function writeTaskResult(taskId, { status, output, reason }) {
 // trusted as "done" -- added 2026-08-31 to close the gap agent-comms hit
 // for a real reason (Antigravity self-reporting fake/unverified
 // completion). Deliberately minimal: non-empty, has the mandatory SOURCE
-// tag (Codex tasks only), and matches expectedType if the task declared
-// one. Does not attempt semantic correctness -- that's a different,
-// harder problem than "did this task even produce a checkable result."
+// tag, and matches expectedType if the task declared one. Does not
+// attempt semantic correctness -- that's a different, harder problem
+// than "did this task even produce a checkable result."
+//
+// DISPATCHED_SPECIALISTS (generalized 2026-09-01): the SOURCE-tag
+// requirement was originally hardcoded to `task.to === 'codex'`. That was
+// an accident of only ever having dispatched to one specialist, not a
+// real Codex-specific property -- the underlying reason (a bare headless
+// CLI call with no live data/web tool has no way to give a verified-live
+// answer) applies identically to any dispatched specialist, Claude
+// included. `to: claude` stays reserved for orchestrator-sourced tasks
+// (Claude, in-session, citing a real fetched source) -- that path
+// legitimately skips this check by design (see the "Orchestrator-sourced
+// tasks" pattern in task_template.md). `to: claude-agent` is the new
+// identifier for a task actually dispatched to a nested headless Claude
+// specialist via run-task-claude.js, which is NOT the orchestrator and
+// gets the same tag requirement as Codex.
+const DISPATCHED_SPECIALISTS = new Set(['codex', 'claude-agent']);
+
 function verifyOutput(task, output) {
   const text = String(output || '').trim();
   if (!text) {
     return { ok: false, reason: 'output is empty' };
   }
-  if (task.to === 'codex') {
+  if (DISPATCHED_SPECIALISTS.has(task.to)) {
     const hasSourceTag =
       text.includes('SOURCE: training-data recall, not verified live') ||
       text.includes('SOURCE: supplied by orchestrator from a prior verified step');
@@ -158,8 +174,22 @@ function verifyOutput(task, output) {
       return { ok: false, reason: 'missing the mandatory SOURCE tag -- neither accepted variant found in the response' };
     }
   }
-  if (task.expectedType === 'number' && !/\d/.test(text)) {
-    return { ok: false, reason: 'expectedType is "number" but output contains no digit characters' };
+  if (task.expectedType === 'number') {
+    // Tightened 2026-09-01 (closes an open item found while building the
+    // verification suite): checking the whole response for any digit
+    // meant a response whose only digit was in the as-of preamble (e.g.
+    // "As of: 2026") passed even with a non-numeric answer. Checking only
+    // the last non-empty line matches every task in this pipeline's own
+    // convention ("Reply with ONLY the resulting integer on its own
+    // line"). Verified against all 16 real dispatched responses recorded
+    // 2026-09-01 before this change -- old and new logic agree on every
+    // one; this only changes behavior for a response that would have
+    // been a false positive under the old check.
+    const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+    const lastLine = lines[lines.length - 1] || '';
+    if (!/\d/.test(lastLine)) {
+      return { ok: false, reason: 'expectedType is "number" but the last non-empty line of the output contains no digit characters' };
+    }
   }
   return { ok: true };
 }
@@ -224,6 +254,18 @@ function main() {
   }
   if (task.status !== 'pending') {
     console.error(`Task "${taskId}" has status "${task.status}", not "pending" -- refusing to re-run. Delete the ## Result (auto) block and reset status to pending if you really want to re-run it.`);
+    process.exit(1);
+  }
+  // Guard added 2026-09-01, found during a review pass: this function
+  // never checked task.to before dispatching to Codex. Harmless before
+  // today (Codex was the only possible dispatch target, by construction)
+  // -- now that `to: claude-agent` tasks exist, running this script
+  // instead of run-task-claude.js on one would silently send it to
+  // Codex with no error, and a generic prompt might even happen to pass
+  // verification, making the mistake invisible. run-task-claude.js
+  // already guards its own `to:` this way; this closes the same gap here.
+  if (task.to !== 'codex') {
+    console.error(`Task "${taskId}" has to: "${task.to}", expected "codex". Use run-task-claude.js for claude-agent tasks, or run-task-generic.js for either.`);
     process.exit(1);
   }
 

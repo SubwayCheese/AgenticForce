@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: task-protocol
+status: active
+domain: task-protocols
+description: General Task Execution Protocol — Test Broadcast
+tags: ["testing", "broadcast-task", "verification", "protocol"]
+---
 # General Task Execution Protocol — Test Broadcast
 
 Verification log for general task broadcast (`agent: "all"`) execution across Antigravity, Claude Code, and Codex.
@@ -17,4 +27,4 @@ Verification log for general task broadcast (`agent: "all"`) execution across An
 - **Codex:** Verified backend thread event dispatch.
 
 ---
-*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]]
+*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]] | [[01 - Task Dispatch & Live Sub-Agent Dashboard]] (application) -- this test verifies the broadcast-task path of that dashboard

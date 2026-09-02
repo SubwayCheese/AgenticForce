@@ -12,13 +12,38 @@ timestamp:
 dependsOnTaskId: (optional -- see below)
 expectedType: (optional -- "number", or blank for no type check)
 
-## Mandatory prompt suffix (Codex tasks, added 2026-08-31, upgraded same day)
+## Which agent, and how to dispatch (updated 2026-09-01)
 
-Every prompt actually sent to Codex for this task must end with this block
-verbatim -- see /roles/codex_role.md for why. codex exec has no live data
-source (no web-search/fetch flag, no evidence one is configured), so every
-response it gives is training-data recall by construction -- this is now a
-mandatory, unmissable tag, not just an as-of date:
+`to:` accepts three kinds of values, each meaning something different:
+
+- `to: codex` -- dispatch to Codex. Run via `node bus/scripts/run-task.js <task_id>`
+  (read-only, autonomous-safe) or `run-task-generic.js <task_id>` (same
+  thing, via the config-driven engine).
+- `to: claude-agent` -- dispatch to a second, nested headless Claude Code
+  process (NOT the orchestrator running this session). Run via
+  `node bus/scripts/run-task-claude.js <task_id>` or
+  `run-task-generic.js <task_id>`. Added 2026-09-01 specifically to prove
+  `/bus/`'s design generalizes past a single specialist -- see
+  `ARCHITECTURE.md` sections 3c/3d.
+- `to: claude` -- reserved for orchestrator-sourced tasks (see that
+  section below). NOT dispatched to any process; the orchestrator writes
+  the `Result` block by hand. Do not confuse with `claude-agent`.
+
+`run-task-generic.js [--write]` is the config-driven path (see
+`bus/scripts/agents/README.md`): it reads `to:`, loads the matching
+`bus/scripts/agents/<to>.json`, and dispatches through
+`agent-engine.js`. This is where a third agent would be added --
+a new JSON config, not a new script.
+
+## Mandatory prompt suffix (added 2026-08-31, generalized 2026-09-01)
+
+Every prompt actually sent to a dispatched specialist (Codex or
+claude-agent -- see `run-task.js`'s `DISPATCHED_SPECIALISTS` set) for
+this task must end with this block verbatim -- see /roles/codex_role.md
+and /roles/claude_role.md for why. A bare headless call has no live data
+source by construction (no web-search/fetch tool attached), so every
+response it gives is training-data recall -- this is a mandatory,
+unmissable tag, not just an as-of date:
 
   Before answering, your response MUST start with this exact line:
   SOURCE: training-data recall, not verified live
@@ -65,15 +90,17 @@ Do not hand-copy a prior task's output into `payload:` yourself when
 dependsOnTaskId is available -- that reintroduces the exact manual-habit
 failure mode this field exists to close.
 
-## Verification (added 2026-08-31)
+## Verification (added 2026-08-31, generalized 2026-09-01)
 
-Before a Codex task can land as `done`, bus/scripts/run-task.js's
+Before a dispatched task can land as `done`, `run-task.js`'s
 verifyOutput() runs a second, independent check -- closing the same gap
 agent-comms needed a verification gate for (an agent's own self-report was
 trusted with no check). Deliberately minimal:
   - output is non-empty
-  - for Codex tasks: the mandatory SOURCE tag is actually present (one of
-    the two accepted exact phrasings), not just requested
+  - for dispatched specialists (`to:` in `DISPATCHED_SPECIALISTS` --
+    today, `codex` and `claude-agent`): the mandatory SOURCE tag is
+    actually present (one of the two accepted exact phrasings), not just
+    requested
   - if `expectedType: number` is set: output contains at least one digit
 
 If any check fails, the task lands as `unverified` (not `done`, not
@@ -98,14 +125,22 @@ tasks can depend on it deterministically.
 ## How to run a task
 
 1. Create the task file from this template, status: pending.
-2. `node bus/scripts/run-task.js <task_id>`
+2. `node bus/scripts/run-task.js <task_id>` (Codex), `run-task-claude.js
+   <task_id>` (claude-agent), or `run-task-generic.js <task_id>` (either,
+   config-driven -- reads `to:` automatically).
 3. Check the task file's status and the new entry in bus/log.md.
 
-Manual `codex exec` invocation (as used before this script existed) is
+Manual direct CLI invocation (as used before these scripts existed) is
 still fine for tasks with no dependsOnTaskId, but any task that depends on
-another task's output MUST go through this script -- that dependency
-resolution is exactly what it exists to make a system guarantee instead of
-something the orchestrator has to remember to do correctly by hand.
+another task's output MUST go through one of the scripts above -- that
+dependency resolution is exactly what they exist to make a system
+guarantee instead of something the orchestrator has to remember to do
+correctly by hand.
+
+**Write-enabled dispatch** (manual, supervised sessions only -- never
+autonomous): `run-task-collab.js <task_id>` (Codex) or
+`run-task-generic.js <task_id> --write` (either agent, config-driven).
+Does not support `dependsOnTaskId`. See `ARCHITECTURE.md` sections 3a/3d.
 
 ## Orchestrator-sourced tasks (real grounding, added 2026-08-31)
 

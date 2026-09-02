@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: task-protocol
+status: active
+domain: task-protocols
+description: "Task Dispatch & Live Sub-Agent Dashboard"
+tags: ["task-dispatch", "dashboard", "real-time", "sub-agents"]
+---
 # Task Dispatch & Live Sub-Agent Dashboard
 
 How to submit tasks and track sub-agent execution live via the agent-comms hub (`http://127.0.0.1:47415`).
@@ -34,4 +44,4 @@ Set `parentTaskId` to an existing top-level task's id when submitting. The paren
 The `claude` and `codex` adapters each assume roughly one task in flight at a time for reply correlation (see [[02 - Cross-Agent Error Resolution & Learnings]] for the Codex thread-addressing bug this caused once already). Submitting many concurrent tasks to the same agent is not yet a fully solved case.
 
 ---
-*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]]
+*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]] | [[02 - General Task Test Protocol]] (application) -- the verification log for this dashboard's broadcast-task path

@@ -1,10 +1,17 @@
 ---
 title: "Agent Tool Use & Function Calling"
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "AI agent tool use function calling structured output"
+status: unverified
+search_query: AI agent tool use function calling structured output
 sources_found: 5
 pages_analyzed: 2
+type: research-note
+domain: research
+description: "Agent Tool Use & Function Calling"
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["tool-use", "function-calling", "research"]
 ---
 
 # Agent Tool Use & Function Calling
@@ -86,3 +93,8 @@ Join the waitlist for early access.
 
 ---
 *Generated 2026-09-01T04:54:39.683Z | 5 sources found, 2 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Autonomous Coding Agents]] (context) -- same category (Agent Capabilities), tool use/function calling is a prerequisite capability for the autonomous coding agents that note covers

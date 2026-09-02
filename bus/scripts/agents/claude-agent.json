@@ -1,0 +1,19 @@
+{
+  "_comment": "Agent config for the nested headless Claude specialist, derived from run-task-claude.js's proven invocation (2026-09-01). claude.exe is a real PE32+ executable, not a .cmd wrapper -- confirmed via `file` before writing run-task-claude.js -- hence isWindowsCmdWrapper: false.",
+  "id": "claude-agent",
+  "displayName": "Claude",
+  "binary": "claude",
+  "isWindowsCmdWrapper": false,
+  "outputMethod": "stdout",
+  "promptDelivery": "stdin",
+  "boundaryTestMethod": "write-tool",
+  "boundaryTestMethodNote": "Found 2026-09-01: a raw shell write attempt gets blocked by the Bash-tool approval gate, not the file-permission boundary being tested -- a real but different mechanism than Codex's uniform sandbox, and not the apples-to-apples test. The native Write/Edit tool is gated separately by working-directory scoping, which IS the equivalent test to Codex's sandbox boundary -- confirmed empirically: blocked with 'outside the session's approved working directories', not a Bash-approval message.",
+  "modes": {
+    "readOnly": {
+      "args": ["-p", "--permission-mode", "plan"]
+    },
+    "write": {
+      "args": ["-p", "--permission-mode", "acceptEdits"]
+    }
+  }
+}

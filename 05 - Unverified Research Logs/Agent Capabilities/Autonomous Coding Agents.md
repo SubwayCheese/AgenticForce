@@ -1,10 +1,17 @@
 ---
-title: "Autonomous Coding Agents"
+title: Autonomous Coding Agents
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "autonomous coding agents SWE-bench Devin OpenHands"
+status: unverified
+search_query: autonomous coding agents SWE-bench Devin OpenHands
 sources_found: 5
 pages_analyzed: 1
+type: research-note
+domain: research
+description: Autonomous Coding Agents
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["coding-agents", "autonomous", "research"]
 ---
 
 # Autonomous Coding Agents
@@ -34,3 +41,8 @@ To use the Mastodon web application, please enable JavaScript. Alternatively, tr
 
 ---
 *Generated 2026-09-01T05:05:07.120Z | 5 sources found, 1 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Agent Tool Use & Function Calling]] (context) -- same category (Agent Capabilities); note this file's own scraped content is mostly off-topic search noise (autonomous vehicles/Tesla/Capitol Hill, not coding agents) -- a real data-quality gap in the research crew's search precision, flagged here rather than silently linked as if the content were solid

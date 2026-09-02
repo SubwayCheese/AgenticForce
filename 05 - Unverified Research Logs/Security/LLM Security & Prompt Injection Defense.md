@@ -1,10 +1,17 @@
 ---
 title: "LLM Security & Prompt Injection Defense"
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "prompt injection defense LLM security guardrails"
+status: unverified
+search_query: prompt injection defense LLM security guardrails
 sources_found: 5
 pages_analyzed: 3
+type: research-note
+domain: research
+description: "LLM Security & Prompt Injection Defense"
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["llm-security", "prompt-injection", "research"]
 ---
 
 # LLM Security & Prompt Injection Defense
@@ -82,3 +89,7 @@ View a PDF of the paper titled DeepSeek-R1: Incentivizing Reasoning Capability i
 
 ---
 *Generated 2026-09-01T04:59:57.050Z | 5 sources found, 3 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub) -- only sibling in its category folder, no other Security notes exist yet to cross-link; note the scraped content is also off-topic (LLM inevitabilism, prompting expertise, DeepSeek-R1 -- not prompt injection or guardrails), the 6th of 10 research notes found with this same search/content mismatch during 2026-09-01 review

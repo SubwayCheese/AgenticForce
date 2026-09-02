@@ -1,10 +1,17 @@
 ---
-title: "Vector Database Comparison"
+title: Vector Database Comparison
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "vector database comparison Pinecone Weaviate Chroma Qdrant"
+status: unverified
+search_query: vector database comparison Pinecone Weaviate Chroma Qdrant
 sources_found: 5
 pages_analyzed: 2
+type: research-note
+domain: research
+description: Vector Database Comparison
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["vector-database", "comparison", "research"]
 ---
 
 # Vector Database Comparison
@@ -78,3 +85,8 @@ We present results from optimizing NeuralSVG with aspect ratios of 1:1 and 4:1. 
 
 ---
 *Generated 2026-09-01T05:10:17.624Z | 5 sources found, 2 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Advanced RAG Techniques]] (context) -- same category (RAG & Retrieval); note this file's own scraped content is also off-topic (matched on the word "vector" -- linear algebra and SVG graphics, not vector databases)

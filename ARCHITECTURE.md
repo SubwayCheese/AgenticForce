@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: hub
+status: active
+domain: root
+description: Entry point for the /bus/ orchestration protocol -- task lifecycle, verification gate, write-mode collaboration, and the permanent regression suite
+tags: ["bus-protocol", "orchestration", "hub", "verification"]
+---
 # Architecture (current state)
 
 This is a snapshot of how the system works right now. It is not a history
@@ -24,6 +34,10 @@ eventual use case.
   anymore. It has its own task journal and adapters, but they are a
   separate, unaudited path -- do not treat agent-comms output as
   equivalent to a `/bus/` task.
+
+**Two Codex dispatch modes** (added 2026-09-01): `run-task.js` (read-only,
+used by every autonomous/unattended path) and `run-task-collab.js`
+(write-enabled, manual-only) -- see section 3a.
 
 ## 3. Task lifecycle (end to end)
 
@@ -71,6 +85,346 @@ claude`) items in the backlog must already be `done` before the backlog
 runs; this script cannot fetch real data itself (same constraint as
 `run-task.js` -- see section 6).
 
+## 3a. Write-enabled collaboration mode (added 2026-09-01)
+
+`bus/scripts/run-task-collab.js` is a second, deliberately separate entry
+point from `run-task.js`, for supervised sessions (user + Claude both
+present) working on the vault itself -- e.g. Codex leaving its own notes,
+editing shared docs directly, contributing to `/bus/` improvements. Key
+differences from the default read-only path:
+
+- Dispatches via `codex exec --sandbox workspace-write` instead of
+  `read-only`. Scoped to `VAULT_ROOT` only (via the `cwd` process option,
+  not an explicit `--cd` argv flag -- see the file's own comments for why
+  passing `--cd` as an argv element broke under Windows shell quoting).
+  Nothing outside the vault directory is writable.
+- No `dependsOnTaskId` support -- this is for direct collaborative edits,
+  not data pipelines.
+- No SOURCE-tag verification -- that machinery is about factual-recall
+  grounding, which doesn't apply to file edits. Instead, every call
+  snapshots the vault's file tree (path -> size/mtime) before and after,
+  and logs the real added/modified/removed diff to `bus/log.md` and the
+  task's own output -- so Claude sees what Codex actually changed on disk,
+  not just Codex's own text summary of what it did.
+- **Manual-only, by design.** Nothing in this repo invokes this script
+  automatically -- not `run-continuous.js`, not `run-research-crew.js`,
+  not `watch-inbox.js`. Those stay on `run-task.js` / read-only. Do not
+  wire this into any unattended path.
+
+Tested 2026-09-01 (`task_20260901_collab_write_test`): Codex created
+`bus/codex_notes.md` (now a real, ongoing scratch space for Codex to leave
+notes between sessions); the file-diff mechanism correctly detected the
+addition independent of Codex's own claim.
+
+**Sandbox boundary stress-tested 2026-09-01**
+(`task_20260901_sandbox_boundary_test`): instructed Codex to actually
+attempt (not just reason about) a shell write to
+`C:\Users\trevo\agent-comms\codex_boundary_test.txt` -- a real directory
+outside the vault. Codex ran `Set-Content`, got a real OS-level
+`Access to the path ... is denied` error, and reported it faithfully; the
+target path was independently confirmed absent afterward (not just taking
+Codex's report on faith). The vault-write path scoping holds under a real
+attempt, not only in the happy-path case. One caveat worth knowing:
+`codex exec --sandbox workspace-write`'s own startup banner reports its
+writable scope as `[workdir, /tmp, $TMPDIR]` -- the OS temp directory is
+always additionally writable regardless of `--cd`/`cwd`. Not a project-data
+risk (nothing sensitive lives there) but worth remembering if a future task
+ever needs the boundary to be *absolute*, not just "nothing outside the
+vault or system temp."
+
+## 3b. Permanent regression suite (added 2026-09-01)
+
+`bus/scripts/run-verification-suite.js` -- `node bus/scripts/run-verification-suite.js`,
+no arguments. Exists because every safety property in this document (the
+verification gate, dependency blocking, chain propagation, the write-mode
+sandbox boundary) had been proven exactly once, by hand, as a one-off task
+file -- real evidence, but nothing that would catch a regression if
+`run-task.js`/`run-task-collab.js` changed later, and nothing that could be
+re-run together as a single check.
+
+Covers, every run:
+- **Fast (no live Codex process):** `verifyOutput()` against a valid
+  response plus 3 fabricated failure shapes (empty, missing SOURCE tag,
+  `expectedType: number` with no digit); `resolveDependency()` against all
+  3 blocking cases (missing dependency, not-yet-done dependency, done-but-
+  no-output dependency).
+- **Slow (spawns real `codex exec`):** a live 2-hop numeric dependency
+  chain with a fresh seed each run (not the same numbers as the original
+  manual `chain_a/b/c` test, so a hard-coded-response bug couldn't hide
+  behind a repeated value); the live sandbox-boundary write-outside-the-
+  vault attempt, independently re-verified via `fs.existsSync`, not by
+  trusting Codex's own report.
+
+Every generated task file lands under
+`tasks/verification_suite/<run_id>/`, isolated from real work and from
+other suite runs. Suite dispatches are logged to `bus/log.md` exactly like
+a normal `run-task.js`/`run-task-collab.js` call (this was missed in the
+first draft of the suite -- caught immediately by checking `bus/log.md`
+for the run and finding nothing there, fixed before relying on it).
+
+**Two real findings surfaced while building this, not before:**
+- `verifyOutput()`'s `expectedType: number` check scans the *entire*
+  response text for any digit, not specifically the answer -- a response
+  whose only digit is in the as-of preamble (e.g. "As of: 2026") still
+  passes. Deliberately minimal per this file's own stated philosophy
+  ("does not attempt semantic correctness"), not a bug, but worth knowing
+  precisely rather than assuming the check is stricter than it is.
+- The write-mode file-diff (section 3a) had a real false-positive source:
+  `.obsidian/workspace.json` (Obsidian's own autosaved UI state -- open
+  tabs, cursor position) changed during a sandbox-boundary test run
+  because the vault was open in Obsidian at the time, and the diff wrongly
+  attributed that background write to Codex. Fixed by adding `.obsidian`
+  to `run-task-collab.js`'s `IGNORE_DIRS` (alongside the pre-existing
+  `.git`/`node_modules`). Confirmed clean on a follow-up run.
+
+## 3c. Second real specialist: Claude, via run-task-claude.js (added 2026-09-01)
+
+Added specifically to test a concrete question before designing a Phase 2
+agent-scaffold system: which parts of `run-task.js`'s design are
+genuinely generic across specialists, versus Codex-specific assumptions
+that were never actually tested because Codex was the only specialist
+that had ever existed. `bus/scripts/run-task-claude.js` dispatches to a
+nested headless `claude -p` process, read-only by default
+(`--permission-mode plan`). Tasks use `to: claude-agent` (deliberately
+distinct from `to: claude`, which stays reserved for orchestrator-sourced
+tasks -- see `verifyOutput()`'s `DISPATCHED_SPECIALISTS` set in
+`run-task.js`).
+
+**What generalized with zero code changes** (reused directly via
+`require('./run-task.js')`): dependency resolution (`resolveDependency`),
+the task file format, `writeTaskResult`, `appendLog`. These were never
+actually Codex-specific -- just never exercised against anything else
+until now. `MANDATORY_SUFFIX`'s wording was already agent-neutral too
+("you have no live data lookup"), reused verbatim.
+
+**What needed a real, one-line generalization, not a rewrite**:
+`verifyOutput()`'s SOURCE-tag check was hardcoded to `task.to === 'codex'`.
+Generalized to a `DISPATCHED_SPECIALISTS` set once a second specialist
+needed it. A real accidental-coupling found by actually building the
+second integration, not by inspection.
+
+**What was genuinely different per specialist** (not generalizable, and
+correctly isn't shared): invocation shape (`codex exec --sandbox
+read-only ...` vs `claude -p --permission-mode plan`, stdin-piped either
+way); the Windows subprocess quirk (`codex.exe` is a `.cmd` wrapper
+needing `execFileSync`'s `shell:true` plus the manual-quoting workaround
+in `run-task-collab.js`; `claude.exe` is a real PE32+ executable --
+confirmed via `file` before writing the script -- needing neither);
+sandbox vocabulary (Codex's `read-only/workspace-write/
+danger-full-access` vs Claude's `plan/acceptEdits/bypassPermissions/...`,
+a different underlying model, not just different names for the same
+thing).
+
+**Tested 2026-09-01, both passing identically to Codex's own tests**:
+- Basic dispatch (`task_20260901_claude_basic_test`): 15+22=37, correct,
+  verification gate passed.
+- Dependency blocking (`task_20260901_claude_block_notdone`): correctly
+  blocked, never dispatched, same as Codex's equivalent test.
+- **Cross-agent dependency chain** (`task_20260901_cross_agent_a/b/c`):
+  seed 61 -> Claude adds 19 (=80) -> Codex multiplies by 2 (=160),
+  exactly right. This is the real test: Codex correctly consumed a value
+  Claude produced, despite Claude's slightly different formatting
+  (`As-of:` vs Codex's `As of:`, an extra blank line before the number) --
+  the pipeline doesn't assume a single specialist's exact output shape.
+
+**Answer to the Phase 2 question this was built to answer**: the core
+`/bus/` abstractions (dependency chains, the verification gate, task file
+format) hold up across two structurally different real specialists with
+almost no per-agent special-casing -- one generalized field
+(`DISPATCHED_SPECIALISTS`) and one new dispatch script whose differences
+are genuinely invocation-shape differences, not design flaws. This
+directly motivated section 3d.
+
+## 3d. Phase 2 scaffold: config-driven agent dispatch (added 2026-09-01)
+
+**The actual Phase 2 deliverable.** Sections 3a-3c proved the pattern
+generalizes but did nothing to make adding a third agent easier -- each
+one still meant hand-writing a ~150-line near-duplicate script. This
+closes that gap: everything that varies per specialist now lives in a
+small JSON config, and everything that doesn't stays shared code.
+
+**Files:**
+- `bus/scripts/agents/<id>.json` -- one config per agent (`codex.json`,
+  `claude-agent.json` today). Fields: `binary`, `isWindowsCmdWrapper`,
+  `outputMethod` (`file` | `stdout`), `promptDelivery`, `modes.readOnly.args`
+  / `modes.write.args` (with `{outputFile}` as the one supported
+  placeholder), and `boundaryTestMethod` (see below).
+- `bus/scripts/agent-engine.js` -- shared dispatch engine: `dispatch()`
+  (read-only or write mode, handles the Windows `.cmd`-wrapper quirk and
+  either output-capture method), `dispatchWrite()` (adds the
+  snapshot/diff auditing from 3a, generalized to any agent), plus
+  `loadAgentConfig()`/`listAgentConfigs()`.
+- `bus/scripts/run-task-generic.js <task_id> [--write]` -- the
+  operator-facing entry point. Reads the task's `to:` field, loads the
+  matching config, dispatches. One command instead of remembering which
+  script goes with which agent.
+
+**Deliberately additive, not a replacement**: `run-task.js`,
+`run-task-claude.js`, and `run-task-collab.js` are untouched and still
+work exactly as before -- `run-backlog.js`, `run-research-crew.js`,
+`watch-inbox.js`, and `run-verification-suite.js` all depend on
+`run-task.js`'s exports directly and have no reason to change. The
+generic engine was validated by dispatching the SAME two agents through
+it and confirming real, passing results (see the verification suite's
+`testEnginePerAgentDispatch`/`testEngineSandboxBoundaries`, which cover
+every configured agent automatically -- adding `agents/<id>.json` for a
+future agent gets it covered with no new test code).
+
+**A real, non-obvious finding from closing the write-mode gap for
+Claude**: a boundary test needs to match how the agent's permission
+model actually works, or it tests the wrong thing. First attempt used
+the same shell-command boundary test that worked for Codex --
+`--permission-mode acceptEdits` blocked it, but via Claude Code's
+Bash-tool approval gate ("This command requires approval"), not a
+file-permission boundary. That's a real block, but proves the wrong
+thing -- Codex's sandbox governs shell execution uniformly; Claude's
+permission model gates Bash and its native Write/Edit tools separately.
+The real equivalence-class test asked Claude to use its own Write tool
+directly: correctly blocked with "outside the session's approved working
+directories" -- the actual boundary property, confirmed. This is now
+encoded as each config's `boundaryTestMethod` (`"shell"` for Codex,
+`"write-tool"` for Claude) rather than assumed identical, and the
+verification suite picks the right test per agent from that field.
+
+**A second finding, structural rather than fixable**: while the Claude
+write-mode boundary tests were running, an unrelated concurrent edit
+(this section being written) landed inside the snapshot window and
+showed up in that task's file-diff as a "modified" file. Same class of
+false positive as the `.obsidian` issue in section 3a, but this one
+isn't a fixable ignore-list gap -- it's inherent to diff-based auditing
+during genuinely concurrent edits. Practical mitigation: don't edit
+vault files while a write-mode task is in flight, not a code fix.
+
+**How to add a new agent**: the full checklist lives in
+`bus/scripts/agents/README.md`, written from what actually went wrong or
+had to be verified the first time (not guessed in advance). Short
+version: write `bus/scripts/agents/<id>.json` with real, verified values
+(`<binary> --help`, `file <path-to-binary>`, one live smoke-test call --
+don't guess flag names or the Windows-wrapper question from an existing
+config), validate its shape with `node validate-agent-config.js <id>`
+(fast, no live call), dispatch one real task through
+`run-task-generic.js`, then run `run-verification-suite.js` -- which
+covers the new agent automatically (`testAgentConfigShapes`,
+`testEnginePerAgentDispatch`, `testEngineSandboxBoundaries` all loop over
+whatever configs exist). If any of that requires writing a new
+agent-specific test function, something about the config or the engine
+is under-general and worth fixing at that level instead.
+
+**Also validated 2026-09-01**: a full cross-agent dependency chain
+dispatched entirely through `run-task-generic.js` (not the hand-written
+scripts) -- seed 29 -> Claude adds 13 (=42) -> Codex multiplies by 3
+(=126), exact. Confirms the generic engine handles chained dependencies
+correctly end to end, not just isolated single dispatches.
+
+**A real bug found and fixed during a self-review pass (2026-09-01, not
+prompted by a test failure)**: neither `run-task.js` nor
+`run-task-collab.js` ever checked a task's `to:` field before dispatching
+to Codex -- both just always called Codex, unconditionally. Harmless
+before today, by construction (Codex was the only possible dispatch
+target). Not harmless once `to: claude-agent` tasks exist: running
+`node run-task.js <task_id>` on a Claude-intended task would have
+silently sent it to Codex instead, with no error, and a generic-enough
+prompt might even have happened to pass verification -- making the
+mistake invisible rather than loud. Both scripts now reject a task whose
+`to:` doesn't match what they dispatch to (`run-task-claude.js` already
+had this guard from when it was written); `run-task-generic.js` also
+explicitly rejects `to: claude` (the reserved orchestrator-sourced
+marker) rather than relying on no `agents/claude.json` ever existing by
+coincidence. Verified safe to add: neither `run-backlog.js`,
+`run-research-crew.js`, nor `watch-inbox.js` calls any of these scripts'
+`main()` -- all three use the exported primitives directly with their
+own dispatch logic, so this change only affects direct CLI invocation,
+exactly the mistake it guards against. Tested all three new guards live
+(`task_20260901_guard_test_wrong_script`, `task_20260901_collab_guard_test`,
+`task_20260901_generic_guard_test` in both modes): correctly rejected,
+task status left `pending` (not falsely marked done/error), full
+regression suite still green after each change. The four manual guard
+tests are now permanent (`testDispatchGuards` in
+`run-verification-suite.js`) -- spawns each script as a real subprocess
+(can't call `main()` in-process, it calls `process.exit()` directly on
+rejection) and confirms rejection, exit code, untouched task status, and
+the specific expected stderr message. No live agent call happens on any
+reject path, so this stays in the fast tier despite spawning real
+subprocesses.
+
+Also made permanent: the nonexistent-binary dispatch test (manually
+confirmed once, now `testNonexistentBinaryDispatch` -- built entirely
+in-memory, no file touches `bus/scripts/agents/`, so there's no cleanup
+risk of a broken config leaking into the real directory).
+
+**A real gap found while looking for what else was still only manually
+tested**: the cross-agent dependency chain -- the actual core claim of
+the whole Phase 2 scaffold effort -- had been proven by hand three
+separate times that day (`task_20260901_cross_agent_*`,
+`task_20260901_generic_chain_*`, the 5-hop `longchain_*`) but never made
+a permanent regression test. `testLiveChain()` only ever exercised
+Codex-only chains. Added `testCrossAgentChain()` (seed 23 -> Claude adds
+6[=29] -> Codex multiplies by 4[=116]) using a new generic in-process
+helper (`runFullTaskGeneric`, dispatches via whichever `agents/<id>.json`
+matches the task's own `to:` field, instead of `runFullTask`'s
+Codex-only `runCodex()` call) -- so the single most important thing this
+whole effort was meant to prove now gets checked every suite run, not
+just when someone remembers to test it by hand again.
+
+**One more gap closed the same way**: `testEngineSandboxBoundaries` only
+ever proves a write correctly *fails* outside the vault -- whether a
+legitimate write *inside* the vault actually *succeeds* was tested by
+hand for both agents that day but never made permanent either. Added
+`testEngineWriteSuccess`, completing the read/write x success/failure
+matrix for the generic engine (previously 3 of 4 cells covered).
+Independently verifies the file landed on disk with the right content,
+not just that the agent claimed success, then cleans up.
+
+**A second real finding from the same review pass**: `agent-engine.js`'s
+`promptDelivery` config field was validated by
+`validate-agent-config.js` and documented in both configs, but never
+actually read by `dispatch()` -- the prompt is unconditionally piped via
+stdin regardless of what the field says. A future config setting
+`promptDelivery: "positional"` would have silently done nothing, and
+that agent might never receive its prompt if its CLI doesn't read stdin.
+`dispatch()` now asserts `promptDelivery === 'stdin'` explicitly and
+throws a clear error otherwise -- loud failure at dispatch time instead
+of silent wrong behavior. Confirmed both existing configs are
+unaffected (both already declare `"stdin"`).
+
+## 3e. Phase 3 groundwork: `vault-search.js` (added 2026-09-01)
+
+First real Phase 3 piece ("shared persistent infrastructure underneath
+both" the orchestration hub and the agent scaffold). `bus/scripts/
+vault-search.js` is a thin Node wrapper around autograph's `search.py`
+(BM25 FTS5 + link-graph rerank over the vault -- zero extra deps, tested
+live against the real vault before writing the wrapper, not assumed from
+its docstring). Usable as a CLI (`node vault-search.js "<query>"
+[--limit N]`) or programmatically (`const { search } = require(...)`) by
+any future script that wants to pull real, ranked vault context before
+building a task prompt, instead of relying on the orchestrator's own
+memory of what's in the vault. Read-only, side-effect-free, degrades to
+`{ engine: 'unavailable' }` rather than throwing if autograph or `uv`
+isn't available -- callers should treat this as optional enrichment, not
+a hard dependency.
+
+Not yet wired into `run-task-generic.js` or any dispatch path -- this is
+groundwork (the query capability, verified working), not yet integrated
+into task authoring. That integration is a real design decision (when
+should a task prompt get auto-enriched with search results? all tasks,
+or only ones that opt in?) better made deliberately than bolted on
+without it being asked for.
+
+## 3f. Phase 3: `bus-status.js` (added 2026-09-01)
+
+A single, human-readable snapshot of the whole `/bus/` system --
+mirrors `crew-status.js`'s existing pattern (focused summary, not raw
+logs) generalized from "the research crew" to everything: agent config
+validity (via `validate-agent-config.js`), recent dispatch activity
+(parsed from `bus/log.md`), pending-but-never-dispatched tasks, and
+vault health (via autograph, if installed -- degrades to "skipping" if
+not). Read-only and side-effect-free; reports the LAST recorded state,
+not a fresh live test (`run-verification-suite.js` is still the way to
+get a fresh, live-tested result). `node bus/scripts/bus-status.js`, no
+arguments. Has a fast smoke test in the verification suite
+(`testBusStatusSmoke`) confirming all four report functions run without
+throwing.
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the
@@ -117,11 +471,19 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 5. Agent roles and status
 
-- **Claude (orchestrator):** creates tasks, runs `run-task.js`, fetches
-  verified facts, logs everything. Always "active" -- it's the one
-  running the show.
+- **Claude (orchestrator, and now also dispatched specialist):** as
+  orchestrator, creates tasks, runs `run-task.js`, fetches verified
+  facts, logs everything -- always "active," it's the one running the
+  show. As of 2026-09-01, also dispatchable as a second real specialist
+  via `run-task-claude.js` (`to: claude-agent`, distinct from
+  orchestrator-sourced `to: claude` tasks) -- a nested headless `claude
+  -p` process, same SOURCE-tag/verification rules as Codex, see
+  section 3c.
 - **Codex (active specialist):** real, direct headless invocation
-  (`codex exec`), no live data access, always tagged per section 4.
+  (`codex exec`), no live data access, always tagged per section 4 in
+  read-only (autonomous) tasks. In manual, supervised collaboration
+  sessions only, `run-task-collab.js` grants write access scoped to the
+  vault directory (section 3a) -- unattended paths never get this.
 - **Antigravity (deferred):** no CLI/API exists. Only a documented,
   untested-in-`/bus/` async path (write to a shared channel, wait for a
   voluntary reply) -- see `roles/antigravity_role.md`. Not wired into
@@ -129,6 +491,16 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 6. Known open items
 
+- [x] ~~`verifyOutput()`'s `expectedType: number` check scans the entire
+      response for any digit, not specifically the answer~~ -- **closed
+      2026-09-01.** Tightened to check only the last non-empty line
+      (matching every task's own "reply with ONLY the number on its own
+      line" convention), after verifying the change against all 16 real
+      dispatched responses recorded so far that day -- old and new logic
+      agreed on every one, confirming the tightening only affects the
+      actual false-positive shape, not real traffic. A regression case
+      for exactly this (digit only in the as-of preamble, non-numeric
+      last line) is now permanent in `run-verification-suite.js`.
 - [ ] `run-task.js` cannot call the FMP connector itself -- only Claude
       can, in-session. Orchestrator-sourced tasks are written by hand each
       time; the grounding step itself isn't scripted, only its consumption
@@ -145,9 +517,38 @@ only, 10-min poll) still exists but is no longer the one wired into
       with the SOURCE tag stripped (`task_20260831_verify_sabotage`,
       correctly caught).
 - [ ] Antigravity has no real invocation mechanism in `/bus/` -- fully
-      deferred.
-- [ ] Dependency chains tested only for a single linear hop (task A ->
-      task B). Multi-dependency or longer chains are untested.
+      deferred (deliberately set aside 2026-09-01 in favor of proving the
+      Phase 2 scaffold against a second real agent -- Claude, via
+      `run-task-claude.js`/section 3c -- instead of a third stub).
+      Interesting side-note found while checking: Gemini CLI's free tier
+      ("Gemini Code Assist for individuals") is no longer supported --
+      Google's own error message points users toward "Antigravity"
+      (antigravity.google) as the replacement. Whether that's the same
+      Antigravity this vault's role file refers to, and whether it now
+      has a real invocation path, is unconfirmed -- not investigated
+      further per explicit direction to leave Antigravity out of scope
+      for this round.
+- [x] ~~Dependency chains tested only for a single linear hop~~ -- **closed
+      2026-09-01.** Ran a 3-task linear chain (`task_20260901_chain_a` ->
+      `_b` -> `_c`): a hand-authored seed value (137, deliberately
+      non-round), then two Codex steps each doing a deterministic
+      transformation (+15, then x2). Final result landed exactly 304 --
+      the mathematically correct value, not a plausible-looking guess --
+      confirming injected values propagate losslessly across two hops, even
+      though step C had to parse the real number out of step B's full
+      SOURCE-tagged output blob rather than a clean value. Both steps'
+      verification gate passed correctly. **Still open:** true fan-in (one
+      task depending on multiple parents) isn't testable because it isn't
+      implemented -- `dependsOnTaskId` is a single scalar field in the task
+      schema, not a list.
+      **Chain length beyond 3 hops: closed 2026-09-01.** Ran a 5-hop
+      chain (`task_20260901_longchain_a` -> `f`), alternating Claude and
+      Codex at every hop (seed 7 -> +5[Claude]=12 -> x3[Codex]=36 ->
+      +8[Claude]=44 -> x2[Codex]=88 -> +19[Claude]=107), dispatched
+      entirely through `run-task-generic.js`. Landed exactly 107 -- zero
+      drift across 5 hops and 3 agent switches. Nothing in the mechanism
+      turned out to be hop-count-sensitive, confirming the earlier
+      suspicion with actual evidence instead of leaving it open.
 - [ ] `agent-comms`'s own Antigravity adapter (used by its general
       broadcast task system, separate from the dashboard) is still a
       confirmed-fake stub. Doesn't affect `/bus/` correctness, but is real
@@ -178,3 +579,9 @@ No broker integration. No trade execution. No position sizing. No risk
 management. No live order flow. Nothing in this system touches real money
 or a live market in any way -- it is task orchestration and research
 plumbing only.
+
+## Related Notes
+
+- [[00 - Master Agent Index]] (hub)
+- [[04 - Remote Codex Access (Tailscale)]] (application) -- makes the agent-comms dashboard described in section 2 reachable off the home WiFi
+- [[01 - Task Dispatch & Live Sub-Agent Dashboard]] (context) -- documents the agent-comms task system this file's section 2 describes as separate/unaudited from /bus/

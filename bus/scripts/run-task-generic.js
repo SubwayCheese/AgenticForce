@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+// run-task-generic.js -- config-driven task dispatch. Reads a task's
+// `to:` field, loads the matching bus/scripts/agents/<to>.json config,
+// and dispatches through agent-engine.js. This is the operator-facing
+// half of the Phase 2 scaffold: instead of remembering "Codex tasks go
+// through run-task.js, Claude tasks go through run-task-claude.js, a
+// future agent needs its own new script," there is one command, and the
+// task file's own `to:` field decides the routing.
+//
+// Usage:
+//   node run-task-generic.js <task_id>            (read-only mode)
+//   node run-task-generic.js <task_id> --write     (write mode, manual-only
+//                                                     -- see run-task-collab.js's
+//                                                     header for why write
+//                                                     mode is never wired
+//                                                     into an autonomous path)
+//
+// Reuses run-task.js's exported primitives for everything agent-agnostic
+// (dependency resolution, verification, task-file I/O, audit logging) --
+// this file's own logic is only the config lookup + dispatch call.
+
+const path = require('path');
+
+const {
+  readTaskFile,
+  writeTaskResult,
+  resolveDependency,
+  verifyOutput,
+  appendLog,
+  taskFilePath,
+  MANDATORY_SUFFIX,
+} = require('./run-task.js');
+
+const { loadAgentConfig, dispatch, dispatchWrite, listAgentConfigs } = require('./agent-engine.js');
+
+const VAULT_ROOT = path.resolve(__dirname, '..', '..');
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  const writeMode = args.includes('--write');
+  const taskId = args.find((a) => !a.startsWith('--'));
+
+  if (!taskId) {
+    console.error('Usage: node run-task-generic.js <task_id> [--write]');
+    console.error(`Known agent configs: ${listAgentConfigs().join(', ') || '(none found)'}`);
+    process.exit(1);
+  }
+
+  const task = readTaskFile(taskId);
+  if (!task) {
+    console.error(`No task file found for "${taskId}" at ${taskFilePath(taskId)}`);
+    process.exit(1);
+  }
+  if (task.status !== 'pending') {
+    console.error(`Task "${taskId}" has status "${task.status}", not "pending" -- refusing to re-run.`);
+    process.exit(1);
+  }
+
+  // `to: claude` is reserved for orchestrator-sourced tasks (see
+  // task_template.md) -- never dispatched to any process, the
+  // orchestrator writes the Result block by hand. Guarded explicitly
+  // rather than relying on no bus/scripts/agents/claude.json ever
+  // existing -- found 2026-09-01 during a review pass: without this
+  // guard, an accidentally-created claude.json config would let this
+  // script silently dispatch a task that convention says must never be
+  // dispatched.
+  if (task.to === 'claude') {
+    console.error(`Task "${taskId}" has to: "claude" -- reserved for orchestrator-sourced tasks, never dispatched. See task_template.md's "Which agent, and how to dispatch" section.`);
+    process.exit(1);
+  }
+
+  const agentConfig = loadAgentConfig(task.to);
+  if (!agentConfig) {
+    console.error(`No agent config found for to: "${task.to}" (looked for bus/scripts/agents/${task.to}.json). Known configs: ${listAgentConfigs().join(', ') || '(none)'}`);
+    process.exit(1);
+  }
+
+  let logEntry = `## ${taskId} (run-task-generic.js -- agent: ${agentConfig.displayName}, mode: ${writeMode ? 'write' : 'read-only'})\n\n**${nowIso()} -- run-task-generic.js**\n`;
+
+  if (writeMode) {
+    // Write mode intentionally does not support dependsOnTaskId, matching
+    // run-task-collab.js's own scoping decision: this path is for direct
+    // collaborative edits, not data pipelines.
+    if (task.dependsOnTaskId) {
+      console.error(`Task "${taskId}" declares dependsOnTaskId -- write mode does not support dependency resolution. Use read-only mode (no --write) instead.`);
+      process.exit(1);
+    }
+    const prompt = task.payload;
+    logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
+
+    const result = dispatchWrite(agentConfig, prompt, { cwd: VAULT_ROOT });
+
+    logEntry += `Exit code: ${result.exitCode}\n`;
+    logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;
+    logEntry += `Files added: ${result.diff.added.length ? result.diff.added.join(', ') : '(none)'}\n`;
+    logEntry += `Files modified: ${result.diff.modified.length ? result.diff.modified.join(', ') : '(none)'}\n`;
+    logEntry += `Files removed: ${result.diff.removed.length ? result.diff.removed.join(', ') : '(none)'}\n`;
+
+    const status = result.exitCode === 0 && result.output ? 'done' : 'error';
+    logEntry += `status -> ${status}\n`;
+    appendLog(logEntry);
+
+    writeTaskResult(taskId, {
+      status,
+      output:
+        result.output +
+        `\n\n[diff] added:${result.diff.added.join(',')} modified:${result.diff.modified.join(',')} removed:${result.diff.removed.join(',')}`,
+    });
+
+    if (status === 'done') {
+      console.log(`DONE: ${result.output}`);
+      console.log(`Files changed -- added: [${result.diff.added.join(', ')}] modified: [${result.diff.modified.join(', ')}] removed: [${result.diff.removed.join(', ')}]`);
+    } else {
+      console.log(`ERROR (exit ${result.exitCode})`);
+    }
+    return;
+  }
+
+  // Read-only mode: full dependency resolution + verification gate.
+  let injectedContext = '';
+  if (task.dependsOnTaskId) {
+    const dep = resolveDependency(taskId, task.dependsOnTaskId);
+    if (!dep.ok) {
+      logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
+      logEntry += `Dependency resolution FAILED: ${dep.reason}\n`;
+      logEntry += `Task NOT dispatched. status -> blocked.\n`;
+      appendLog(logEntry);
+      writeTaskResult(taskId, { status: 'blocked', reason: dep.reason });
+      console.log(`BLOCKED: ${dep.reason}`);
+      process.exit(0);
+    }
+    logEntry += `dependsOnTaskId: ${task.dependsOnTaskId}\n`;
+    logEntry += `Dependency resolved OK. Injecting value from "${dep.sourceTaskId}" verbatim.\n`;
+    injectedContext =
+      `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
+      dep.value +
+      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
+  }
+
+  const prompt = task.payload + injectedContext + MANDATORY_SUFFIX;
+  logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
+  logEntry += `Command: ${agentConfig.binary} ${agentConfig.modes.readOnly.args.join(' ')} (stdin-piped)\n`;
+
+  const result = dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT });
+
+  logEntry += `Exit code: ${result.exitCode}\n`;
+  logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;
+
+  let status;
+  let reason;
+  if (result.exitCode !== 0 || !result.output) {
+    status = 'error';
+  } else {
+    const verification = verifyOutput(task, result.output);
+    if (verification.ok) {
+      status = 'done';
+    } else {
+      status = 'unverified';
+      reason = verification.reason;
+      logEntry += `VERIFICATION FAILED: ${verification.reason}\n`;
+    }
+  }
+  logEntry += `status -> ${status}\n`;
+  appendLog(logEntry);
+  writeTaskResult(taskId, { status, output: result.output, reason: status === 'unverified' ? reason : undefined });
+
+  if (status === 'done') console.log(`DONE: ${result.output}`);
+  else if (status === 'unverified') console.log(`UNVERIFIED: ${reason}`);
+  else console.log(`ERROR (exit ${result.exitCode})`);
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = { main };

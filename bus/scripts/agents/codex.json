@@ -1,0 +1,19 @@
+{
+  "_comment": "Agent config for Codex, derived from run-task.js/run-task-collab.js's proven, hand-tested invocation. Kept in sync manually -- if those scripts' flags ever change, update here too.",
+  "id": "codex",
+  "displayName": "Codex",
+  "binary": "codex",
+  "isWindowsCmdWrapper": true,
+  "outputMethod": "file",
+  "promptDelivery": "stdin",
+  "boundaryTestMethod": "shell",
+  "boundaryTestMethodNote": "Codex's sandbox governs shell command execution uniformly -- a raw shell write attempt is the right equivalence-class test for it. Found 2026-09-01: this is NOT true of every agent (see claude-agent.json).",
+  "modes": {
+    "readOnly": {
+      "args": ["exec", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", "{outputFile}"]
+    },
+    "write": {
+      "args": ["exec", "--ephemeral", "--sandbox", "workspace-write", "--skip-git-repo-check", "--output-last-message", "{outputFile}"]
+    }
+  }
+}

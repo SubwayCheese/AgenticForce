@@ -1,10 +1,17 @@
 ---
-title: "Agent Orchestration Frameworks"
+title: Agent Orchestration Frameworks
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "AI agent orchestration frameworks LangGraph CrewAI AutoGen 2025 2026"
+status: unverified
+search_query: AI agent orchestration frameworks LangGraph CrewAI AutoGen 2025 2026
 sources_found: 5
 pages_analyzed: 2
+type: research-note
+domain: research
+description: Agent Orchestration Frameworks
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["orchestration-frameworks", "research", "agent-architecture"]
 ---
 
 # Agent Orchestration Frameworks
@@ -86,3 +93,9 @@ Join the waitlist for early access.
 
 ---
 *Generated 2026-09-01T04:33:52.356Z | 5 sources found, 2 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Agent Architectures]] (context) -- same underlying topic, different search angle (named frameworks vs. general architectures)
+- [[Multi-Agent Systems & Design Patterns]] (context) -- adjacent facet of the same research pass, design-pattern level instead of framework level

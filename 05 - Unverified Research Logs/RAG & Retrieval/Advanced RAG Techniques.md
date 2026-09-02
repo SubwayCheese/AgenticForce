@@ -1,10 +1,17 @@
 ---
-title: "Advanced RAG Techniques"
+title: Advanced RAG Techniques
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "RAG retrieval augmented generation advanced chunking reranking"
+status: unverified
+search_query: RAG retrieval augmented generation advanced chunking reranking
 sources_found: 5
 pages_analyzed: 4
+type: research-note
+domain: research
+description: Advanced RAG Techniques
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["rag", "retrieval", "research"]
 ---
 
 # Advanced RAG Techniques
@@ -134,3 +141,8 @@ Before we start (says Kate), I want to make it clear that I’m not saying that 
 
 ---
 *Generated 2026-09-01T04:49:36.705Z | 5 sources found, 4 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Vector Database Comparison]] (context) -- same category (RAG & Retrieval); note neither file's scraped content is actually about its stated topic (this one matched on the word "advanced," not RAG) -- a real, recurring data-quality gap in the research crew's search precision, not isolated to this file

@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: team-spec
+status: active
+domain: team-specs
+description: Claude Code Team Specification
+tags: ["claude-code", "team-spec", "ui-ux", "browser-verification"]
+---
 # Claude Code Team Specification
 
 Claude Code operates as the primary orchestration hub developer, frontend implementer, and independent verifier.
@@ -12,6 +22,7 @@ Claude Code operates as the primary orchestration hub developer, frontend implem
 - **Browser Verification:** Uses live Chrome automation (navigate, screenshot, console-log inspection) to verify UI work actually renders correctly rather than assuming from source alone -- this caught real issues (e.g. the `className` vs `class` bug on the Stock News Analyzer frontend).
 - **Independent Verification Discipline:** Treats "done" claims from other agents as claims to check, not facts -- has found and fixed real bugs in work reported complete (scaffold template placeholders, adapter export mismatches, a stale port-squatting process, an unsupervised-tool-access gap in its own adapter).
 - **Hard Boundaries:** Never retrieves, views, or enters API keys, credentials, or financial secrets under any authorization level -- directs the user to handle those steps themselves.
+- **Also a dispatched specialist (added 2026-09-01):** distinct from the orchestrator role above, a nested headless Claude Code process can be dispatched through `/bus/` the same way Codex is (`to: claude-agent`, via `bus/scripts/run-task-claude.js` or the config-driven `run-task-generic.js`) -- same SOURCE-tag verification gate, same dependency-chain rules. Added specifically to prove `/bus/`'s design generalizes past a single specialist before building a Phase 2 agent scaffold. See `ARCHITECTURE.md` sections 3c/3d and `roles/claude_role.md`.
 
 ---
-*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]]
+*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]] | [[01 - Antigravity Team Spec]] (analogy) | [[03 - Codex Team Spec]] (analogy) -- sibling team specs, same coordination protocol

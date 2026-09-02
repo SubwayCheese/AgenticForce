@@ -1,9 +1,16 @@
 ---
-title: "Agent Architectures"
+title: Agent Architectures
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "AI agent orchestration frameworks 2025 2026"
+status: unverified
+search_query: AI agent orchestration frameworks 2025 2026
 sources_found: 5
+type: research-note
+domain: research
+description: Agent Architectures
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["agent-architecture", "orchestration", "research"]
 ---
 
 # Agent Architectures
@@ -26,3 +33,9 @@ This note covers **Agent Architectures** based on 5 sources found via web search
 
 ---
 *Auto-generated 2026-09-01T04:14:38.925Z | Search: "AI agent orchestration frameworks 2025 2026" | Sources: 5*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Agent Orchestration Frameworks]] (context) -- same underlying topic, different search angle (general architectures vs. named frameworks)
+- [[Multi-Agent Systems & Design Patterns]] (context) -- adjacent facet of the same research pass, design-pattern level instead of framework level

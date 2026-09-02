@@ -1,9 +1,16 @@
 ---
-title: "Prompt Engineering"
+title: Prompt Engineering
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "DSPy prompt optimization MIPROv2 tutorial"
+status: unverified
+search_query: DSPy prompt optimization MIPROv2 tutorial
 sources_found: 5
+type: research-note
+domain: research
+description: Prompt Engineering
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["prompt-engineering", "research"]
 ---
 
 # Prompt Engineering
@@ -36,3 +43,8 @@ This note covers **Prompt Engineering** based on 5 sources found via web search.
 
 ---
 *Auto-generated 2026-09-01T04:19:39.813Z | Search: "DSPy prompt optimization MIPROv2 tutorial" | Sources: 5*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[DSPy Prompt Optimization]] (context) -- same category (Prompting); that note has the real DSPy content this one's search query was aiming for

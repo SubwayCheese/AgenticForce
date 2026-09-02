@@ -1,10 +1,17 @@
 ---
 title: "Multi-Agent Systems & Design Patterns"
 date: 2026-09-01
-status: UNVERIFIED
-search_query: "multi-agent system design patterns coordinator supervisor" (merged with a duplicate "multi-agent system design patterns best practices" run, see note below)
+status: unverified
+search_query: "multi-agent system design patterns coordinator supervisor\" (merged with a duplicate \"multi-agent system design patterns best practices\" run, see note below)"
 sources_found: 5
 pages_analyzed: 1
+type: research-note
+domain: research
+description: "Multi-Agent Systems & Design Patterns"
+last_accessed: 2026-09-01
+tier: warm
+relevance: 0.5
+tags: ["multi-agent", "design-patterns", "research"]
 ---
 
 # Multi-Agent Systems & Design Patterns
@@ -56,3 +63,9 @@ Many advances since then have demonstrated that these approaches can be scaled t
 
 ---
 *Generated 2026-09-01T04:44:20.480Z | 5 sources found, 1 pages deeply analyzed*
+
+## Related Notes
+
+- [[00 - Unverified Logs Readme]] (hub)
+- [[Agent Architectures]] (context) -- adjacent facet of the same research pass, design-pattern level instead of general architecture level
+- [[Agent Orchestration Frameworks]] (context) -- adjacent facet of the same research pass, design-pattern level instead of named-framework level

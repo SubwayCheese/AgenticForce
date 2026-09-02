@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: guideline
+status: active
+domain: guidelines
+description: "Agentic Creations & Architectural Artifacts"
+tags: ["architecture", "catalog", "tools", "artifacts"]
+---
 # Agentic Creations & Architectural Artifacts
 
 Guidelines for logging every AI agent creation, sub-agent pattern, scaffold template, and architectural artifact into **AgentVault** (`D:\1. AgentVault\AgentVault`).

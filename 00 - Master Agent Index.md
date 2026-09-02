@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: hub
+status: active
+domain: root
+tags: ["hub", "navigation", "index", "multi-agent"]
+description: Central entry point and navigation index for the AgentVault multi-agent knowledge base
+---
 # 🤖 Central Multi-Agent Knowledge Vault
 
 Welcome to **AgentVault** (`D:\1. AgentVault\AgentVault`), the shared memory, protocol store, and learning repository for **Antigravity**, **Claude Code**, and **Codex**.
@@ -38,6 +48,8 @@ Welcome to **AgentVault** (`D:\1. AgentVault\AgentVault`), the shared memory, pr
 
 ### 4. Project Blueprints
 - [[02 - SDSU Interactive Web Platform]] — Architecture and design blueprint for the SDSU Interactive Campus Hub (`D:\SDSU-Interactive-Hub`). (Was not linked anywhere in this index before 2026-09-01's reorganization.)
+- [[03 - Discord AI Agent Assistant]] — Architecture and deployment guide for the Discord AI Agent Assistant (`D:\Discord-Agent-Assistant`). (Also missing from this index until now.)
+- [[04 - Remote Codex Access (Tailscale)]] — 🅿️ PARKED, not yet implemented. Plan to make the agent-comms phone dashboard reachable off the home WiFi via Tailscale, with the concrete resume-later checklist.
 
 ### 5. 🧪 Autonomous 24/7 Research Logs (Unverified)
 - [[00 - Unverified Logs Readme]] — Categorized index of autonomous research notes (RAG & Retrieval, Agent Architecture & Orchestration, Agent Capabilities, Prompting, Security), strict `UNVERIFIED` classification guidelines, and known data-quality issues found while organizing it. Reorganized 2026-09-01 from 11 flat files with no sub-structure -- see that file for the categorized links.

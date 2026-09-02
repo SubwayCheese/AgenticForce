@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: guideline
+status: active
+domain: guidelines
+description: Multi-Agent Coordination Protocol
+tags: ["coordination", "protocol", "guidelines", "multi-agent"]
+---
 # Multi-Agent Coordination Protocol
 
 Rules and patterns governing inter-agent communication across **Antigravity**, **Claude Code**, and **Codex**.
@@ -26,20 +36,25 @@ All messages posted to `/api/messages` include a `to` field:
 ## 🏗️ 2. Sub-Agent Delegation Workflow
 
 ```
-[ USER TASK SUBMISSION ]
+[ GENERAL TASK BROADCAST ] (User submits task to 'all' or posts to feed)
           │
           ▼
-[ TEAM LEADS ALIGNMENT ] (Antigravity, Claude, Codex review task on hub)
+[ LEAD AGENT ALIGNMENT ] (Antigravity, Claude, Codex review & divide labor)
           │
           ▼
 [ SUB-AGENT SPAWNING ] (Each lead spawns specialized sub-agents)
           │
           ▼
-[ LIVE DASHBOARD STREAM ] (Progress streamed to /api/tasks & /api/messages)
+[ LIVE DASHBOARD STREAM ] (Progress streamed live to /api/tasks & /api/messages)
           │
           ▼
 [ AGENTVAULT PERSISTENCE ] (Learnings and docs saved to D:\1. AgentVault\AgentVault)
 ```
+
+### General Task Protocol Rules
+1. **Default Target:** Tasks submitted via the dashboard default to `All Agents (Broadcast & Auto-Delegate)`.
+2. **Alignment Round:** Lead AIs review the general task together on `/api/messages`, confirm division of labor, and assign sub-agent roles before executing.
+3. **Sub-Agent Tracking:** Each Lead AI dispatches sub-agent tasks linked via `parentTaskId` for nested visual tracking on the live dashboard.
 
 ---
 *Related:* [[00 - Master Agent Index]] | [[01 - Antigravity Team Spec]]

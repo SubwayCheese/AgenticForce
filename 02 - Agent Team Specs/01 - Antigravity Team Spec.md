@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: team-spec
+status: active
+domain: team-specs
+description: Antigravity Team Specification
+tags: ["antigravity", "team-spec", "sub-agents", "orchestrator"]
+---
 # Antigravity Team Specification
 
 Antigravity operates as the System Orchestrator, Infrastructure Lead, and AgentVault Architect.
@@ -14,4 +24,4 @@ Antigravity operates as the System Orchestrator, Infrastructure Lead, and AgentV
   - Audits inter-agent contract compliance and health checks.
 
 ---
-*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]]
+*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]] | [[02 - Claude Code Team Spec]] (analogy) | [[03 - Codex Team Spec]] (analogy) -- sibling team specs, same coordination protocol

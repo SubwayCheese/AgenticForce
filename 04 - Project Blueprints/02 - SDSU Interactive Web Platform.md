@@ -1,3 +1,13 @@
+---
+tier: warm
+relevance: 0.5
+last_accessed: 2026-09-01
+type: blueprint
+status: active
+domain: blueprints
+description: "SDSU Interactive Campus Hub & Course Explorer Blueprint"
+tags: ["sdsu", "web-platform", "blueprint"]
+---
 # SDSU Interactive Campus Hub & Course Explorer Blueprint
 
 Architectural specification and design blueprint for the San Diego State University (SDSU) Interactive Platform (`D:\SDSU-Interactive-Hub`).
@@ -30,4 +40,4 @@ Architectural specification and design blueprint for the San Diego State Univers
 - **Aztec News Feed:** Card grid displaying live campus news and athletic announcements.
 
 ---
-*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]] | [[03 - Agentic Creations & Architectural Artifacts]]
+*Related:* [[00 - Master Agent Index]] | [[01 - Multi-Agent Coordination Protocol]] | [[03 - Agentic Creations & Architectural Artifacts]] | [[03 - Discord AI Agent Assistant]] (context) | [[04 - Remote Codex Access (Tailscale)]] (context) -- sibling project blueprints cataloged in this vault

@@ -1,0 +1,104 @@
+{
+  "_comment": "AgentVault schema, hand-authored 2026-09-01 based on real content review (not the generate_schema.py baseline, which collapsed everything into one generic type and mangled Windows folder paths -- see bus/log.md-adjacent session notes / ARCHITECTURE.md section on autograph for why).",
+  "description_max_chars": 500,
+
+  "node_types": {
+    "hub": {
+      "description": "Entry-point/index file that orients a reader into a section (Master Agent Index, the Unverified Logs readme)",
+      "required": ["description"],
+      "status": ["active"]
+    },
+    "guideline": {
+      "description": "Shared cross-agent process, convention, or pattern documentation",
+      "required": ["description", "tags"],
+      "status": ["active", "draft"]
+    },
+    "team-spec": {
+      "description": "Specification for one agent's role, capabilities, and responsibilities",
+      "required": ["description", "tags", "status"],
+      "status": ["active", "empty", "draft"]
+    },
+    "task-protocol": {
+      "description": "Documentation for an active, in-use task-dispatch or testing protocol",
+      "required": ["description", "tags"],
+      "status": ["active", "draft"]
+    },
+    "blueprint": {
+      "description": "Architecture/design blueprint for a specific external project",
+      "required": ["description", "tags", "status"],
+      "status": ["active", "parked", "done"]
+    },
+    "research-note": {
+      "description": "Auto-generated, unverified research note from the background research crew -- raw web-search extracts, needs human review before being trusted",
+      "required": ["description", "tags"],
+      "status": ["unverified", "reviewed"]
+    }
+  },
+
+  "type_aliases": {},
+  "field_fixes": {},
+  "region_fixes": {},
+
+  "domain_inference": {
+    "01 - Shared Guidelines & Learnings/": "guidelines",
+    "02 - Agent Team Specs/": "team-specs",
+    "03 - Active Task Protocols/": "task-protocols",
+    "04 - Project Blueprints/": "blueprints",
+    "05 - Unverified Research Logs/": "research",
+    "00 - Master Agent Index.md": "root",
+    "ARCHITECTURE.md": "root"
+  },
+
+  "path_type_hints": {
+    "_comment": "folder substring -> type name (used when card has no type field)",
+    "01 - Shared Guidelines & Learnings": "guideline",
+    "02 - Agent Team Specs": "team-spec",
+    "03 - Active Task Protocols": "task-protocol",
+    "04 - Project Blueprints": "blueprint",
+    "05 - Unverified Research Logs": "research-note",
+    "00 - Master Agent Index.md": "hub",
+    "ARCHITECTURE.md": "hub"
+  },
+
+  "status_order": {
+    "unverified": 0,
+    "draft": 1,
+    "active": 2,
+    "reviewed": 3,
+    "parked": 4,
+    "done": 5,
+    "empty": 6,
+    "_comment": "sort order for MOC generation (lower = higher priority / needs-attention-first)"
+  },
+
+  "status_defaults": {
+    "_comment": "default status for new cards by type (when status is missing)",
+    "default": "active"
+  },
+
+  "richness_fields": {
+    "_comment": "frontmatter fields that indicate content richness (used by dedup) -- kept from the script baseline, these are genuinely the real fields the research-crew notes already carry",
+    "bonus_fields": ["pages_analyzed", "search_query", "sources_found"]
+  },
+
+  "entity_extraction": {
+    "_comment": "settings for daily.py entity extraction -- not used by this vault today (no daily/ folder), kept as a harmless default",
+    "noise_words": ["TODO", "FIX", "NEW", "UPDATED", "Phase", "Score", "Vault", "Health"]
+  },
+
+  "decay": {
+    "rate": 0.015,
+    "floor": 0.1,
+    "tiers": {"active": 7, "warm": 21, "cold": 60},
+    "domain_rates": {
+      "research": 0.020,
+      "guidelines": 0.008,
+      "team-specs": 0.006,
+      "task-protocols": 0.010,
+      "blueprints": 0.010
+    },
+    "_comment_domain_rates": "research notes are raw/unreviewed and most likely to go stale fast; team specs and guidelines are foundational and should decay slowly"
+  },
+
+  "ignore_tags": []
+}
