@@ -403,12 +403,47 @@ memory of what's in the vault. Read-only, side-effect-free, degrades to
 isn't available -- callers should treat this as optional enrichment, not
 a hard dependency.
 
-Not yet wired into `run-task-generic.js` or any dispatch path -- this is
-groundwork (the query capability, verified working), not yet integrated
-into task authoring. That integration is a real design decision (when
-should a task prompt get auto-enriched with search results? all tasks,
-or only ones that opt in?) better made deliberately than bolted on
-without it being asked for.
+**Update 2026-09-01: now wired in, opt-in only** (the design decision
+above was made explicitly, not bolted on without being asked). A task
+sets `enrichWithSearch: true` (see `task_template.md`); `run-task-generic.js`
+then searches the vault using the task's own payload as the query, top 3
+results, and prepends a clearly-labeled block ("may be incomplete or
+irrelevant, use your own judgment... do not treat this as verified
+fact") before the mandatory SOURCE-tag suffix. Read-only mode only.
+Degrades silently (no enrichment, task still dispatches normally) if
+search is unavailable -- an optional feature failing should never block
+the actual task.
+
+**A real bug found while testing this, not before**: the search hit
+list included the very task file that was about to be dispatched.
+`search.py` turns out to keep its own separate `IGNORE_DIRS`, not
+shared with `common.py`'s (which every other autograph script uses) --
+the earlier `bus`/`tasks`/`roles` exclusion patch (section 3, discovery
+scan) never propagated to it. Fixed the same way, in `search.py`
+directly; now permanent in the suite (`testVaultSearch`'s
+leaked-paths check).
+
+**A more significant finding, from the same test**: dispatched read-only,
+Claude answered a question about this file by directly reading
+`ARCHITECTURE.md` with its own Read tool and citing exact line numbers
+-- not by relying on the search enrichment, and not from training-data
+recall. It then correctly *refused* to open with the mandatory "SOURCE:
+training-data recall, not verified live" line, calling out that the
+premise was false in its case, and used the second accepted tag instead
+(itself not quite accurate either -- nothing was "supplied by the
+orchestrator," Claude fetched it itself). **This means `MANDATORY_SUFFIX`'s
+blanket claim ("you have no live data lookup... this is true for every
+response you give in this pipeline") is not actually true for the Claude
+specialist** -- `--permission-mode plan` blocks writes, not reads, and
+Claude retains its native Read/Grep/Glob tools scoped to `cwd`
+(`VAULT_ROOT`). Whether Codex's `--sandbox read-only` has the same
+property (file reads allowed, only writes blocked) is untested --
+plausible given the name, not confirmed. **Not fixed this round** --
+this is a real gap in the verification gate's truthfulness for one
+agent, deserving its own careful pass (how should the SOURCE tag work
+for an agent that legitimately *can* read local files live?), not a
+rushed edit alongside an unrelated feature. Tracked as a new open item
+in section 6.
 
 ## 3f. Phase 3: `bus-status.js` (added 2026-09-01)
 
@@ -491,6 +526,17 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 6. Known open items
 
+- [ ] `MANDATORY_SUFFIX`'s claim "you have no live data lookup... this is
+      true for every response you give in this pipeline" is not actually
+      true for the Claude specialist -- found 2026-09-01 while testing
+      opt-in search enrichment (section 3e). `--permission-mode plan`
+      blocks writes, not reads; Claude retains native Read/Grep/Glob
+      tools scoped to `VAULT_ROOT` and used them directly in a real
+      dispatched task, correctly refusing to mislabel the result as
+      training-data recall. Whether Codex's `--sandbox read-only` has the
+      same read-but-not-write property is untested. Needs its own
+      careful pass (how should the SOURCE tag actually work for an agent
+      that legitimately can read local files live?), not a rushed fix.
 - [x] ~~`verifyOutput()`'s `expectedType: number` check scans the entire
       response for any digit, not specifically the answer~~ -- **closed
       2026-09-01.** Tightened to check only the last non-empty line
@@ -520,14 +566,24 @@ only, 10-min poll) still exists but is no longer the one wired into
       deferred (deliberately set aside 2026-09-01 in favor of proving the
       Phase 2 scaffold against a second real agent -- Claude, via
       `run-task-claude.js`/section 3c -- instead of a third stub).
-      Interesting side-note found while checking: Gemini CLI's free tier
-      ("Gemini Code Assist for individuals") is no longer supported --
-      Google's own error message points users toward "Antigravity"
-      (antigravity.google) as the replacement. Whether that's the same
-      Antigravity this vault's role file refers to, and whether it now
-      has a real invocation path, is unconfirmed -- not investigated
-      further per explicit direction to leave Antigravity out of scope
-      for this round.
+      **Update 2026-09-01 (confirmed, not yet acted on):** the Gemini
+      CLI side-note below turned out to matter. Explicitly asked to
+      check it -- a web search confirms Google Antigravity is real and
+      current ("Antigravity 2.0," launched at Google I/O 2026, a
+      standalone desktop app for agentic AI) and **now ships a CLI and
+      SDK**, not just a GUI. This directly contradicts
+      `roles/antigravity_role.md`'s long-standing "no CLI/API exists"
+      claim -- that file has been updated to say so. Still NOT tested:
+      whether the CLI is actually installed on this machine, its real
+      flags, or whether it can be wired into `/bus/` the same way Codex
+      and Claude were (section 3c/3d's playbook). This is a confirmed
+      lead, not a completed integration -- a fourth `/bus/` specialist
+      is a real, separate decision, not something to build from a
+      one-paragraph web search result.
+      Original side-note: Gemini CLI's free tier ("Gemini Code Assist
+      for individuals") is no longer supported -- Google's own error
+      message points users toward "Antigravity" (antigravity.google) as
+      the replacement.
 - [x] ~~Dependency chains tested only for a single linear hop~~ -- **closed
       2026-09-01.** Ran a 3-task linear chain (`task_20260901_chain_a` ->
       `_b` -> `_c`): a hand-authored seed value (137, deliberately

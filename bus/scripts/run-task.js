@@ -114,6 +114,13 @@ function readTaskFile(taskId) {
     dependsOnTaskId: field('dependsOnTaskId'),
     expectedType: field('expectedType'),
     source: field('source'),
+    // Added 2026-09-01: opt-in vault-search enrichment, consumed by
+    // run-task-generic.js only (see task_template.md). Deliberately
+    // NOT wired into run-task.js's own dispatch or verifyOutput() --
+    // this is just field parsing, agent-agnostic, matching every other
+    // field here; the actual enrichment behavior lives where it was
+    // asked for, not spread across every dispatch script.
+    enrichWithSearch: field('enrichWithSearch'),
     output: outputMatch ? outputMatch[1] : null,
   };
 }

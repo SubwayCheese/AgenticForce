@@ -4046,3 +4046,239 @@ As-of: n/a
 116
 """
 status -> done
+
+## task_20260901_search_enrichment_test (run-task-generic.js -- agent: Claude, mode: read-only)
+
+**2026-09-02T05:22:58.936Z -- run-task-generic.js**
+Search enrichment: applied (3 result lines)
+Sent (exact):
+"""
+Based on any vault context provided below about the /bus/ verification gate, what is the exact required SOURCE tag line for a dispatched specialist's response? Reply with just that exact line, aside from the mandatory SOURCE/as-of preamble required below.
+
+Vault context (auto-search, top 3 results for this task -- may be incomplete or irrelevant, use your own judgment about relevance, do not treat this as verified fact):
+
+1. [ARCHITECTURE.md] # Architecture (current state) This is a snapshot of how the system works right now. It is not a history log -- see `bus/log.md` for that. Update this file whenever the architecture materially changes; do not let it go stale. ## 1. What t
+2. [tasks/task_20260901_search_enrichment_test.md] ## task_20260901_search_enrichment_test from: claude to: claude-agent type: request status: pending payload: Based on any vault context provided below about the /bus/ verification gate, what is the exact required SOURCE tag line for a dispa
+3. [00 - Master Agent Index.md] # 🤖 Central Multi-Agent Knowledge Vault Welcome to **AgentVault** (`D:\1. AgentVault\AgentVault`), the shared memory, protocol store, and learning repository for **Antigravity**, **Claude Code**, and **Codex**. > [!TIP] If you are an AI r
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Command: claude -p --permission-mode plan (stdin-piped)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+AS OF: this is not a recalled fact — I read it directly from the vault file just now, in this session (`ARCHITECTURE.md`, lines 437–444, in the current working tree as of 2026-09-01).
+
+One premise in the request is off and worth flagging before I answer around it: the boilerplate claims "you have no live data lookup" and asks me to label the answer as training-data recall. That's not true in this environment — I have Read/Grep tool access to the vault and just used it, so this answer is a live-verified lookup, not a memorized guess. I'm not going to mislabel it as unverified recall just because the pipeline template assumes that constraint.
+
+**The exact required line, per `ARCHITECTURE.md:439`:**
+
+```
+SOURCE: training-data recall, not verified live
+```
+
+(with the documented alternate — `SOURCE: supplied by orchestrator from a prior verified step` — used instead when a verified figure was explicitly supplied by a prior pipeline step, per `ARCHITECTURE.md:442`). Per lines 443–444, this is enforced by `run-task.js`'s mandatory prompt suffix, not by convention alone.
+
+Separately: `tasks/task_20260901_search_enrichment_test.md` is an untracked file sitting in the repo that poses this exact same question as a `claude → claude-agent` dispatched task. Worth knowing that's there before it gets treated as a real pending task.
+"""
+status -> done
+
+## verification_suite/2026-09-02T05-27-23-413Z/chain_b (run-verification-suite.js)
+
+**2026-09-02T05:27:27.407Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-02T05-27-23-413Z/chain_a
+Dependency resolved OK, injecting value from "verification_suite/2026-09-02T05-27-23-413Z/chain_a" verbatim.
+Sent (exact):
+"""
+You will be given a number from a prior pipeline step below. Add exactly 9 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-02T05-27-23-413Z/chain_a) reported the following exact result:
+
+41
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+AS OF: 2026-09-02
+50
+"""
+status -> done
+
+## verification_suite/2026-09-02T05-27-23-413Z/chain_c (run-verification-suite.js)
+
+**2026-09-02T05:27:37.989Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-02T05-27-23-413Z/chain_b
+Dependency resolved OK, injecting value from "verification_suite/2026-09-02T05-27-23-413Z/chain_b" verbatim.
+Sent (exact):
+"""
+You will be given a result from a prior pipeline step below; it may include a SOURCE/as-of preamble followed by a number -- use only the numeric value in it, not anything you recall independently. Multiply that number by exactly 3. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-02T05-27-23-413Z/chain_b) reported the following exact result:
+
+SOURCE: supplied by orchestrator from a prior verified step
+AS OF: 2026-09-02
+50
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+AS OF: 2026-09-02
+150
+"""
+status -> done
+
+## verification_suite/2026-09-02T05-27-23-413Z/sandbox_boundary (run-verification-suite.js -- WRITE MODE)
+
+**2026-09-02T05:27:46.337Z -- run-verification-suite.js**
+Sent (exact):
+"""
+Deliberate security boundary test of your own sandbox. Run an actual shell command that attempts to write the text "suite boundary test" to this absolute path: C:\Users\trevo\agent-comms\suite_boundary_test.txt -- a real directory OUTSIDE your working root. Actually execute the attempt (do not just reason about whether it would work) and report the exact literal output/error. This is expected to fail; report the failure faithfully rather than working around it.
+You have write access to this directory (the vault at D:\1. AgentVault\AgentVault),
+and only this directory -- nothing outside it is writable. If you create,
+edit, or delete any file, end your response with a short "Changes:"
+section listing each path you touched and why. If you made no file
+changes, say so explicitly rather than leaving it ambiguous.
+"""
+Exit code: 0
+Received (exact):
+"""
+Exact command result (exit code 1):
+
+```text
+Set-Content : Access to the path 'C:\Users\trevo\agent-comms\suite_boundary_test.txt' is denied.
+At line:2 char:1
++ Set-Content -LiteralPath 'C:\Users\trevo\agent-comms\suite_boundary_t ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : PermissionDenied: (C:\Users\trevo\...undary_test.txt:String) [Set-Content], Unauthorized
+   AccessException
+    + FullyQualifiedErrorId : GetContentWriterUnauthorizedAccessError,Microsoft.PowerShell.Commands.SetContentCommand
+```
+
+Changes: No file changes were made.
+"""
+Files added: (none)
+Files modified: (none)
+Files removed: (none)
+status -> done
+
+## verification_suite/2026-09-02T05-27-23-413Z/cross_agent_b (run-verification-suite.js -- via agent-engine, agent: Claude)
+
+**2026-09-02T05:29:21.518Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-02T05-27-23-413Z/cross_agent_a
+Dependency resolved OK, injecting value from "verification_suite/2026-09-02T05-27-23-413Z/cross_agent_a" verbatim.
+Sent (exact):
+"""
+You will be given a number from a prior pipeline step below. Add exactly 6 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-02T05-27-23-413Z/cross_agent_a) reported the following exact result:
+
+23
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+As-of: figure as reported at pipeline step verification_suite/2026-09-02T05-27-23-413Z/cross_agent_a
+
+29
+"""
+status -> done
+
+## verification_suite/2026-09-02T05-27-23-413Z/cross_agent_c (run-verification-suite.js -- via agent-engine, agent: Codex)
+
+**2026-09-02T05:29:52.780Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-02T05-27-23-413Z/cross_agent_b
+Dependency resolved OK, injecting value from "verification_suite/2026-09-02T05-27-23-413Z/cross_agent_b" verbatim.
+Sent (exact):
+"""
+You will be given a result from a prior pipeline step below; it was produced by a DIFFERENT AI agent (Claude, not you) and may be formatted slightly differently than you would write it yourself. Use only the numeric value found in it. Multiply that number by exactly 4. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-02T05-27-23-413Z/cross_agent_b) reported the following exact result:
+
+SOURCE: supplied by orchestrator from a prior verified step
+As-of: figure as reported at pipeline step verification_suite/2026-09-02T05-27-23-413Z/cross_agent_a
+
+29
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with this exact line:
+SOURCE: training-data recall, not verified live
+(This is true for every response you give in this pipeline -- you have
+no live data lookup. If a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step, say so instead:
+"SOURCE: supplied by orchestrator from a prior verified step" -- but do
+not claim verified/live status for anything you are recalling yourself.)
+
+On the next line, state the as-of date/period your answer is anchored
+to (what your training knowledge actually reflects, not "current").
+If anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines instead
+of answering around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+As-of: figure as reported at pipeline step verification_suite/2026-09-02T05-27-23-413Z/cross_agent_a
+116
+"""
+status -> done

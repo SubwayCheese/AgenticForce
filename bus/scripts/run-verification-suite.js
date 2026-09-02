@@ -469,6 +469,22 @@ function testVaultSearch() {
     badResult.engine === 'unavailable' && Array.isArray(badResult.hits) && badResult.hits.length === 0,
     `engine=${badResult.engine}, hasError=${!!badResult.error}`
   );
+
+  // Found 2026-09-01 via a real leak: search.py keeps its OWN separate
+  // IGNORE_DIRS (not shared with common.py's, which every other autograph
+  // script uses) -- the earlier bus/tasks/roles exclusion patch didn't
+  // propagate here, and a /bus/ task file about to be dispatched showed
+  // up in its own search-enrichment results. Fixed in search.py; this
+  // guards against it silently regressing (e.g. on an autograph update).
+  const scopedResult = vaultSearch('task dispatch verification', { limit: 10 });
+  const leakedPaths = scopedResult.hits
+    .map((h) => h.file)
+    .filter((f) => f.startsWith('tasks/') || f.startsWith('bus/') || f.startsWith('roles/') || f.includes('\\tasks\\') || f.includes('\\bus\\') || f.includes('\\roles\\'));
+  record(
+    'vault-search: never returns /bus/ /tasks/ /roles/ files (separate, non-Obsidian system)',
+    leakedPaths.length === 0,
+    leakedPaths.length ? `LEAKED: ${leakedPaths.join(', ')}` : `confirmed clean across ${scopedResult.hits.length} hits`
+  );
 }
 
 // ---------- FAST: bus-status.js smoke test (each report function must

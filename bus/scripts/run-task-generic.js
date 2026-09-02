@@ -32,8 +32,33 @@ const {
 } = require('./run-task.js');
 
 const { loadAgentConfig, dispatch, dispatchWrite, listAgentConfigs } = require('./agent-engine.js');
+const { search: vaultSearch } = require('./vault-search.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
+
+// Opt-in only (task file sets `enrichWithSearch: true`) -- see
+// task_template.md. Never auto-applied to every task: search results are
+// often irrelevant noise for a task that doesn't need vault context (a
+// plain arithmetic test, a task that already has everything it needs via
+// dependsOnTaskId), and auto-enriching everything would make prompts
+// harder to reason about for no benefit in the common case. Read-only
+// mode only -- not meaningful for write-mode collaboration tasks.
+// Degrades silently to no enrichment if vault-search.js/autograph isn't
+// available (search() itself never throws, by design -- see its own
+// header) -- an unrelated infra gap in an optional feature should never
+// block dispatch of the actual task.
+function buildSearchEnrichment(task) {
+  if (task.enrichWithSearch !== 'true') return '';
+  const result = vaultSearch(task.payload, { limit: 3 });
+  if (result.engine === 'unavailable' || result.hits.length === 0) return '';
+  const lines = result.hits.map((h, i) => `${i + 1}. [${h.file}] ${h.snippet}`);
+  return (
+    '\n\nVault context (auto-search, top ' +
+    result.hits.length +
+    ' results for this task -- may be incomplete or irrelevant, use your own judgment about relevance, do not treat this as verified fact):\n\n' +
+    lines.join('\n')
+  );
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -141,7 +166,14 @@ function main() {
       '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.';
   }
 
-  const prompt = task.payload + injectedContext + MANDATORY_SUFFIX;
+  const searchEnrichment = buildSearchEnrichment(task);
+  if (task.enrichWithSearch === 'true') {
+    logEntry += searchEnrichment
+      ? `Search enrichment: applied (${searchEnrichment.split('\n\n').pop().split('\n').length} result lines)\n`
+      : `Search enrichment: requested but unavailable or no hits -- dispatched without it\n`;
+  }
+
+  const prompt = task.payload + injectedContext + searchEnrichment + MANDATORY_SUFFIX;
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: ${agentConfig.binary} ${agentConfig.modes.readOnly.args.join(' ')} (stdin-piped)\n`;
 

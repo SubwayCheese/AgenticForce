@@ -11,6 +11,10 @@ payload:
 timestamp:
 dependsOnTaskId: (optional -- see below)
 expectedType: (optional -- "number", or blank for no type check)
+enrichWithSearch: (optional -- "true" to auto-prepend top-3 vault search
+  results to the prompt via run-task-generic.js; see below. Omit/blank
+  for no enrichment, which is the default -- this is opt-in, never
+  applied automatically.)
 
 ## Which agent, and how to dispatch (updated 2026-09-01)
 
@@ -89,6 +93,27 @@ will, before doing anything else:
 Do not hand-copy a prior task's output into `payload:` yourself when
 dependsOnTaskId is available -- that reintroduces the exact manual-habit
 failure mode this field exists to close.
+
+## enrichWithSearch (added 2026-09-01, opt-in only)
+
+Set to `true` to have `run-task-generic.js` (read-only mode only --
+not write mode) search the vault using the task's own `payload:` as the
+query, and prepend the top 3 results to the prompt before the mandatory
+SOURCE-tag suffix, clearly labeled as unverified auto-search context the
+agent should use its own judgment about. Deliberately opt-in, never
+applied to every task by default -- most tasks don't need vault context,
+and auto-enriching everything would make prompts harder to reason about
+for no benefit in the common case. Degrades silently (task still
+dispatches normally, just without the enrichment) if search is
+unavailable.
+
+**Caveat worth knowing before relying on this**: for the Claude
+specialist specifically, this may be redundant -- dispatched read-only,
+Claude retains its own native Read/Grep/Glob tools scoped to the vault
+directory and has been observed using them directly instead of (or
+alongside) this enrichment. See `ARCHITECTURE.md` section 3e/6 for the
+full finding; this also means `MANDATORY_SUFFIX`'s "no live data lookup"
+claim is not fully accurate for Claude today.
 
 ## Verification (added 2026-08-31, generalized 2026-09-01)
 
