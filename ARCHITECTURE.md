@@ -699,18 +699,21 @@ ONLY `dependsOnFact` set (no `dependsOnTaskId` at all) confirmed to
 correctly look the fact up by key and use it, proving lookup-by-meaning
 actually works end-to-end, not just lookup-by-lineage.
 
-**A real, not-fully-closed finding surfaced by this same live test**:
-when the injected value's own embedded SOURCE/as-of preamble happens to
-be well-formed, it has exactly the shape of a complete, valid response
--- and a specialist sometimes copies the WHOLE quoted block verbatim
-(embedded SOURCE tag included) instead of producing its own honest
-"supplied by orchestrator" tag around it. Two prompt-wording-only fixes
-failed against this in real dispatched tests; `wrapInjectedValue()`'s
-blockquote-prefixing (`"| "` on every line, breaking the literal
-"line starts with SOURCE:" shape) measured 4/5 correct against the
-exact shape that broke both earlier fixes -- a real, substantial
-improvement, not a complete fix. Tracked honestly as an open item in
-section 6 rather than claimed solved.
+**A real finding surfaced by this same live test, closed the same
+day**: when the injected value's own embedded SOURCE/as-of preamble
+happens to be well-formed, it has exactly the shape of a complete,
+valid response -- early testing showed a specialist sometimes copying
+the WHOLE quoted block verbatim instead of producing its own honest
+"supplied by orchestrator" tag. `wrapInjectedValue()` now blockquotes
+every line (`"| "` prefix) and strips a leading `SOURCE:` line before
+quoting. But the deeper finding, from a clean 10-rep probe: most of the
+apparent unreliability wasn't injection confusion at all -- the test's
+own fact happened to be file-derived, and claude-agent (real
+Read/Grep/Glob access) was honestly re-reading the live file itself
+rather than trusting the supplied value, a correct, encouraged
+behavior, not a bug. Isolated with a synthetic, non-file-reverifiable
+fact instead: **10/10 correct**. See section 6 for the full
+investigation.
 
 ## 4. Two-tier data grounding
 
@@ -778,27 +781,37 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 6. Known open items
 
-- [ ] A dependency value's own embedded SOURCE/as-of preamble, when
+- [x] ~~A dependency value's own embedded SOURCE/as-of preamble, when
       well-formed, can look exactly like a complete valid response --
       a specialist sometimes copies the whole quoted block verbatim
       (its embedded SOURCE tag included) instead of stating its own
-      honest "supplied by orchestrator" tag. Found 2026-09-02 via the
-      memory layer's live `dependsOnFact` test (section 3i). Three
-      interventions tried the same day, in order: a trailing warning
-      (failed), a leading + delimited warning (failed against the exact
-      well-formed shape), blockquote-prefixing every line of the quoted
-      value (`wrapInjectedValue()` -- 4/5 correct against that same
-      shape, a real improvement, not a complete fix). Affects every
-      injection path (`dependsOnTaskId`, `dependsOnTaskIds`,
-      `dependsOnFact` alike, since all three go through
-      `wrapInjectedValue()`). Not chased further this round -- this
-      reads as genuine LLM instruction-following variance on a subtle
-      case, the same category as the accepted `engine dispatch
-      (Claude)` arithmetic flake below, not a code bug with a clean
-      fix. `verifyOutput()` still correctly accepts only honest tags in
-      an absolute sense (the response isn't fabricating anything, just
-      mislabeling provenance) -- this is a real, worth-fixing-eventually
-      polish item, not a safety hole.
+      honest "supplied by orchestrator" tag~~ -- **closed 2026-09-02,
+      re-diagnosed the same day it was found.** First measured at 4-6/10
+      across two `wrapInjectedValue()` iterations (a trailing warning,
+      then a leading+delimited warning, then blockquote-prefixing every
+      line) and left open as "a real, substantial improvement, not a
+      complete fix." Investigated further at the user's request: a clean
+      10-rep probe (a real script, not shell-escaped `node -e`, which
+      had quietly corrupted earlier manual reps) revealed the actual
+      mechanism was NOT injection confusion at all in most failures --
+      the test's own fact value happened to be file-derived
+      (`roles/antigravity_role.md`), and claude-agent, which retains real
+      Read/Grep/Glob access, was **honestly re-reading the live file
+      itself** rather than trusting the supplied value, then correctly
+      tagging that as `SOURCE: verified live via direct file read`. Not
+      a bug -- exactly the behavior the SOURCE-tag system exists to
+      encourage (verify when you honestly can, don't just trust). It
+      just meant the test was measuring "does the model prefer live
+      verification when trivially available" rather than "does
+      `dependsOnFact` actually inject and get used correctly." Re-tested
+      with a synthetic, non-file-reverifiable numeric fact (nothing in
+      the vault to independently re-derive it from) -- **10/10 correct**
+      with `wrapInjectedValue()`'s existing fix. `testLiveMemoryLayer` in
+      `run-verification-suite.js` rewritten to use this design. The
+      earlier low numbers were real, but they were measuring a
+      different, non-broken thing conflated with the actual mechanism --
+      worth remembering as a lesson on isolating what a live test
+      actually exercises before trusting its pass rate as the metric.
 - [x] ~~`MANDATORY_SUFFIX`'s claim "you have no live data lookup... this is
       true for every response you give in this pipeline" is not actually
       true for the Claude specialist~~ -- **closed 2026-09-02.** Found

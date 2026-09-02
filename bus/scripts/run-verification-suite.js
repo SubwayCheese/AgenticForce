@@ -598,19 +598,57 @@ function testLiveMemoryLayer() {
   );
   if (!recorderOk) return; // no point testing the lookup side against a fact that was never recorded
 
+  // Second half deliberately uses a DIFFERENT, non-file-reverifiable fact
+  // -- not the one just recorded above. Found 2026-09-02: reusing the
+  // live-file-read fact here made this test measure the wrong thing.
+  // claude-agent retains real Read/Grep/Glob access, and the fact's own
+  // value included the real file's path -- so a specialist given that
+  // path could (and, per a 10-rep probe, often did) honestly re-read the
+  // file itself and correctly tag "verified live via direct file read"
+  // instead of "supplied by orchestrator." That's not a bug: it's the
+  // model correctly choosing to independently verify over blindly
+  // trusting supplied data, exactly the kind of behavior the SOURCE-tag
+  // system is meant to encourage -- but it made this specific assertion
+  // measure that choice, not dependsOnFact's actual injection fidelity.
+  // A synthetic numeric fact (nothing in the vault to independently
+  // re-derive it from) isolates the real question. Measured 10/10 with
+  // this design after wrapInjectedValue()'s fix, vs. 4-6/10 with the
+  // file-reverifiable design -- confirms the fix works; the file-based
+  // design just wasn't testing it cleanly.
+  const seedId = writeTask('memory_chain_seed', [
+    '## seed', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated deterministic seed for the dependsOnFact injection-fidelity check',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:01Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:01Z', 'output:', '```', '73', '```', '',
+  ]);
+  const factKey = `${key}_numeric`;
+  const chainRecorderId = writeTask('memory_chain_recorder', [
+    '## chain_recorder', 'from: claude', 'to: claude-agent', 'type: request', 'status: pending',
+    'payload: You will be given a number from a prior pipeline step below. Add exactly 100 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.',
+    'timestamp: 2026-09-02T00:00:02Z', `dependsOnTaskId: ${seedId}`, `recordFact: ${factKey}`, 'expectedType: number', '',
+  ]);
+  runFullTaskGeneric(chainRecorderId);
+  const chainRecorderTask = runTask.readTaskFile(chainRecorderId);
+  if (chainRecorderTask.status !== 'done' || !memoryStore.getFact(factKey)) {
+    record('live memory layer: dependsOnFact injection fidelity (numeric chain setup)', false, `chain recorder did not complete/record: status=${chainRecorderTask.status}`);
+    return;
+  }
+
   const readerId = writeTask('memory_reader', [
     '## reader', 'from: claude', 'to: claude-agent', 'type: request', 'status: pending',
-    'payload: You will be given a remembered fact below, from the pipeline\'s memory store. Reply with ONLY the exact word contained in it (the word after "Role: "), on its own line, aside from the mandatory SOURCE/as-of preamble below.',
-    'timestamp: 2026-09-02T00:00:01Z', `dependsOnFact: ${key}`, '',
+    'payload: You will be given a remembered number from the pipeline\'s memory store below. Multiply it by exactly 2. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.',
+    'timestamp: 2026-09-02T00:00:03Z', `dependsOnFact: ${factKey}`, 'expectedType: number', '',
   ]);
   runFullTaskGeneric(readerId);
   const readerTask = runTask.readTaskFile(readerId);
   const usedSuppliedTag = readerTask.output && readerTask.output.includes('SOURCE: supplied by orchestrator from a prior verified step');
-  const gotAntigravity = readerTask.output && /Antigravity/i.test(readerTask.output);
+  const matches = readerTask.output ? readerTask.output.match(/-?\d+/g) : null;
+  const got = matches ? parseInt(matches[matches.length - 1], 10) : null;
+  const expected = (73 + 100) * 2;
   record(
-    'live memory layer: dependsOnFact (lookup by meaning, no dependsOnTaskId) injects the recorded fact correctly',
-    readerTask.status === 'done' && usedSuppliedTag && gotAntigravity,
-    `status=${readerTask.status}, usedSuppliedTag=${usedSuppliedTag}, gotAntigravity=${gotAntigravity}`
+    `live memory layer: dependsOnFact (lookup by meaning, no dependsOnTaskId) injects the recorded fact correctly (expect ${expected})`,
+    readerTask.status === 'done' && usedSuppliedTag && got === expected,
+    `status=${readerTask.status}, usedSuppliedTag=${usedSuppliedTag}, got=${got}`
   );
 }
 
