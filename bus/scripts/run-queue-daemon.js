@@ -16,9 +16,10 @@
 // mechanism), and persistence across logoff/reboot (Task Scheduler
 // wiring is a separate, later decision -- see the plan this was built
 // from). The dependency model itself gained multi-parent support
-// (dependsOnTaskIds) 2026-09-02, Phase 3 piece 2 -- retryBlocked() below
-// got that for free via resolveTaskDependencies(), no daemon-specific
-// fan-in logic needed.
+// (dependsOnTaskIds, Phase 3 piece 2) and a fact-based dependency
+// (dependsOnFact, Phase 3 piece 3 -- see memory-store.js) the same day
+// -- retryBlocked() below got both for free via
+// resolveTaskDependencies(), no daemon-specific logic needed for either.
 //
 // Usage: node run-queue-daemon.js  (long-lived; runs until killed)
 
@@ -142,13 +143,21 @@ function retryBlocked() {
   for (const taskId of listTaskIdsByStatus('blocked')) {
     if (queuedOrProcessing.has(taskId)) continue;
     const task = readTaskFile(taskId);
-    if (!task || (!task.dependsOnTaskId && !task.dependsOnTaskIds)) continue; // blocked for a reason other than an unresolved dependency -- leave it, not this daemon's call to make
-    // resolveTaskDependencies() handles single- and multi-parent alike --
-    // added 2026-09-02 for fan-in, no daemon-specific logic needed here.
+    if (!task || (!task.dependsOnTaskId && !task.dependsOnTaskIds && !task.dependsOnFact)) continue; // blocked for a reason other than an unresolved dependency -- leave it, not this daemon's call to make
+    // resolveTaskDependencies() handles single-parent, multi-parent, and
+    // fact dependencies alike (added 2026-09-02 for fan-in, then the
+    // memory layer, same day) -- no daemon-specific logic needed here. A
+    // task blocked purely on a missing fact gets auto-retried the moment
+    // ANY other task records it, without this daemon knowing in advance
+    // which task that will be.
     const dep = resolveTaskDependencies(taskId, task);
     if (dep.ok) {
+      const parts = [];
+      if (task.dependsOnTaskIds) parts.push(`dependencies "${task.dependsOnTaskIds}"`);
+      else if (task.dependsOnTaskId) parts.push(`dependency "${task.dependsOnTaskId}"`);
+      if (task.dependsOnFact) parts.push(`fact "${task.dependsOnFact}"`);
       resetBlockedToPending(taskId);
-      log(`AUTO-RETRY: ${taskId} -- ${task.dependsOnTaskIds ? `dependencies "${task.dependsOnTaskIds}"` : `dependency "${task.dependsOnTaskId}"`} now resolved, reset status blocked -> pending`);
+      log(`AUTO-RETRY: ${taskId} -- ${parts.join(' and ')} now resolved, reset status blocked -> pending`);
       queuedOrProcessing.add(taskId);
       queue.push(taskId);
     }

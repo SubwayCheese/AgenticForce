@@ -17,6 +17,12 @@ enrichWithSearch: (optional -- "true" to auto-prepend top-3 vault search
   results to the prompt via run-task-generic.js; see below. Omit/blank
   for no enrichment, which is the default -- this is opt-in, never
   applied automatically.)
+recordFact: (optional -- a key; on a successful "done" dispatch whose
+  result is trustworthy, promotes the output into the durable fact
+  store. See "recordFact / dependsOnFact" below.)
+dependsOnFact: (optional -- a key; looks up the most recently recorded
+  fact for that key, by MEANING rather than by task_id. Combinable with
+  dependsOnTaskId/Ids, not exclusive to them. See below.)
 
 ## Which agent, and how to dispatch (updated 2026-09-01)
 
@@ -158,6 +164,49 @@ finishes, exactly like a single-parent one). Write mode (Codex-only
 `run-task-collab.js`, and `run-task-generic.js --write`) rejects either
 field the same way it already rejected `dependsOnTaskId` -- dependency
 resolution stays a read-only-mode capability.
+
+## recordFact / dependsOnFact (added 2026-09-02, the memory layer,
+Phase 3 piece 3)
+
+`dependsOnTaskId(s)` requires knowing exactly which prior task_id
+produced the value you need. `recordFact`/`dependsOnFact` instead let a
+task remember or look up a value by MEANING -- a key -- regardless of
+which task produced it or when. Backed by `bus/scripts/memory-store.js`,
+a small append-only fact store at `bus/memory.jsonl` (committed to git,
+unlike the gitignored operational logs -- this is a durable record of
+what's been verified over time, closer in character to `bus/log.md`).
+
+**`recordFact: <key>`** -- opt-in. On a successful (`status: done`)
+dispatch, the result is promoted into the fact store under that key
+ONLY if it's actually trustworthy enough to remember -- this reuses the
+SOURCE-tag honesty work from earlier the same day, not a second trust
+mechanism:
+  - `to: claude` (orchestrator-sourced, e.g. a real FMP fetch) -- always
+    eligible, trusted by construction.
+  - A dispatched specialist's output -- eligible unless tagged
+    `SOURCE: training-data recall, not verified live`. A recall-tagged
+    guess is never promoted to "remembered fact" -- that would quietly
+    undermine the whole point of the SOURCE tag. Declining to record is
+    a silent skip, not an error.
+
+**`dependsOnFact: <key>`** -- looks up the most recently recorded fact
+for that key via `resolveTaskDependencies()` (the same shared function
+`dependsOnTaskId(s)` uses). Missing fact -> `blocked`, naming the key,
+same "never guess" discipline as every other dependency here. Found ->
+injected the same way a task-lineage dependency is, clearly attributed
+("The memory store's most recent recorded fact for key ... is: ...").
+Combinable with `dependsOnTaskId`/`dependsOnTaskIds` on the same task
+(not mutually exclusive the way those two are with each other) -- they
+answer different questions: "this specific task's fresh output" vs
+"whatever the most recently verified value of X is."
+`run-queue-daemon.js`'s blocked-task auto-retry covers `dependsOnFact`
+too, with no daemon-specific logic -- a task blocked purely on a
+missing fact gets retried the moment ANY task records it.
+
+Inspect the store directly: `node bus/scripts/memory-query.js <key>`
+(latest), `--history` (every recording), `--list` (every known key).
+`bus-status.js` also reports a summary (key count, total recordings,
+most recent).
 
 ## enrichWithSearch (added 2026-09-01, opt-in only)
 

@@ -1,0 +1,28 @@
+{"ts":"2026-09-02T19:12:28.860Z","key":"suite_memstore_2026-09-02T19-12-22-769Z","value":"v1","sourceTaskId":"t1","taskTo":"codex"}
+{"ts":"2026-09-02T19:12:28.861Z","key":"suite_memstore_2026-09-02T19-12-22-769Z","value":"v2","sourceTaskId":"t2","taskTo":"claude-agent"}
+not valid json
+{"ts":"2026-09-02T19:12:28.865Z","key":"suite_recordfact_2026-09-02T19-12-22-769Z_claude_sourced","value":"123","sourceTaskId":"verification_suite/2026-09-02T19-12-22-769Z/recordfact_claude_sourced","taskTo":"claude"}
+{"ts":"2026-09-02T19:12:28.871Z","key":"suite_recordfact_2026-09-02T19-12-22-769Z_supplied","value":"SOURCE: supplied by orchestrator from a prior verified step\nAs of: 2026\n789","sourceTaskId":"verification_suite/2026-09-02T19-12-22-769Z/recordfact_supplied","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:12:28.885Z","key":"suite_dependsonfact_2026-09-02T19-12-22-769Z","value":"314159","sourceTaskId":"suite_fact_source","taskTo":"codex"}
+{"ts":"2026-09-02T19:13:35.338Z","key":"suite_live_memory_2026-09-02T19-12-22-769Z","value":"SOURCE: verified live via direct file read in this pipeline\nD:\\1. AgentVault\\AgentVault\\roles\\antigravity_role.md\n\nAntigravity","sourceTaskId":"verification_suite/2026-09-02T19-12-22-769Z/memory_recorder","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:21:18.316Z","key":"suite_memstore_2026-09-02T19-21-14-515Z","value":"v1","sourceTaskId":"t1","taskTo":"codex"}
+{"ts":"2026-09-02T19:21:18.326Z","key":"suite_memstore_2026-09-02T19-21-14-515Z","value":"v2","sourceTaskId":"t2","taskTo":"claude-agent"}
+not valid json
+{"ts":"2026-09-02T19:21:18.350Z","key":"suite_recordfact_2026-09-02T19-21-14-515Z_claude_sourced","value":"123","sourceTaskId":"verification_suite/2026-09-02T19-21-14-515Z/recordfact_claude_sourced","taskTo":"claude"}
+{"ts":"2026-09-02T19:21:18.367Z","key":"suite_recordfact_2026-09-02T19-21-14-515Z_supplied","value":"SOURCE: supplied by orchestrator from a prior verified step\nAs of: 2026\n789","sourceTaskId":"verification_suite/2026-09-02T19-21-14-515Z/recordfact_supplied","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:21:18.380Z","key":"suite_dependsonfact_2026-09-02T19-21-14-515Z","value":"314159","sourceTaskId":"suite_fact_source","taskTo":"codex"}
+{"ts":"2026-09-02T19:22:24.831Z","key":"suite_live_memory_2026-09-02T19-21-14-515Z","value":"SOURCE: verified live via direct file read in this pipeline\nD:\\1. AgentVault\\AgentVault\\roles\\antigravity_role.md\n\nAntigravity","sourceTaskId":"verification_suite/2026-09-02T19-21-14-515Z/memory_recorder","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:29:25.032Z","key":"suite_memstore_2026-09-02T19-29-21-207Z","value":"v1","sourceTaskId":"t1","taskTo":"codex"}
+{"ts":"2026-09-02T19:29:25.041Z","key":"suite_memstore_2026-09-02T19-29-21-207Z","value":"v2","sourceTaskId":"t2","taskTo":"claude-agent"}
+not valid json
+{"ts":"2026-09-02T19:29:25.065Z","key":"suite_recordfact_2026-09-02T19-29-21-207Z_claude_sourced","value":"123","sourceTaskId":"verification_suite/2026-09-02T19-29-21-207Z/recordfact_claude_sourced","taskTo":"claude"}
+{"ts":"2026-09-02T19:29:25.083Z","key":"suite_recordfact_2026-09-02T19-29-21-207Z_supplied","value":"SOURCE: supplied by orchestrator from a prior verified step\nAs of: 2026\n789","sourceTaskId":"verification_suite/2026-09-02T19-29-21-207Z/recordfact_supplied","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:29:25.096Z","key":"suite_dependsonfact_2026-09-02T19-29-21-207Z","value":"314159","sourceTaskId":"suite_fact_source","taskTo":"codex"}
+{"ts":"2026-09-02T19:30:11.821Z","key":"suite_live_memory_2026-09-02T19-29-21-207Z","value":"SOURCE: verified live via direct file read in this pipeline\nD:\\1. AgentVault\\AgentVault\\roles\\antigravity_role.md\nAs of: file content read just now (vault snapshot dated 2026-09-01 per the file's own status line)\n\nAntigravity","sourceTaskId":"verification_suite/2026-09-02T19-29-21-207Z/memory_recorder","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:38:48.276Z","key":"suite_memstore_2026-09-02T19-38-44-506Z","value":"v1","sourceTaskId":"t1","taskTo":"codex"}
+{"ts":"2026-09-02T19:38:48.277Z","key":"suite_memstore_2026-09-02T19-38-44-506Z","value":"v2","sourceTaskId":"t2","taskTo":"claude-agent"}
+not valid json
+{"ts":"2026-09-02T19:38:48.281Z","key":"suite_recordfact_2026-09-02T19-38-44-506Z_claude_sourced","value":"123","sourceTaskId":"verification_suite/2026-09-02T19-38-44-506Z/recordfact_claude_sourced","taskTo":"claude"}
+{"ts":"2026-09-02T19:38:48.286Z","key":"suite_recordfact_2026-09-02T19-38-44-506Z_supplied","value":"SOURCE: supplied by orchestrator from a prior verified step\nAs of: 2026\n789","sourceTaskId":"verification_suite/2026-09-02T19-38-44-506Z/recordfact_supplied","taskTo":"claude-agent"}
+{"ts":"2026-09-02T19:38:48.290Z","key":"suite_dependsonfact_2026-09-02T19-38-44-506Z","value":"314159","sourceTaskId":"suite_fact_source","taskTo":"codex"}
+{"ts":"2026-09-02T19:39:35.854Z","key":"suite_live_memory_2026-09-02T19-38-44-506Z","value":"SOURCE: verified live via direct file read in this pipeline\nD:\\1. AgentVault\\AgentVault\\roles\\antigravity_role.md\nAs-of: file content as read just now (2026-09-02 session; file's internal note says confirmed 2026-09-01)\n\nAntigravity","sourceTaskId":"verification_suite/2026-09-02T19-38-44-506Z/memory_recorder","taskTo":"claude-agent"}

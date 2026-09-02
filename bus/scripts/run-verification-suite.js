@@ -38,6 +38,7 @@ const engine = require('./agent-engine.js');
 const { validate: validateAgentConfig } = require('./validate-agent-config.js');
 const { search: vaultSearch } = require('./vault-search.js');
 const busStatus = require('./bus-status.js');
+const memoryStore = require('./memory-store.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
@@ -354,6 +355,135 @@ function testResolveTaskDependenciesFast() {
   record('resolveTaskDependencies(): no-dep / both-set / single-parent / multi-parent success / multi-parent partial failure', problems.length === 0, problems.join('; '));
 }
 
+// ---------- FAST: memory-store.js round-trip (added 2026-09-02 for
+// the memory layer, Phase 3 piece 3) ----------
+function testMemoryStoreFast() {
+  const problems = [];
+  const key = `suite_memstore_${RUN_ID.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  if (memoryStore.getFact(key) !== null) {
+    problems.push('unknown-key case: expected null before any recording');
+  }
+
+  memoryStore.recordFact(key, 'v1', { sourceTaskId: 't1', taskTo: 'codex' });
+  memoryStore.recordFact(key, 'v2', { sourceTaskId: 't2', taskTo: 'claude-agent' });
+
+  const latest = memoryStore.getFact(key);
+  if (!(latest && latest.value === 'v2' && latest.sourceTaskId === 't2')) {
+    problems.push(`latest-wins case: expected v2/t2, got ${JSON.stringify(latest)}`);
+  }
+
+  const history = memoryStore.getFactHistory(key);
+  if (!(history.length === 2 && history[0].value === 'v1' && history[1].value === 'v2')) {
+    problems.push(`history case: expected [v1, v2] in order, got ${JSON.stringify(history.map((h) => h.value))}`);
+  }
+
+  // A malformed line elsewhere in the file must not break lookups for
+  // this key -- same "skip, don't crash" posture as resolveDependency()
+  // applied to file I/O instead of task state.
+  fs.appendFileSync(memoryStore.MEMORY_PATH, 'not valid json\n', 'utf8');
+  let survivedMalformedLine = true;
+  let afterMalformed = null;
+  try {
+    afterMalformed = memoryStore.getFact(key);
+  } catch (e) {
+    survivedMalformedLine = false;
+  }
+  if (!survivedMalformedLine || !afterMalformed || afterMalformed.value !== 'v2') {
+    problems.push(`malformed-line resilience: expected getFact to still return v2 after a bad line, got survived=${survivedMalformedLine}, ${JSON.stringify(afterMalformed)}`);
+  }
+
+  record('memory-store.js: record/getFact/getFactHistory round-trip + malformed-line resilience', problems.length === 0, problems.join('; '));
+}
+
+// ---------- FAST: recordFact eligibility gate (added 2026-09-02) ----------
+// Exercises the REAL path (writeTaskResult -> maybeRecordFact), not a
+// reimplementation -- writes a real suite task file, calls
+// writeTaskResult() exactly the way every dispatch script does, then
+// checks memory-store.js directly. No live LLM call needed: the gate
+// only inspects task.to and the SOURCE tag text, both fabricated here.
+function testRecordFactEligibilityFast() {
+  const problems = [];
+  const prefix = `suite_recordfact_${RUN_ID.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  const claudeSourcedId = writeTask('recordfact_claude_sourced', [
+    '## a', 'from: claude', 'to: claude', 'type: response', 'status: pending',
+    'source: suite-generated orchestrator-sourced task for eligibility test',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:00Z', `recordFact: ${prefix}_claude_sourced`, '',
+  ]);
+  runTask.writeTaskResult(claudeSourcedId, { status: 'done', output: '123' });
+  const claudeSourcedFact = memoryStore.getFact(`${prefix}_claude_sourced`);
+  if (!(claudeSourcedFact && claudeSourcedFact.value === '123')) {
+    problems.push(`to:claude (orchestrator-sourced): expected recorded, got ${JSON.stringify(claudeSourcedFact)}`);
+  }
+
+  const recallId = writeTask('recordfact_recall', [
+    '## b', 'from: claude', 'to: codex', 'type: request', 'status: pending',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:01Z', `recordFact: ${prefix}_recall`, '',
+  ]);
+  runTask.writeTaskResult(recallId, { status: 'done', output: 'SOURCE: training-data recall, not verified live\nAs of: 2026\n456' });
+  const recallFact = memoryStore.getFact(`${prefix}_recall`);
+  if (recallFact !== null) {
+    problems.push(`dispatched specialist, recall-tagged: expected NOT recorded, got ${JSON.stringify(recallFact)}`);
+  }
+
+  const suppliedId = writeTask('recordfact_supplied', [
+    '## c', 'from: claude', 'to: claude-agent', 'type: request', 'status: pending',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:02Z', `recordFact: ${prefix}_supplied`, '',
+  ]);
+  runTask.writeTaskResult(suppliedId, { status: 'done', output: 'SOURCE: supplied by orchestrator from a prior verified step\nAs of: 2026\n789' });
+  const suppliedFact = memoryStore.getFact(`${prefix}_supplied`);
+  if (!(suppliedFact && suppliedFact.value.includes('789'))) {
+    problems.push(`dispatched specialist, orchestrator-supplied tag: expected recorded, got ${JSON.stringify(suppliedFact)}`);
+  }
+
+  const noOptInId = writeTask('recordfact_no_optin', [
+    '## d', 'from: claude', 'to: claude', 'type: response', 'status: pending',
+    'source: suite-generated -- no recordFact field, must not be recorded anywhere',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:03Z', '',
+  ]);
+  runTask.writeTaskResult(noOptInId, { status: 'done', output: 'unrelated value' });
+  // Nothing to look up (no key was declared) -- this case just confirms
+  // writeTaskResult() didn't throw when recordFact is absent.
+
+  record('recordFact eligibility gate: to:claude / recall-tagged / orchestrator-supplied-tagged / no opt-in', problems.length === 0, problems.join('; '));
+}
+
+// ---------- FAST: dependsOnFact resolution (added 2026-09-02) ----------
+function testDependsOnFactFast() {
+  const problems = [];
+  const key = `suite_dependsonfact_${RUN_ID.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  // Missing fact -> blocked, reason names the key.
+  let dep = runTask.resolveTaskDependencies('x', { dependsOnFact: key });
+  if (!(dep.ok === false && dep.reason.includes(key))) {
+    problems.push(`missing-fact case: expected rejection naming "${key}", got ${JSON.stringify(dep)}`);
+  }
+
+  memoryStore.recordFact(key, '314159', { sourceTaskId: 'suite_fact_source', taskTo: 'codex' });
+
+  // Fact present -> injected with correct attribution, no task-lineage dependency involved at all.
+  dep = runTask.resolveTaskDependencies('x', { dependsOnFact: key });
+  if (!(dep.ok && dep.injectedContext.includes('314159') && dep.injectedContext.includes(key) && dep.logNote.includes('dependsOnFact'))) {
+    problems.push(`fact-present case: expected injectedContext to include the fact value and key, got ${JSON.stringify(dep)}`);
+  }
+
+  // Combined with an existing, already-done task-lineage dependency --
+  // both must resolve together, both injected.
+  const seedId = writeTask('dependsonfact_combo_seed', [
+    '## seed', 'from: claude', 'to: claude', 'type: response', 'status: done',
+    'source: suite-generated seed for dependsOnFact + dependsOnTaskId combo test',
+    'payload: (n/a)', 'timestamp: 2026-09-02T00:00:00Z', 'dependsOnTaskId:', '',
+    '## Result (auto)', 'resolved_at: 2026-09-02T00:00:00Z', 'output:', '```', '271828', '```', '',
+  ]);
+  dep = runTask.resolveTaskDependencies('x', { dependsOnTaskId: seedId, dependsOnFact: key });
+  if (!(dep.ok && dep.injectedContext.includes('271828') && dep.injectedContext.includes('314159'))) {
+    problems.push(`combined task+fact case: expected both values in injectedContext, got ${JSON.stringify(dep)}`);
+  }
+
+  record('resolveTaskDependencies(): dependsOnFact missing / present / combined with dependsOnTaskId', problems.length === 0, problems.join('; '));
+}
+
 // ---------- SLOW: live 2-hop numeric chain ----------
 function testLiveChain() {
   const seed = 41; // different from the earlier manual 137 test, still non-round
@@ -436,6 +566,51 @@ function testLiveFanIn() {
     `live fan-in: two seeds ${seedA} + ${seedB} (expect ${expected}) via dependsOnTaskIds`,
     cTask.status === 'done' && got === expected && usedSuppliedTag,
     `status=${cTask.status}, got=${got}, usedSuppliedTag=${usedSuppliedTag}`
+  );
+}
+
+// ---------- SLOW: live memory layer (added 2026-09-02, Phase 3 piece
+// 3) ----------
+// Real proof, not a fabricated case: dispatch a real task instructed to
+// read a known vault file and report a fact from it, with recordFact:
+// set -- confirm it lands with the live-file-read SOURCE tag (same
+// mechanism verified earlier today for run-task.js/roles/codex_role.md)
+// and that memory-store.js now holds the value. Then dispatch a SECOND
+// real task with dependsOnFact only -- no dependsOnTaskId at all -- to
+// prove lookup-by-meaning actually works, not just lookup-by-lineage.
+function testLiveMemoryLayer() {
+  const key = `suite_live_memory_${RUN_ID.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  const recorderId = writeTask('memory_recorder', [
+    '## recorder', 'from: claude', 'to: claude-agent', 'type: request', 'status: pending',
+    'payload: Read the file roles/antigravity_role.md in this vault directory using your own file-reading tool, then reply with ONLY the exact word that appears on its first line after "Role: " (e.g. if the line is "# Role: Foo" reply with "Foo"), on its own line, aside from the mandatory SOURCE/as-of preamble below.',
+    'timestamp: 2026-09-02T00:00:00Z', `recordFact: ${key}`, '',
+  ]);
+  runFullTaskGeneric(recorderId);
+  const recorderTask = runTask.readTaskFile(recorderId);
+  const usedLiveReadTag = recorderTask.output && recorderTask.output.includes('SOURCE: verified live via direct file read in this pipeline');
+  const fact = memoryStore.getFact(key);
+  const recorderOk = recorderTask.status === 'done' && usedLiveReadTag && fact && fact.value === recorderTask.output;
+  record(
+    'live memory layer: recordFact promotes a live-file-read result into the fact store',
+    recorderOk,
+    `status=${recorderTask.status}, usedLiveReadTag=${usedLiveReadTag}, factRecorded=${!!fact}`
+  );
+  if (!recorderOk) return; // no point testing the lookup side against a fact that was never recorded
+
+  const readerId = writeTask('memory_reader', [
+    '## reader', 'from: claude', 'to: claude-agent', 'type: request', 'status: pending',
+    'payload: You will be given a remembered fact below, from the pipeline\'s memory store. Reply with ONLY the exact word contained in it (the word after "Role: "), on its own line, aside from the mandatory SOURCE/as-of preamble below.',
+    'timestamp: 2026-09-02T00:00:01Z', `dependsOnFact: ${key}`, '',
+  ]);
+  runFullTaskGeneric(readerId);
+  const readerTask = runTask.readTaskFile(readerId);
+  const usedSuppliedTag = readerTask.output && readerTask.output.includes('SOURCE: supplied by orchestrator from a prior verified step');
+  const gotAntigravity = readerTask.output && /Antigravity/i.test(readerTask.output);
+  record(
+    'live memory layer: dependsOnFact (lookup by meaning, no dependsOnTaskId) injects the recorded fact correctly',
+    readerTask.status === 'done' && usedSuppliedTag && gotAntigravity,
+    `status=${readerTask.status}, usedSuppliedTag=${usedSuppliedTag}, gotAntigravity=${gotAntigravity}`
   );
 }
 
@@ -709,7 +884,7 @@ function testVaultSearch() {
 // ---------- FAST: bus-status.js smoke test (each report function must
 // not throw -- doesn't check content, just that the tool stays usable) ----------
 function testBusStatusSmoke() {
-  const fns = ['reportAgentConfigs', 'reportRecentActivity', 'reportPendingTasks', 'reportVaultHealth'];
+  const fns = ['reportAgentConfigs', 'reportRecentActivity', 'reportPendingTasks', 'reportMemoryStore', 'reportVaultHealth'];
   const originalLog = console.log;
   console.log = () => {}; // suppress output during the smoke test, this is a fast check not a demo
   let problems = [];
@@ -872,9 +1047,13 @@ function main() {
   testBusStatusSmoke();
   testPendingTaskIdsAgreement();
   testResolveTaskDependenciesFast();
+  testMemoryStoreFast();
+  testRecordFactEligibilityFast();
+  testDependsOnFactFast();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testLiveFanIn();
+  testLiveMemoryLayer();
   testSandboxBoundary();
   console.log('\n-- slow checks: generic engine, all configured agents --');
   testEnginePerAgentDispatch();

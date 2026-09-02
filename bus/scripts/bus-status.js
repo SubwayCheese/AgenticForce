@@ -19,6 +19,7 @@ const { execFileSync } = require('child_process');
 const { listAgentConfigs } = require('./agent-engine.js');
 const { validate: validateAgentConfig } = require('./validate-agent-config.js');
 const { listPendingTaskIds } = require('./run-task.js');
+const memoryStore = require('./memory-store.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'log.md');
@@ -79,6 +80,25 @@ function reportPendingTasks() {
   }
 }
 
+// --- Memory store (durable facts recorded via recordFact:, Phase 3
+// piece 3, added 2026-09-02) ---
+function reportMemoryStore() {
+  section('Memory store (recorded facts)');
+  const keys = memoryStore.listKeys();
+  if (keys.length === 0) {
+    console.log('  (no facts recorded yet)');
+    return;
+  }
+  let totalEntries = 0;
+  let mostRecent = null;
+  for (const k of keys) {
+    totalEntries += k.count;
+    if (!mostRecent || k.latest.ts > mostRecent.ts) mostRecent = k.latest;
+  }
+  console.log(`  ${keys.length} key(s), ${totalEntries} recorded fact(s) total`);
+  console.log(`  Most recent: "${mostRecent.key}" at ${mostRecent.ts} (task_id: ${mostRecent.sourceTaskId})`);
+}
+
 // --- Vault health (via autograph, if installed) ---
 function reportVaultHealth() {
   section('Vault health (autograph)');
@@ -109,6 +129,7 @@ function main() {
   reportAgentConfigs();
   reportRecentActivity();
   reportPendingTasks();
+  reportMemoryStore();
   reportVaultHealth();
   console.log('\n(For a fresh, live-tested result instead of the last recorded one, run: node run-verification-suite.js)');
 }
@@ -117,4 +138,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { reportAgentConfigs, reportRecentActivity, reportPendingTasks, reportVaultHealth };
+module.exports = { reportAgentConfigs, reportRecentActivity, reportPendingTasks, reportMemoryStore, reportVaultHealth };

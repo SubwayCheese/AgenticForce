@@ -44,6 +44,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
+const memoryStore = require('./memory-store.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
@@ -121,6 +122,48 @@ const LIVE_FILE_READ_CAPABLE = new Set(['claude-agent', 'codex']);
 const SOURCE_TAG_TRAINING_RECALL = 'SOURCE: training-data recall, not verified live';
 const SOURCE_TAG_ORCHESTRATOR_SUPPLIED = 'SOURCE: supplied by orchestrator from a prior verified step';
 const SOURCE_TAG_LIVE_FILE_READ = 'SOURCE: verified live via direct file read in this pipeline';
+
+// Added 2026-09-02, found via a real failure in the memory layer's own
+// live test (Phase 3 piece 3): a dependency's injected value can itself
+// already carry a SOURCE/as-of line from when IT was originally
+// produced (any real dispatched-specialist output does) -- and when that
+// embedded preamble happens to be well-formed (a real SOURCE line, a
+// real as-of line, then the answer), the quoted block has EXACTLY the
+// shape the mandatory suffix asks for. Two prompt-wording-only fixes (a
+// trailing warning, then a leading + delimited warning) both failed
+// against this specific shape in real dispatched tests -- the specialist
+// didn't just copy the SOURCE line, it copied the ENTIRE quoted block
+// verbatim as if it were a ready-made template. This version breaks the
+// pattern-match structurally too: every line of the quoted value is
+// blockquote-prefixed ("| "), so it no longer has the literal shape of
+// "a line starting with SOURCE:".
+//
+// Measured, not assumed: 4/5 real dispatched reps against the exact
+// well-formed shape that broke both earlier fixes came back correct
+// (up from an apparent ~0/2 before this version). This is a real,
+// substantial improvement, not a complete fix -- LLM instruction-
+// following on this specific shape is not 100% reliable even with a
+// structural change, and no further prompt iteration is expected to
+// close that gap to zero. Documented honestly in ARCHITECTURE.md
+// section 6 rather than treated as fully solved; the live suite test
+// covering this may occasionally flake for this reason, the same way
+// `engine dispatch (Claude)`'s arithmetic check flakes on rare exact-
+// string-match misses -- a known, accepted category, not a new one.
+function wrapInjectedValue(value) {
+  const quoted = String(value).split('\n').map((line) => '| ' + line).join('\n');
+  return (
+    '\n\nIMPORTANT before you read the quoted value below: it is shown' +
+    ' blockquoted (each line prefixed "| ") because it is DATA from a' +
+    ' prior step, not a template for your response. It may itself contain' +
+    ' what looks like a SOURCE/as-of line from when it was originally' +
+    ' produced -- that describes how THAT value was produced, not how you' +
+    ' are producing your response now. Do not reproduce the "| " prefixes' +
+    ' or copy any embedded SOURCE line. Your own SOURCE tag for using' +
+    ' this value now is typically "SOURCE: supplied by orchestrator from' +
+    ' a prior verified step."\n\n' +
+    quoted
+  );
+}
 
 // Same shape as MANDATORY_SUFFIX, but offers a third, honest SOURCE tag
 // instead of forcing a choice between two options that are both false
@@ -213,6 +256,17 @@ function readTaskFile(taskId) {
     // field here; the actual enrichment behavior lives where it was
     // asked for, not spread across every dispatch script.
     enrichWithSearch: field('enrichWithSearch'),
+    // Added 2026-09-02 for the memory layer (Phase 3 piece 3). recordFact
+    // is opt-in: on a successful ("done") dispatch, promote this task's
+    // output into the durable fact store under this key -- see
+    // maybeRecordFact() below, gated on the same SOURCE-tag honesty work
+    // built earlier today. dependsOnFact looks a fact back up by key
+    // (not by task_id) -- see resolveTaskDependencies() below. Distinct
+    // from and combinable with dependsOnTaskId(s) (that's "this specific
+    // task's fresh output"; this is "whatever the most recently verified
+    // value of X is").
+    recordFact: field('recordFact'),
+    dependsOnFact: field('dependsOnFact'),
     output: outputMatch ? outputMatch[1] : null,
   };
 }
@@ -285,6 +339,39 @@ function writeTaskResult(taskId, { status, output, reason }) {
   }
   text = text.trimEnd() + '\n' + resultBlock;
   fs.writeFileSync(p, text, 'utf8');
+
+  // Added 2026-09-02 for the memory layer (Phase 3 piece 3). Lives here,
+  // not as a new call site in each of the 5 dispatch scripts -- this is
+  // already the one function every one of them calls to persist a
+  // result, same "collapse it into the place that's already called
+  // everywhere" move fan-in made earlier today, one level cleaner since
+  // it doesn't even need a new call site. Re-reads the file just written
+  // so recordFact/to reflect exactly what's on disk now.
+  if (status === 'done' && output !== undefined && output !== null) {
+    maybeRecordFact(taskId, readTaskFile(taskId), output);
+  }
+}
+
+// Promotes a task's output into the durable fact store (memory-store.js)
+// if it opted in via recordFact: AND the result is actually trustworthy
+// enough to remember -- reuses the SOURCE-tag honesty work built earlier
+// today rather than inventing a second trust mechanism. A recall-tagged
+// guess must never get promoted to "remembered fact" status; that would
+// quietly undermine the whole point of the SOURCE tag. Declining to
+// record is not an error, just a silent skip -- this is the memory
+// system correctly refusing to cache an unverified guess, not a failure.
+function isEligibleForMemory(task, output) {
+  if (task.to === 'claude') return true; // orchestrator-sourced (e.g. a real FMP fetch) -- trusted by construction, see ARCHITECTURE.md section 4
+  if (DISPATCHED_SPECIALISTS.has(task.to)) {
+    return !String(output).includes(SOURCE_TAG_TRAINING_RECALL);
+  }
+  return false; // unknown/unexpected `to` -- never guess, don't remember it either
+}
+
+function maybeRecordFact(taskId, task, output) {
+  if (!task || !task.recordFact) return; // opt-in only
+  if (!isEligibleForMemory(task, output)) return;
+  memoryStore.recordFact(task.recordFact, output, { sourceTaskId: taskId, taskTo: task.to });
 }
 
 // --- Verification: a second, independent check before a task can be
@@ -386,7 +473,12 @@ function resolveDependency(taskId, dependsOnTaskId) {
 //   { ok, reason?, injectedContext, logNote }
 // injectedContext/logNote are '' (not undefined) when there's nothing to
 // inject, so every call site can unconditionally append/log them.
-function resolveTaskDependencies(taskId, task) {
+// Resolves task-lineage dependencies only (dependsOnTaskId/Ids) -- the
+// exact logic resolveTaskDependencies() had before dependsOnFact existed
+// (Phase 3 piece 3, 2026-09-02), split out so that function can resolve
+// task-lineage and fact dependencies as two independent, combinable
+// concerns instead of one growing conditional chain.
+function resolveTaskLineageDependencies(taskId, task) {
   const hasSingle = !!task.dependsOnTaskId;
   const hasMulti = !!task.dependsOnTaskIds;
 
@@ -407,8 +499,8 @@ function resolveTaskDependencies(taskId, task) {
     return {
       ok: true,
       injectedContext:
-        `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:\n\n` +
-        dep.value +
+        `\n\nA prior step in this pipeline (task_id: ${dep.sourceTaskId}) reported the following exact result:` +
+        wrapInjectedValue(dep.value) +
         '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.',
       logNote: `dependsOnTaskId: ${task.dependsOnTaskId}\nDependency resolved OK. Injecting value from "${dep.sourceTaskId}" verbatim.`,
     };
@@ -429,14 +521,60 @@ function resolveTaskDependencies(taskId, task) {
   if (problems.length > 0) {
     return { ok: false, reason: `${problems.length}/${ids.length} dependencies not ready -- ${problems.join('; ')}` };
   }
-  const lines = resolved.map((r) => `- task_id "${r.sourceTaskId}": ${r.value}`);
+  // Each value blockquoted (via wrapInjectedValue's "| " prefix) for the
+  // same reason the single-parent/fact paths are -- a well-formed
+  // embedded SOURCE/as-of preamble can make a raw value look like a
+  // ready-made answer template, which text warnings alone didn't
+  // reliably stop a specialist from copying wholesale in real testing.
+  const lines = resolved.map((r) => `- task_id "${r.sourceTaskId}":` + wrapInjectedValue(r.value));
   return {
     ok: true,
     injectedContext:
-      '\n\nPrior pipeline steps reported the following exact results:\n\n' +
+      '\n\nPrior pipeline steps reported the following exact results:\n' +
       lines.join('\n') +
       '\n\nUse these exact values -- do not substitute different numbers from your own knowledge, even if they differ from what you would otherwise recall.',
     logNote: `dependsOnTaskIds: ${task.dependsOnTaskIds}\nAll ${ids.length} dependencies resolved OK. Injecting values verbatim.`,
+  };
+}
+
+// Resolves dependsOnFact only -- a lookup by MEANING (a key in the
+// durable fact store, memory-store.js) rather than by task lineage.
+// Added 2026-09-02, Phase 3 piece 3.
+function resolveFactDependency(task) {
+  if (!task.dependsOnFact) return { ok: true, injectedContext: '', logNote: '' };
+  const fact = memoryStore.getFact(task.dependsOnFact);
+  if (!fact) {
+    return { ok: false, reason: `dependsOnFact "${task.dependsOnFact}" -- no recorded fact found for this key yet` };
+  }
+  return {
+    ok: true,
+    injectedContext:
+      `\n\nThe memory store's most recent recorded fact for key "${task.dependsOnFact}" (recorded ${fact.ts}, from task_id: ${fact.sourceTaskId}) is:` +
+      wrapInjectedValue(fact.value) +
+      '\n\nUse that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.',
+    logNote: `dependsOnFact: ${task.dependsOnFact}\nFact resolved OK from memory store (recorded ${fact.ts}, from task_id: ${fact.sourceTaskId}).`,
+  };
+}
+
+// Combines task-lineage dependencies (dependsOnTaskId/Ids) with a fact
+// dependency (dependsOnFact) -- the single entry point every dispatch
+// script and run-queue-daemon.js's retryBlocked() call. Task-lineage
+// resolves first; unchanged behavior (same shape, same failures) for
+// any task not using dependsOnFact at all. Only if that succeeds does
+// the fact dependency get checked too -- combinable with, not exclusive
+// to, dependsOnTaskId(s) (conceptually different: "this specific task's
+// fresh output" vs "whatever the most recently verified value of X is").
+function resolveTaskDependencies(taskId, task) {
+  const taskDep = resolveTaskLineageDependencies(taskId, task);
+  if (!taskDep.ok) return taskDep;
+
+  const factDep = resolveFactDependency(task);
+  if (!factDep.ok) return factDep;
+
+  return {
+    ok: true,
+    injectedContext: taskDep.injectedContext + factDep.injectedContext,
+    logNote: [taskDep.logNote, factDep.logNote].filter(Boolean).join('\n'),
   };
 }
 

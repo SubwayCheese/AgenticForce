@@ -619,6 +619,99 @@ alongside every existing single-parent check
 `testQueueDaemon`) to confirm the refactor changed nothing about
 existing behavior.
 
+## 3i. Phase 3, piece 3: the memory/knowledge layer (added 2026-09-02)
+
+`vault-search.js` (section 3e) is keyword search over static Markdown
+notes a human wrote -- it has no way to durably remember a fact a
+*dispatched task* produced. Before this, if task A verified something
+and task C needed it, C could only get it via `dependsOnTaskId: A`,
+which requires knowing A's exact task_id in advance. No way existed to
+ask "what's the last verified value of X" regardless of which task
+produced it or when. New module `bus/scripts/memory-store.js` closes
+this: a small, dependency-free (just `fs`, no new package -- matching
+the "no unjustified complexity" precedent from Phase 1's
+Task-Scheduler-over-PM2 decision) append-only JSONL key/value fact
+store at `bus/memory.jsonl` -- `{ts, key, value, sourceTaskId, taskTo}`
+per line. `getFact(key)` returns the latest entry, `getFactHistory(key)`
+every one (history is never overwritten, same discipline as
+`bus/log.md`), `listKeys()` summarizes for reporting. A malformed line
+is skipped, not fatal -- `resolveDependency()`'s "malformed/missing --
+refuse to guess, don't crash either" posture, applied to file I/O.
+`bus/memory.jsonl` is committed to git (unlike the gitignored
+`bus/continuous-run.log`/`bus/queue-daemon.log`) -- a durable record of
+what's been verified over time, closer in character to `bus/log.md`
+than to a disposable operational log.
+
+**Recording is gated by the SOURCE-tag honesty work built earlier the
+same day, not a second trust mechanism.** New field `recordFact: <key>`
+(opt-in). On `status: done`, `isEligibleForMemory()` in `run-task.js`
+decides whether to promote the result: `to: claude` (orchestrator-
+sourced, e.g. a real FMP fetch, see section 4) is always eligible,
+trusted by construction; a dispatched specialist's output is eligible
+unless it's tagged `SOURCE: training-data recall, not verified live` --
+a recall-tagged guess must never get promoted to "remembered fact,"
+that would quietly undermine the whole point of the tag. Declining is a
+silent skip, not an error. The hook lives in exactly one place --
+`writeTaskResult()` (already the one function every dispatch script
+calls to persist a result) re-reads the just-written file and calls
+`maybeRecordFact()` -- no new call site needed in any of the 5 dispatch
+scripts, one level cleaner than fan-in's collapse (which still needed
+one call per script) since this needed none.
+
+**Looking a fact up reuses `resolveTaskDependencies()`, not a second
+resolution path.** New field `dependsOnFact: <key>`. The function fan-in
+built is now split into `resolveTaskLineageDependencies()` (the exact
+prior logic, unchanged) and `resolveFactDependency()` (new -- looks up
+`memoryStore.getFact()`, blocks naming the key if nothing's recorded
+yet, or injects a clearly-attributed block if found), combined by
+`resolveTaskDependencies()`: task-lineage resolves first (identical
+behavior for any task not using `dependsOnFact` -- early return on
+failure, nothing new evaluated), then the fact dependency is checked
+only if that succeeded. A task may combine `dependsOnTaskId(s)` with
+`dependsOnFact` -- they're not mutually exclusive with each other the
+way `dependsOnTaskId` and `dependsOnTaskIds` are (different questions:
+"this specific task's fresh output" vs "whatever the most recently
+verified value of X is").
+
+**The daemon gets fact-based auto-retry for free, same mechanism fan-in
+already proved.** `run-queue-daemon.js`'s `retryBlocked()` guard widens
+to `dependsOnFact`; the call already goes through
+`resolveTaskDependencies()`, so a task blocked purely on a missing fact
+gets retried the moment ANY task records it -- without the daemon
+knowing in advance which task that will be.
+
+New CLI `bus/scripts/memory-query.js` (mirrors `vault-search.js`'s
+usability): `<key>` for the latest fact, `--history` for every
+recording, `--list` for every known key. `bus-status.js` gained a
+matching `reportMemoryStore()` section (key count, total recordings,
+most recent).
+
+Verified: fast unit checks for `memory-store.js`'s round-trip
+(including malformed-line resilience), the eligibility gate (exercised
+through the REAL `writeTaskResult()` path, not a reimplementation --
+`to: claude` recorded, recall-tagged output skipped, orchestrator-
+supplied-tagged output recorded), and `dependsOnFact`'s three shapes
+(missing, present, combined with `dependsOnTaskId`). Live: a real
+dispatched task instructed to read a vault file and report a fact from
+it, `recordFact` set, confirmed to land with the live-file-read SOURCE
+tag and land in the store correctly -- then a second real task with
+ONLY `dependsOnFact` set (no `dependsOnTaskId` at all) confirmed to
+correctly look the fact up by key and use it, proving lookup-by-meaning
+actually works end-to-end, not just lookup-by-lineage.
+
+**A real, not-fully-closed finding surfaced by this same live test**:
+when the injected value's own embedded SOURCE/as-of preamble happens to
+be well-formed, it has exactly the shape of a complete, valid response
+-- and a specialist sometimes copies the WHOLE quoted block verbatim
+(embedded SOURCE tag included) instead of producing its own honest
+"supplied by orchestrator" tag around it. Two prompt-wording-only fixes
+failed against this in real dispatched tests; `wrapInjectedValue()`'s
+blockquote-prefixing (`"| "` on every line, breaking the literal
+"line starts with SOURCE:" shape) measured 4/5 correct against the
+exact shape that broke both earlier fixes -- a real, substantial
+improvement, not a complete fix. Tracked honestly as an open item in
+section 6 rather than claimed solved.
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the
@@ -685,6 +778,27 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 6. Known open items
 
+- [ ] A dependency value's own embedded SOURCE/as-of preamble, when
+      well-formed, can look exactly like a complete valid response --
+      a specialist sometimes copies the whole quoted block verbatim
+      (its embedded SOURCE tag included) instead of stating its own
+      honest "supplied by orchestrator" tag. Found 2026-09-02 via the
+      memory layer's live `dependsOnFact` test (section 3i). Three
+      interventions tried the same day, in order: a trailing warning
+      (failed), a leading + delimited warning (failed against the exact
+      well-formed shape), blockquote-prefixing every line of the quoted
+      value (`wrapInjectedValue()` -- 4/5 correct against that same
+      shape, a real improvement, not a complete fix). Affects every
+      injection path (`dependsOnTaskId`, `dependsOnTaskIds`,
+      `dependsOnFact` alike, since all three go through
+      `wrapInjectedValue()`). Not chased further this round -- this
+      reads as genuine LLM instruction-following variance on a subtle
+      case, the same category as the accepted `engine dispatch
+      (Claude)` arithmetic flake below, not a code bug with a clean
+      fix. `verifyOutput()` still correctly accepts only honest tags in
+      an absolute sense (the response isn't fabricating anything, just
+      mislabeling provenance) -- this is a real, worth-fixing-eventually
+      polish item, not a safety hole.
 - [x] ~~`MANDATORY_SUFFIX`'s claim "you have no live data lookup... this is
       true for every response you give in this pipeline" is not actually
       true for the Claude specialist~~ -- **closed 2026-09-02.** Found
