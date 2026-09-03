@@ -300,13 +300,14 @@ function readTaskFile(taskId) {
 // Returns task IDs (no ".md", ready to pass straight to readTaskFile()/
 // taskFilePath()), not display strings.
 //
-// archive_pre_daemon/ (added 2026-09-02, same day as the daemon): six
-// 2026-08-31/09-01 hand-authored guard-test task files were left
-// deliberately `status: pending` forever, to be depended-on-but-unfinished
-// or to prove a script rejects them -- exactly the kind of historical
-// audit record run-verification-suite.js's own header says must never be
-// silently modified. A daemon that dispatches anything pending would have
-// done exactly that on its first live scan. Moved here (git mv, content
+// archive_pre_daemon/ (added 2026-09-02, same day as the daemon; folded
+// into _archive_tests/ later the same day, see below): six 2026-08-31/
+// 09-01 hand-authored guard-test task files were left deliberately
+// `status: pending` forever, to be depended-on-but-unfinished or to prove
+// a script rejects them -- exactly the kind of historical audit record
+// run-verification-suite.js's own header says must never be silently
+// modified. A daemon that dispatches anything pending would have done
+// exactly that on its first live scan. Moved here (git mv, content
 // untouched) instead, and excluded from this walk the same way
 // verification_suite/ already is, rather than letting new automation
 // quietly mutate old evidence.
@@ -314,12 +315,18 @@ function readTaskFile(taskId) {
 // for run-queue-daemon.js's blocked-task auto-retry -- rather than write
 // the same tree-walk a third time with 'blocked' hardcoded instead of
 // 'pending').
+//
+// _archive_tests/ (added 2026-09-02): the user asked to consolidate every
+// test/proof task file into one folder rather than scattering them at
+// tasks/ top level -- archive_pre_daemon/'s six files were folded into
+// this same folder, so the exclusion below now names _archive_tests/
+// instead (archive_pre_daemon/ no longer exists as a separate directory).
 function listTaskIdsByStatus(status) {
   if (!fs.existsSync(TASKS_DIR)) return [];
   const matches = [];
   function walk(dir, relBase) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'verification_suite' || entry.name === 'UNVERIFIED_Cl' || entry.name === 'archive_pre_daemon') continue;
+      if (entry.name === 'verification_suite' || entry.name === 'UNVERIFIED_Cl' || entry.name === '_archive_tests') continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full, path.join(relBase, entry.name));

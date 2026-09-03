@@ -533,7 +533,8 @@ be silently modified. A daemon that dispatches anything pending would
 have done exactly that on its very first live scan. Moved to
 `tasks/archive_pre_daemon/` (`git mv`, content untouched) instead, and
 that directory is excluded from `listTaskIdsByStatus()`'s walk the same
-way `verification_suite/` already was.
+way `verification_suite/` already was. (Later folded into
+`tasks/_archive_tests/` -- see the consolidation note below.)
 
 Verified live, not assumed: a manual smoke test (daemon running, single
 trivial task dropped in by hand, zero manual dispatch command, correctly
@@ -714,6 +715,38 @@ rather than trusting the supplied value, a correct, encouraged
 behavior, not a bug. Isolated with a synthetic, non-file-reverifiable
 fact instead: **10/10 correct**. See section 6 for the full
 investigation.
+
+## 3i-b. Vault housekeeping: consolidating test/proof task files
+(added 2026-09-02)
+
+By this point `tasks/` had accumulated ~55 top-level task files plus
+`tasks/archive_pre_daemon/` -- every stress-test batch, dependency-chain
+test, SOURCE-tag check, sandbox-boundary probe, and live-read
+verification task written while building pieces 1-3 above, sitting
+mixed in with the real workflow content (`tasks/daily/`,
+`tasks/UNVERIFIED_Cl/`, the templates). The user's call: these files are
+proof-of-work for a debugging session, not reference material a future
+agent would ever want to read or learn from -- move them somewhere out
+of the way rather than deleting them outright (git history would have
+kept them either way, but a still-browsable archive was preferred over
+relying on `git log`).
+
+All of it -- the top-level files and `archive_pre_daemon/`'s six -- was
+`git mv`'d, content untouched, into one flat `tasks/_archive_tests/`.
+`tasks/verification_suite/` (already gitignored suite-run scratch, not
+git-tracked content) was cleared out the same pass rather than moved,
+since it's disposable by construction and repopulates on the next suite
+run.
+
+This is a pure reorganization, not a behavior change, but it had one
+real functional dependency to fix: `listTaskIdsByStatus()` in
+`run-task.js` (section 3g above) hardcoded `archive_pre_daemon` in its
+directory-name exclusion list, specifically so the daemon's pending/
+blocked scan would never re-discover those old guard-test files (left
+deliberately `status: pending` forever) and try to dispatch them. Left
+unfixed, moving those six files out from under that exclusion would
+have made them live again on the next daemon tick -- caught and updated
+to exclude `_archive_tests` instead before this landed, not after.
 
 ## 4. Two-tier data grounding
 
