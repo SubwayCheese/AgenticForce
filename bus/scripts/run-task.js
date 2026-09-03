@@ -353,6 +353,47 @@ function extractPayload(text) {
   return raw.trim();
 }
 
+// Added 2026-09-03, found via a real dispatch failure in the trading-
+// fleet pilot, not a hypothetical one: a specialist's own output
+// legitimately contained a nested ``` code fence (a stated scoring
+// formula, wrapped in its own code block, exactly as asked for). The
+// Result block always wrapped output in a plain 3-backtick fence, and
+// readTaskFile()'s extraction regex was non-greedy -- it stopped at the
+// FIRST closing ``` it found, which was the INNER fence from the
+// specialist's own formula block, not the real outer one. The rest of
+// that specialist's answer (the full ranked table, most of its
+// reasoning) was silently dropped on every subsequent read, injected
+// into a downstream task as truncated data. Caught only because that
+// downstream task happened to notice the truncation and flag it
+// explicitly -- it would have been silent data loss otherwise.
+//
+// Fixed the standard Markdown way: the outer fence is always LONGER
+// than the longest run of backticks actually present in the content
+// being wrapped, so it can never collide with anything nested inside
+// it, no matter how many backticks that content uses. The fence length
+// actually used is read back dynamically at extraction time (not
+// assumed to be 3), via a backreference, so this is correct for
+// content with zero, one, or many nested fences of any length.
+function pickResultFence(content) {
+  const runs = String(content == null ? '' : content).match(/`+/g) || [];
+  const longestRun = runs.reduce((max, r) => Math.max(max, r.length), 0);
+  return '`'.repeat(Math.max(3, longestRun + 1));
+}
+
+function extractOutputField(text) {
+  const headerMatch = /^output:[ \t]*\n(`{3,})\n/m.exec(text);
+  if (!headerMatch) return null;
+  const fence = headerMatch[1];
+  const contentStart = headerMatch.index + headerMatch[0].length;
+  // fence is guaranteed longer than any backtick run inside the real
+  // content (see pickResultFence), so "\n<fence>" cannot appear as a
+  // false-positive substring within that content -- this indexOf finds
+  // the true closing fence, not an inner one.
+  const closeIdx = text.indexOf('\n' + fence, contentStart);
+  if (closeIdx === -1) return null;
+  return text.slice(contentStart, closeIdx);
+}
+
 function readTaskFile(taskId) {
   const p = taskFilePath(taskId);
   if (!fs.existsSync(p)) return null;
@@ -367,7 +408,7 @@ function readTaskFile(taskId) {
     const m = new RegExp(`^${name}:[ \\t]*(.*)$`, 'm').exec(text);
     return m ? m[1].trim() : '';
   };
-  const outputMatch = /^output:\s*\n```\n([\s\S]*?)\n```/m.exec(text);
+  const extractedOutput = extractOutputField(text);
   return {
     path: p,
     raw: text,
@@ -410,7 +451,7 @@ function readTaskFile(taskId) {
     // resolveSecretRequirement() below. The prompt itself never
     // contains the secret; only the NAME appears here and in logs.
     withSecret: field('withSecret'),
-    output: outputMatch ? outputMatch[1] : null,
+    output: extractedOutput,
   };
 }
 
@@ -495,7 +536,8 @@ function writeTaskResult(taskId, { status, output, reason }) {
     resultBlock += `reason: ${reason}\n`;
   }
   if (output !== undefined && output !== null) {
-    resultBlock += 'output:\n```\n' + output + '\n```\n';
+    const fence = pickResultFence(output);
+    resultBlock += `output:\n${fence}\n` + output + `\n${fence}\n`;
   }
   text = text.trimEnd() + '\n' + resultBlock;
   fs.writeFileSync(p, text, 'utf8');
@@ -921,4 +963,6 @@ module.exports = {
   getMandatorySuffix,
   TASKS_DIR,
   extractPayload,
+  pickResultFence,
+  extractOutputField,
 };

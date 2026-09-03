@@ -1077,6 +1077,70 @@ model to trust an assertion it can't verify, remove the need for the
 assertion instead" is the whole design philosophy this vault has followed
 all day, just applied to itself for the first time.
 
+## 3o. Nested code-fence truncation, and an intermittent (not
+structural) refusal on chained fact re-injection -- found 2026-09-03
+
+Two more findings from the same trading-fleet-pilot dispatch run that
+produced section 3n, both in `run-task.js`/`run-verification-suite.js`.
+
+**Finding 1 -- silent output truncation on nested fences (real bug,
+fixed).** `readTaskFile()` extracted a task's `output:` field with a
+non-greedy regex bounded by the first fixed 3-backtick fence it found.
+When a specialist's own response contained a nested triple-backtick
+block (e.g. quoting a formula), that inner fence closed the match early
+and everything after it was silently dropped -- on every read,
+including fan-in injections into downstream tasks. Caught because the
+consolidation specialist itself noticed and flagged that batch B's
+injected content looked truncated (only a preamble survived; see the
+"Premise flag" in `tasks/fleet_pilot_20260903_consolidation.md`).
+Traced via `bus/log.md`'s actual "Sent (exact)" prompt content, which
+confirmed the mechanism exactly. Fixed with the standard Markdown
+approach -- pick an outer fence strictly longer than the longest run of
+backticks anywhere in the content (`pickResultFence()` in
+`writeTaskResult()`), and extract by finding the matching fence length
+on read (`extractOutputField()` in `readTaskFile()`) instead of a fixed
+3-backtick regex. Verified with a new fast suite test,
+`testNestedFenceRoundTripFast` (4 adversarial cases: no backticks, one
+nested block, a nested block containing 4 backticks, multiple separate
+nested blocks) -- all pass. The consolidation task was then re-dispatched
+under the fix and completed cleanly.
+
+**Finding 2 -- intermittent refusal on an ambiguous provenance
+annotation (real, but not a structural bug; documented, not
+"fixed").** After the fence fix, `live memory layer: dependsOnFact`
+failed twice across three consecutive full-suite runs, each time with
+`got=173` instead of the expected `346`, then passed clean (`346`) on
+the third run with no code change in between. Reading the actual
+`bus/log.md` dispatch showed the model was not computing a wrong
+answer -- it was refusing to compute at all: the injected fact value
+read `As-of: value supplied in this prompt (73)` immediately followed by
+the fact's real value, `173`, on the next line. `73` is what the
+memory-chain-recorder step started from (the seed); `173` is the
+correct recorded value (73+100). The two numbers are provenance vs.
+value, not a conflict -- but a reader with no access to that context can
+reasonably read them as contradictory, and this specialist did exactly
+that, explicitly declining to "silently pick one and report a doubled
+result as if it were verified" rather than guess. The test's own
+answer-extraction (last digit sequence in the response) then picked up
+the stray `173` mentioned inside that refusal and reported it as if it
+were a computed (wrong) answer, which is a separate, minor test-harness
+reporting imprecision worth knowing about but not worth chasing right
+now -- the failure is not a wrong computation, it is an honest refusal
+being mis-labeled by the test's own regex.
+
+This is the same category of finding as section 3n (a specialist
+correctly declining to resolve an apparent inconsistency rather than
+silently guessing), just triggered by ambiguous formatting instead of
+injection-shaped text, and it self-resolves on retry rather than
+requiring a code fix -- the underlying fact-store value is always
+correct; only the specialist's read of an adjacent provenance line is
+occasionally uncertain. Left open rather than "fixed": if this recurs
+often enough to be a real pipeline-reliability problem (not just a
+verification-suite flake), the actual fix is to stop embedding a
+different number in a fact's own As-of annotation than the fact's
+value -- e.g. label it "derived from seed 73" instead of bare `(73)` --
+so there is nothing for a careful reader to misread as a conflict.
+
 ## 4. Three-tier data grounding (revised 2026-09-03 -- see below)
 
 - **Verified-live (highest trust):** numeric facts fetched directly by

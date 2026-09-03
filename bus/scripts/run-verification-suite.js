@@ -298,6 +298,47 @@ function testExtractPayloadFast() {
   record('extractPayload(): single-line unchanged, multi-line fully captured, blank stays blank, bounded by "## Result"', problems.length === 0, problems.join('; '));
 }
 
+// ---------- FAST: nested code-fence output round-trip (added
+// 2026-09-03) ----------
+// Found via a real dispatch failure in the trading-fleet pilot: a
+// specialist's own output legitimately contained a nested ``` code
+// fence (a stated formula), and the Result block's fixed 3-backtick
+// wrapper plus a non-greedy extraction regex silently truncated
+// everything after that inner fence on every subsequent read -- caught
+// only because a downstream task happened to notice and flag the
+// truncation itself. Fixed the standard Markdown way: pickResultFence()
+// always chooses a fence longer than the longest backtick run in the
+// content, extractOutputField() reads that fence length back
+// dynamically instead of assuming 3. This test proves the fix with
+// increasingly adversarial nested-backtick content, via a real
+// writeTaskResult() -> readTaskFile() round-trip, not just unit-testing
+// the two functions in isolation.
+function testNestedFenceRoundTripFast() {
+  const cases = [
+    ['no backticks at all', 'plain text output, nothing special.'],
+    ['one nested triple-backtick block', 'Formula:\n\n```\nscore = 40*x\n```\n\nMore text after it.'],
+    ['nested block containing four backticks', 'Text.\n\n````\nweird content with ``` inside it\n````\n\nTrailing text.'],
+    ['multiple separate nested blocks', '```\nfirst\n```\n\nmiddle text\n\n```\nsecond\n```\n\nend text'],
+  ];
+  const problems = [];
+  const testDir = path.join(VAULT_ROOT, 'tasks', 'verification_suite', RUN_ID, 'fence_test');
+  fs.mkdirSync(testDir, { recursive: true });
+  cases.forEach(([label, content], i) => {
+    const taskId = `verification_suite/${RUN_ID}/fence_test/case_${i}`;
+    fs.writeFileSync(runTask.taskFilePath(taskId), 'from: claude\nto: codex\ntype: request\nstatus: pending\npayload: test\ntimestamp: 2026-01-01T00:00:00Z\n', 'utf8');
+    runTask.writeTaskResult(taskId, { status: 'done', output: content });
+    const readBack = runTask.readTaskFile(taskId);
+    if (readBack.output !== content) {
+      problems.push(`case "${label}": round-trip mismatch (got ${JSON.stringify(readBack.output)})`);
+    }
+  });
+  record(
+    'output field round-trips correctly through writeTaskResult()/readTaskFile() even when content contains nested code fences',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : `${cases.length} case(s) all matched exactly`
+  );
+}
+
 // ---------- FAST: claude-agent dispatch uses dontAsk, not plan (added
 // 2026-09-03, replaces a same-day removed test) ----------
 // The original version of this test asserted a claude-agent-specific
@@ -1485,6 +1526,7 @@ function main() {
   console.log(`=== /bus/ verification suite -- run ${RUN_ID} ===\n`);
   console.log('-- fast checks --');
   testExtractPayloadFast();
+  testNestedFenceRoundTripFast();
   testClaudeAgentDontAskModeFast();
   testWebSearchTagFast();
   testVerifyOutputFast();
