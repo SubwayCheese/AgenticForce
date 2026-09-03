@@ -943,6 +943,62 @@ links between the two pages worked, no console errors. In-flight-task
 detection on this page reuses `getInFlightTasks()` unchanged from the
 main dashboard (already verified there), not re-proven separately here.
 
+## 3m. Bug fix: multi-line `payload:` was silently truncated (found
+2026-09-03)
+
+A real, load-bearing bug, found the moment it was first possible to find
+it, not before: every task `payload:` dispatched anywhere in this vault
+up to this point had happened to be a single line, because
+`readTaskFile()`'s generic field-extraction regex
+(`^${name}:[ \t]*(.*)$`, multiline mode) captures only up to the first
+newline after the field name -- true for every OTHER field (`from`,
+`to`, `status`, `timestamp`, etc., all genuinely short scalars), but
+`payload` is meant to hold real prose. The first genuinely
+multi-paragraph payload ever dispatched (a planning prompt for a
+separate project, asking Codex for a five-part written plan) got
+silently cut down to its first sentence; Codex received almost nothing
+and correctly reported that no real requirements had been given -- a
+completely reasonable response to what it actually got, not a Codex
+problem at all. Caught by reading the full "Sent (exact)" block in
+`bus/log.md` rather than trusting the short reply at face value, the
+same discipline that caught the injection-echo and secrets-broker-
+framing findings earlier.
+
+Fixed with a dedicated `extractPayload(text)` in `run-task.js`: reads
+everything from right after `payload:` up to (not including) the next
+recognized field-name line or the `## Result` marker, instead of
+stopping at the first newline. Every other field's extraction is
+untouched. `readTaskFile()` now calls this instead of the generic
+`field('payload')`. Exported alongside the rest of `run-task.js`'s
+primitives.
+
+Verified: a new fast check, `testExtractPayloadFast()`, confirms the
+single-line case is byte-identical to the old behavior (no regression
+for any of this session's prior payloads), a genuine multi-paragraph
+payload is now captured in full, a blank payload still parses as an
+empty string, and extraction correctly stops before an appended `##
+Result` block. Live: the actual multi-paragraph planning task was
+re-dispatched after the fix and Codex received and acted on the full
+prompt (confirmed via its `SOURCE: verified live via direct file read`
+tag and a genuinely complete five-part answer, not a truncated one).
+
+One false alarm surfaced while chasing this down, worth recording so it
+isn't mistaken for a second bug later: the very next full suite run
+showed the queue-daemon test failing ("child never reached status:
+blocked within 25s"). Traced with real evidence (exact `bus/
+queue-daemon.log` timestamps), not assumed: an unrelated real task file
+had been left sitting `status: pending` in `tasks/` while the suite ran
+-- the daemon test spawns a genuine `run-queue-daemon.js` process that
+scans the REAL `tasks/` directory at startup, found that leftover
+pending task too, and (queue is strictly serial) dispatched it first,
+starving the test's own fixture of its 25-second window before the
+daemon ever got to it. Not a parser regression -- confirmed by
+re-running the full suite with `tasks/` clean of any real pending work:
+41/41. Lesson for future sessions: don't leave a real pending task
+sitting in `tasks/` while running the verification suite -- the daemon
+test is not isolated from the live directory the way the suite's own
+fixtures (written under `tasks/verification_suite/<RUN_ID>/`) are.
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the

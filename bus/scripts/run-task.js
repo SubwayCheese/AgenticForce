@@ -236,6 +236,27 @@ function taskFilePath(taskId) {
   return path.join(TASKS_DIR, `${taskId}.md`);
 }
 
+// Added 2026-09-03, found via a real dispatch failure, not a
+// hypothetical one: a genuinely multi-paragraph payload (the first one
+// this vault ever dispatched -- every prior payload happened to be a
+// single line by convention) got silently truncated to just its first
+// line by the generic single-line field() regex below, and Codex
+// correctly reported receiving almost nothing. Every OTHER field
+// (from/to/type/status/timestamp/dependsOnTaskId(s)/etc.) is a short
+// scalar value and is fine staying single-line -- payload is the one
+// field meant to hold real prose, so it gets its own extraction:
+// everything from right after "payload:" up to (not including) the
+// next recognized field-name line or the "## Result" marker, instead
+// of stopping at the first newline.
+function extractPayload(text) {
+  const startMatch = /^payload:[ \t]*/m.exec(text);
+  if (!startMatch) return '';
+  const afterStart = text.slice(startMatch.index + startMatch[0].length);
+  const endMatch = /\n(?:timestamp|dependsOnTaskId|dependsOnTaskIds|expectedType|enrichWithSearch|recordFact|dependsOnFact|withSecret|source):|\n## Result/.exec(afterStart);
+  const raw = endMatch ? afterStart.slice(0, endMatch.index) : afterStart;
+  return raw.trim();
+}
+
 function readTaskFile(taskId) {
   const p = taskFilePath(taskId);
   if (!fs.existsSync(p)) return null;
@@ -258,7 +279,7 @@ function readTaskFile(taskId) {
     to: field('to'),
     type: field('type'),
     status: field('status'),
-    payload: field('payload'),
+    payload: extractPayload(text),
     timestamp: field('timestamp'),
     dependsOnTaskId: field('dependsOnTaskId'),
     // Added 2026-09-02 for fan-in (Phase 3 piece 2): a task sets exactly
@@ -799,4 +820,5 @@ module.exports = {
   LIVE_FILE_READ_CAPABLE,
   getMandatorySuffix,
   TASKS_DIR,
+  extractPayload,
 };

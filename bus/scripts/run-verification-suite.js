@@ -265,6 +265,39 @@ function runFullTaskWrite(taskId) {
   return diff;
 }
 
+// ---------- FAST: extractPayload() multi-line regression (added
+// 2026-09-03) ----------
+// Found via a real dispatch failure, not a hypothetical one: the first
+// genuinely multi-paragraph payload ever dispatched in this vault (a
+// planning prompt for an unrelated project) got silently truncated to
+// its first line by the old single-line field() regex, and Codex
+// correctly reported receiving almost nothing. Fixed with a dedicated
+// extractPayload() that reads until the next recognized field line or
+// "## Result" -- this locks that fix in and proves the ordinary
+// single-line case (every payload written before this bug was found)
+// still behaves identically.
+function testExtractPayloadFast() {
+  const problems = [];
+  const singleLine = 'from: claude\nto: codex\ntype: request\nstatus: pending\npayload: What is 2 plus 2?\ntimestamp: 2026-01-01T00:00:00Z\n';
+  if (runTask.extractPayload(singleLine) !== 'What is 2 plus 2?') {
+    problems.push(`single-line payload regressed: got ${JSON.stringify(runTask.extractPayload(singleLine))}`);
+  }
+  const multiLine = 'from: claude\nto: codex\ntype: request\nstatus: pending\npayload: Line one.\n\nLine two, more detail.\n\nLine three.\ntimestamp: 2026-01-01T00:00:00Z\n';
+  const expectedMulti = 'Line one.\n\nLine two, more detail.\n\nLine three.';
+  if (runTask.extractPayload(multiLine) !== expectedMulti) {
+    problems.push(`multi-line payload not fully captured: got ${JSON.stringify(runTask.extractPayload(multiLine))}`);
+  }
+  const empty = 'from: claude\nto: codex\ntype: request\nstatus: pending\npayload:\ndependsOnTaskId: foo\n';
+  if (runTask.extractPayload(empty) !== '') {
+    problems.push(`blank payload should stay empty: got ${JSON.stringify(runTask.extractPayload(empty))}`);
+  }
+  const beforeResult = 'from: claude\nto: codex\ntype: request\nstatus: done\npayload: Multi\nparagraph\nno trailing field.\n\n## Result (auto)\nresolved_at: 2026-01-01T00:00:00Z\noutput:\n```\n4\n```\n';
+  if (runTask.extractPayload(beforeResult) !== 'Multi\nparagraph\nno trailing field.') {
+    problems.push(`payload before "## Result" not correctly bounded: got ${JSON.stringify(runTask.extractPayload(beforeResult))}`);
+  }
+  record('extractPayload(): single-line unchanged, multi-line fully captured, blank stays blank, bounded by "## Result"', problems.length === 0, problems.join('; '));
+}
+
 // ---------- FAST: verifyOutput() unit checks ----------
 function testVerifyOutputFast() {
   const okCases = [
@@ -1361,6 +1394,7 @@ function testEngineWriteSuccess() {
 function main() {
   console.log(`=== /bus/ verification suite -- run ${RUN_ID} ===\n`);
   console.log('-- fast checks --');
+  testExtractPayloadFast();
   testVerifyOutputFast();
   testDependencyBlocking();
   testAgentConfigShapes();
