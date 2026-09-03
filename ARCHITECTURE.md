@@ -818,6 +818,86 @@ unfixed, moving those six files out from under that exclusion would
 have made them live again on the next daemon tick -- caught and updated
 to exclude `_archive_tests` instead before this landed, not after.
 
+## 3l. Phase 3, piece 5: the live dashboard (added 2026-09-03)
+
+The last Phase 3 piece, done at the user's direct request ("Do the
+dashboard") -- personally important to them beyond function (see the
+project memory), not a token implementation.
+
+**Not a greenfield build**: `bus/dashboard.html` (2026-08-31) already
+existed -- a real, well-designed dark-terminal dashboard (IBM Plex Mono,
+animated status icons, a scrolling log feed) polling `bus/status.json`
+every 2s, driven by `run-backlog.js` (a batch runner for a seeded
+`bus/backlog.json` list, e.g. the daily 10-K research batches -- itself
+real, still-maintained infrastructure, not dead code). Two real gaps,
+found by actually trying it rather than assumed: (1) that dashboard only
+ever showed a `run-backlog.js` campaign, nothing about the *standing*
+`/bus/` system Phase 3 spent the day building -- the daemon, task
+counts, the memory store, agent health, all of which `bus-status.js`
+already reports, just on demand as a CLI printout, not live; (2) nothing
+served `dashboard.html` at all -- it `fetch()`es a relative
+`status.json`, which fails outright under a `file://` origin (Chrome
+blocks it), confirmed directly. This had likely never been seen working.
+
+**Design, in three pieces:**
+
+1. `bus-status.js` refactored -- each `report*()` split into a `get*()`
+   returning plain data plus the existing `report*()` formatting and
+   printing it, so the CLI report and the live dashboard share one
+   computation, not two that drift (the same discipline
+   `listPendingTaskIds()` already established for "pending"). New
+   `getStatusCounts()`: one tasks/-tree walk bucketing every task file
+   by its literal `status:` value -- not a hardcoded status list, so it
+   stays correct if a new status string is ever introduced.
+
+2. `dashboard-status.js` (new) -- one `buildSnapshot()` combining
+   `bus-status.js`'s `get*()`s with one new signal,
+   `getInFlightTasks()`: parses `bus/queue-daemon.log` (the daemon
+   already logs both `DISPATCHING: <id>` and `<id>: <result>`, added
+   piece 1) for tasks with a dispatch line and no completion line yet --
+   a real "currently dispatching" signal, not synthesized. Also
+   freshness-gates the pre-existing `bus/status.json` (a
+   `run-backlog.js` run counts as "active" only if updated in the last 5
+   minutes; older is presumed finished/abandoned and hidden rather than
+   shown stale) -- verified live against the real file, which was
+   correctly reported absent/stale from a 2026-09-01 run.
+
+3. `serve-dashboard.js` (new) -- the one missing piece that makes any of
+   this viewable: a minimal server on Node's built-in `http` module (no
+   new dependency), `GET /` -> `dashboard.html`, `GET /status.json` ->
+   `buildSnapshot()` computed fresh per request (cheap -- `bus/log.md`
+   is under 500KB, sub-millisecond to read and parse), `GET
+   /backlog-status.json` -> the raw `run-backlog.js` file if present.
+   Manual/on-demand lifecycle (`node serve-dashboard.js`, Ctrl+C to
+   stop) -- not wired into the daemon or any standing process, this is a
+   look-when-you-want-to tool. `start-dashboard.bat` is a Windows
+   double-click launcher (starts the server, opens the browser).
+
+`dashboard.html`'s visual design and its original backlog-run panel were
+kept, not discarded -- only the JS data layer changed: extended status
+counts (whatever statuses actually exist, not a fixed set), a
+recent-activity lane list from `bus/log.md` with real block/unverified/
+error reasons shown inline, in-flight lanes using the original
+active-pulse animation now driven by a real signal, and new memory-store
+and agent-health panels. The backlog-run panel reads from
+`/backlog-status.json` and is hidden whenever `/status.json` says no
+run is currently fresh.
+
+**Verified, not assumed**: `node -c` on every file; new fast checks
+(`testStatusCountsAgreement()` -- cross-checks `getStatusCounts()`
+against `listTaskIdsByStatus()` per status, same drift-prevention idiom
+as the pending-tasks agreement test; `testInFlightDetectionFast()` --
+isolated via a test-only `logText` param on `getInFlightTasks()`,
+confirms a completed dispatch drops out and an unfinished one stays;
+`testQueueDaemon()`'s own real blocked child now also asserts
+`getRecentActivity()` surfaces its actual block reason, reusing that
+test's existing fixture rather than adding a new one) all pass, full
+suite 39/39. Live: `serve-dashboard.js` started for real, `/` and
+`/status.json` curl-tested, then actually opened in a real Chrome tab --
+counts, in-flight, recent activity with a real blocked reason, memory
+panel, and agent badges all rendered correctly against live data both
+before and after a fresh full suite run, no console errors.
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the

@@ -40,6 +40,7 @@ const { search: vaultSearch } = require('./vault-search.js');
 const busStatus = require('./bus-status.js');
 const memoryStore = require('./memory-store.js');
 const secretsBroker = require('./secrets-broker.js');
+const dashboardStatus = require('./dashboard-status.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
@@ -960,6 +961,20 @@ function testQueueDaemon() {
       doneConfirmed && got === seed + addN,
       `blockedConfirmed=${blockedConfirmed}, doneConfirmed=${doneConfirmed}, got=${got}`
     );
+
+    // Reuses this test's own real blocked-then-retried child (added
+    // 2026-09-03 for the dashboard, Phase 3 piece 5) -- bus-status.js's
+    // getRecentActivity() should surface that entry's real "not found"
+    // block reason, the same text the dashboard shows under a blocked
+    // lane. A wide window (200) since a full suite run writes plenty of
+    // other entries after this one before the check runs.
+    const activity = busStatus.getRecentActivity(200);
+    const blockedEntry = activity.find((a) => a.taskId === childId && a.status === 'blocked');
+    record(
+      'getRecentActivity(): a blocked entry surfaces its real block reason',
+      !!(blockedEntry && blockedEntry.reason && blockedEntry.reason.includes('not found')),
+      blockedEntry ? `reason="${blockedEntry.reason}"` : "no blocked entry found for this run's child task in the log window"
+    );
   } finally {
     daemon.kill();
     cleanup();
@@ -1106,7 +1121,7 @@ function testVaultSearch() {
 // ---------- FAST: bus-status.js smoke test (each report function must
 // not throw -- doesn't check content, just that the tool stays usable) ----------
 function testBusStatusSmoke() {
-  const fns = ['reportAgentConfigs', 'reportRecentActivity', 'reportPendingTasks', 'reportMemoryStore', 'reportVaultHealth'];
+  const fns = ['reportAgentConfigs', 'reportStatusCounts', 'reportRecentActivity', 'reportPendingTasks', 'reportMemoryStore', 'reportVaultHealth'];
   const originalLog = console.log;
   console.log = () => {}; // suppress output during the smoke test, this is a fast check not a demo
   let problems = [];
@@ -1148,6 +1163,51 @@ function testPendingTaskIdsAgreement() {
     'listPendingTaskIds() and bus-status.js reportPendingTasks() agree',
     agree,
     agree ? `${direct.length} pending task id(s), matched` : `direct=${JSON.stringify(direct)} report=${JSON.stringify(fromReport)}`
+  );
+}
+
+// ---------- FAST: getStatusCounts() agreement (added 2026-09-03, the
+// live dashboard, Phase 3 piece 5) ----------
+// Same drift-prevention idiom as testPendingTaskIdsAgreement() just
+// above: getStatusCounts() does its own single-pass tasks/ walk rather
+// than calling listTaskIdsByStatus() once per known status (cheaper,
+// and doesn't need to know the status vocabulary in advance) -- this
+// cross-checks the two never silently disagree, without needing any
+// fixture files of its own.
+function testStatusCountsAgreement() {
+  const { counts, total } = busStatus.getStatusCounts();
+  const problems = [];
+  let sum = 0;
+  for (const [status, count] of Object.entries(counts)) {
+    sum += count;
+    const direct = runTask.listTaskIdsByStatus(status).length;
+    if (direct !== count) problems.push(`status "${status}": getStatusCounts=${count} vs listTaskIdsByStatus=${direct}`);
+  }
+  if (sum !== total) problems.push(`counts sum to ${sum} but total=${total}`);
+  record(
+    'getStatusCounts() agrees with listTaskIdsByStatus() per status, and counts sum to total',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : `${Object.keys(counts).length} status bucket(s), ${total} total`
+  );
+}
+
+// ---------- FAST: getInFlightTasks() detection (added 2026-09-03, the
+// live dashboard) ----------
+// Isolated from the real queue-daemon.log via the test-only logText
+// param (see dashboard-status.js) -- a completed dispatch (DISPATCHING
+// followed by its own "<id>: " completion line) must drop out, an
+// unfinished one must not.
+function testInFlightDetectionFast() {
+  const sample = [
+    '[2026-09-03T00:00:00.000Z] DISPATCHING: taskA',
+    '[2026-09-03T00:00:05.000Z] taskA: DONE: 42',
+    '[2026-09-03T00:00:06.000Z] DISPATCHING: taskB',
+  ].join('\n');
+  const inFlight = dashboardStatus.getInFlightTasks(sample);
+  record(
+    'getInFlightTasks(): a completed dispatch drops out, an unfinished one stays in flight',
+    JSON.stringify(inFlight) === JSON.stringify(['taskB']),
+    `got=${JSON.stringify(inFlight)}`
   );
 }
 
@@ -1273,6 +1333,8 @@ function main() {
   testRecordFactEligibilityFast();
   testDependsOnFactFast();
   testSecretsBrokerFast();
+  testStatusCountsAgreement();
+  testInFlightDetectionFast();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testLiveFanIn();

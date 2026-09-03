@@ -798,4 +798,5 @@ module.exports = {
   MANDATORY_SUFFIX_LIVE_READ_CAPABLE,
   LIVE_FILE_READ_CAPABLE,
   getMandatorySuffix,
+  TASKS_DIR,
 };
