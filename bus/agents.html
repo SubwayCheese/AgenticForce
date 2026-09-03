@@ -60,6 +60,7 @@
   circle.main.task.status-blocked, circle.main.task.status-error{fill:var(--red);stroke:var(--red);}
   circle.main.task.status-unverified{fill:var(--amber);stroke:var(--amber);}
   circle.main.task.status-other{fill:var(--dim);stroke:var(--dim);opacity:0.6;}
+  circle.main.agent.working{stroke:var(--amber);}
   circle.main.task.active-task{stroke:var(--amber);stroke-width:2;}
 
   circle.halo{fill:none;stroke:var(--amber);opacity:0;}
@@ -67,6 +68,24 @@
   @keyframes pulse{
     0%{r:10;opacity:0.55;}
     100%{r:22;opacity:0;}
+  }
+
+  /* Agent icon (added 2026-09-03) -- a bot glyph shown above every
+     agent node, adapted from Lucide's "bot" icon. Positioned via a
+     JS-computed transform on .agent-icon-wrap every frame (never CSS),
+     so the halo-pulse/eye-blink animations below are free to animate
+     r/opacity/color on this group's children with no conflict. */
+  .agent-icon-wrap{pointer-events:none;}
+  .agent-icon path, .agent-icon rect{fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:stroke .3s;}
+  .agent-icon.ok path, .agent-icon.ok rect{stroke:var(--green);}
+  .agent-icon.fail path, .agent-icon.fail rect{stroke:var(--red);}
+  .agent-icon.working path, .agent-icon.working rect{stroke:var(--amber);}
+  .agent-icon-halo{fill:none;stroke:var(--amber);opacity:0;}
+  .agent-icon-wrap.working .agent-icon-halo{animation:pulse 1.4s ease-out infinite;}
+  .agent-icon-wrap.working .agent-eye{animation:blink 2.2s steps(1) infinite;}
+  @keyframes blink{
+    0%,88%,100%{opacity:1;}
+    93%{opacity:0.15;}
   }
 
   .legend{
@@ -113,11 +132,12 @@
   <div class="legend">
     <div class="row"><span class="swatch" style="background:var(--teal)"></span> orchestrator</div>
     <div class="row"><span class="swatch" style="background:var(--panel);border:2px solid var(--green)"></span> agent (config OK)</div>
+    <div class="row"><span class="swatch" style="background:var(--amber)"></span> agent/task: currently working</div>
     <div class="row"><span class="swatch" style="background:var(--green)"></span> task: done</div>
     <div class="row"><span class="swatch" style="background:var(--red)"></span> task: blocked / error</div>
-    <div class="row"><span class="swatch" style="background:var(--amber)"></span> task: unverified / active</div>
     <div class="row"><span class="swatch" style="background:var(--dim)"></span> task: other</div>
     <div class="row">— dispatch, ····· depends on</div>
+    <div class="row">bot icon pulses + blinks while working</div>
     <div class="row">drag a node to reposition it</div>
   </div>
 
@@ -196,6 +216,8 @@ function updateGraph(graph){
     aNode.type = 'agent';
     aNode.label = agent.displayName;
     aNode.ok = agent.ok;
+    aNode.working = !!agent.currentTask; // drives the icon/halo "working" animation below
+    aNode.active = aNode.working; // reuses the existing active-halo pulse mechanism (see .active-halo CSS)
     aNode.r = 15;
     aNode.data = agent;
     newEdges.push({ source: 'orchestrator', target: aId, kind: 'dispatch' });
@@ -328,6 +350,36 @@ function tick(){
   requestAnimationFrame(tick);
 }
 
+// Agent icon (added 2026-09-03) -- a minimalist bot glyph shown above
+// every agent node, adapted from Lucide's "bot" icon (ISC-licensed,
+// lucide.dev/icons/bot -- antenna, boxy head, two eyes, small side
+// "ears"), chosen for being a widely-recognized, stroke-based
+// minimalist icon that matches this page's existing zero-fill,
+// stroke-only SVG style. Eyes are separate <path> elements (class
+// agent-eye) so they can blink independently while "working".
+function createBotIcon(){
+  const g = document.createElementNS(svgNS, 'g');
+  g.setAttribute('class', 'agent-icon');
+  const shapes = [
+    ['path', { d: 'M12 8V4H8' }],
+    ['rect', { x: 4, y: 8, width: 16, height: 12, rx: 2 }],
+    ['path', { d: 'M2 14h2' }],
+    ['path', { d: 'M20 14h2' }],
+  ];
+  shapes.forEach(([tag, attrs]) => {
+    const el = document.createElementNS(svgNS, tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    g.appendChild(el);
+  });
+  ['M9 13v2', 'M15 13v2'].forEach((d) => {
+    const eye = document.createElementNS(svgNS, 'path');
+    eye.setAttribute('d', d);
+    eye.setAttribute('class', 'agent-eye');
+    g.appendChild(eye);
+  });
+  return g;
+}
+
 function render(){
   const edgeKeys = new Set();
   edges.forEach((e) => {
@@ -362,8 +414,24 @@ function render(){
       circle.setAttribute('class', 'main');
       const text = document.createElementNS(svgNS, 'text');
       g.appendChild(halo); g.appendChild(circle); g.appendChild(text);
+      let iconWrap = null, iconHalo = null, iconGroup = null;
+      if (n.type === 'agent') {
+        // Icon lives above the node, in its own always-on-top wrapper --
+        // positioned via a JS-computed transform every frame (see
+        // below), never a CSS transform, so there's no conflict with
+        // the CSS-driven halo pulse/eye-blink animations on its children.
+        iconWrap = document.createElementNS(svgNS, 'g');
+        iconWrap.setAttribute('class', 'agent-icon-wrap');
+        iconHalo = document.createElementNS(svgNS, 'circle');
+        iconHalo.setAttribute('class', 'agent-icon-halo');
+        iconHalo.setAttribute('cx', 12); iconHalo.setAttribute('cy', 14); iconHalo.setAttribute('r', 13);
+        iconGroup = createBotIcon();
+        iconWrap.appendChild(iconHalo);
+        iconWrap.appendChild(iconGroup);
+        nodeLayer.appendChild(iconWrap);
+      }
       nodeLayer.appendChild(g);
-      entry = { g, halo, circle, text };
+      entry = { g, halo, circle, text, iconWrap, iconHalo, iconGroup };
       nodeEls.set(n.id, entry);
       attachDrag(g, n);
     }
@@ -372,16 +440,32 @@ function render(){
     entry.halo.setAttribute('cx', n.x); entry.halo.setAttribute('cy', n.y);
 
     let cls = 'main ' + n.type;
-    if (n.type === 'agent') cls += n.ok ? ' ok' : ' fail';
+    if (n.type === 'agent') cls += n.working ? ' working' : (n.ok ? ' ok' : ' fail');
     if (n.type === 'task') cls += ' ' + statusClass(n.data && n.data.status) + (n.active ? ' active-task' : '');
     entry.circle.setAttribute('class', cls);
 
     entry.text.setAttribute('x', n.x);
     entry.text.setAttribute('y', n.y + (n.r || 6) + 12);
     entry.text.textContent = n.type === 'task' ? '' : (n.label || n.id);
+
+    if (entry.iconWrap) {
+      // The icon's own coordinate space is Lucide's raw 0-24 box,
+      // visually centered around local (12,14) -- solve translate so
+      // that point lands at the desired screen position above the node.
+      const scale = 0.85;
+      const screenX = n.x, screenY = n.y - (n.r || 15) - 20;
+      const tx = screenX - 12 * scale, ty = screenY - 14 * scale;
+      entry.iconWrap.setAttribute('transform', `translate(${tx}, ${ty}) scale(${scale})`);
+      entry.iconWrap.setAttribute('class', 'agent-icon-wrap' + (n.working ? ' working' : ''));
+      entry.iconGroup.setAttribute('class', 'agent-icon' + (n.working ? ' working' : (n.ok ? ' ok' : ' fail')));
+    }
   });
   for (const [id, entry] of Array.from(nodeEls.entries())) {
-    if (!nodeIds.has(id)) { entry.g.remove(); nodeEls.delete(id); }
+    if (!nodeIds.has(id)) {
+      entry.g.remove();
+      if (entry.iconWrap) entry.iconWrap.remove();
+      nodeEls.delete(id);
+    }
   }
 }
 

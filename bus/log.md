@@ -10788,3 +10788,46 @@ as-of: value supplied in this prompt from task_id suite_queue_daemon_2026-09-03T
 505
 """
 status -> done
+
+## icon_anim_smoke_test (run-task-generic.js -- agent: Codex, mode: read-only)
+
+**2026-09-03T06:31:59.610Z -- run-task-generic.js**
+Sent (exact):
+"""
+What is 41 plus 6? Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message {outputFile} (stdin-piped)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: training-data recall, not verified live
+AS-OF: 2024-06
+47
+"""
+status -> done
