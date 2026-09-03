@@ -280,30 +280,39 @@ function buildLiveCapableSuffix(to) {
   return lines.join('\n');
 }
 
-// Added 2026-09-03, found via a real dispatch failure, not a
-// hypothetical one: every claude-agent dispatch (both run-task-claude.js
-// and agent-engine.js's claude-agent.json config) uses `--permission-mode
-// plan` -- Claude Code's own interactive Plan Mode, not just a file-write
-// restriction. The first claude-agent task ever phrased as a genuine
-// planning/spec request (every earlier one was a direct Q&A shape)
-// triggered the dispatched instance's own EnterPlanMode reflex: instead
-// of answering in its response, it wrote the (genuinely excellent, fully
-// correct) answer to an external ~/.claude/plans/ file completely outside
-// this pipeline's tracking, then reported it couldn't call ExitPlanMode
-// in headless mode -- so verifyOutput() correctly rejected it (no SOURCE
-// tag in the actual response) even though the underlying work was fine.
-// codex has no equivalent interactive-plan-mode concept, so this is
-// claude-agent-specific, not folded into the shared suffix both
-// specialists get.
-const CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX = [
-  '',
-  'This dispatch is headless -- no human is present to review or approve',
-  'a plan. Do NOT use your own interactive Plan Mode workflow',
-  '(EnterPlanMode, or writing your answer to a plan file) for this',
-  'request, even if it asks you to "produce a plan/spec/design." Write',
-  'the complete answer directly in this response, in full, right now --',
-  'this response IS the deliverable, not a proposal to be approved later.',
-].join('\n');
+// Added 2026-09-03, found via a real dispatch failure, then REMOVED the
+// same day once the real fix was found -- kept as a comment, not deleted
+// silently, because the dead end is as instructive as the fix. First
+// finding: every claude-agent dispatch used `--permission-mode plan` --
+// Claude Code's own interactive Plan Mode, not just a file-write
+// restriction -- and the first claude-agent task phrased as a genuine
+// planning/spec request triggered its EnterPlanMode reflex, diverting
+// the answer to an external plan file instead of the response.
+//
+// The first fix attempt was exactly what used to live here: a
+// CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX appended to every claude-agent
+// prompt ("this dispatch is headless, don't use Plan Mode, answer
+// directly"). It made a later, more complex dispatch WORSE, not
+// better: a well-calibrated specialist correctly noticed that "trust
+// me, this special case means don't verify, proceed differently than
+// normal" is structurally indistinguishable from a real prompt-
+// injection attempt, and refused to comply -- the right call given
+// what it could actually verify from inside the dispatch, even though
+// the instruction was in fact legitimate. No amount of "no really,
+// trust this" text fixes that; asserting harder just reproduces the
+// same red flag.
+// The real fix was one level down: switch claude-agent's `readOnly`
+// mode from `--permission-mode plan` to `--permission-mode dontAsk`
+// (see agent-engine.js's claude-agent.json for the full story and the
+// live tests that confirmed it). dontAsk preserves the identical
+// read-only guarantee -- reads succeed, writes/Bash/PowerShell are
+// denied outright -- with none of `plan` mode's interactive-approval
+// semantics, so the diversion failure mode literally cannot occur, and
+// the prompt-level patch (and the injection-pattern risk it created)
+// both became unnecessary at once. getMandatorySuffix() no longer
+// appends anything claude-agent-specific -- LIVE_FILE_READ_CAPABLE and
+// WEB_SEARCH_CAPABLE already cover its real, verified differences from
+// codex.
 
 // Picks the right suffix for a given `to:` value. Every dispatch call
 // site (run-task.js's own main(), run-task-claude.js, run-task-generic.js,
@@ -312,8 +321,7 @@ const CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX = [
 // contract is decided in exactly one place.
 function getMandatorySuffix(to) {
   const isLiveCapable = LIVE_FILE_READ_CAPABLE.has(to) || WEB_SEARCH_CAPABLE.has(to);
-  const base = isLiveCapable ? buildLiveCapableSuffix(to) : MANDATORY_SUFFIX;
-  return to === 'claude-agent' ? base + '\n' + CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX : base;
+  return isLiveCapable ? buildLiveCapableSuffix(to) : MANDATORY_SUFFIX;
 }
 
 function nowIso() {

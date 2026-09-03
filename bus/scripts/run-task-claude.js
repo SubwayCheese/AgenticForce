@@ -91,7 +91,14 @@ function runClaude(prompt, { envOverlay } = {}) {
     if (envOverlay && Object.keys(envOverlay).length > 0) {
       execOptions.env = { ...process.env, ...envOverlay };
     }
-    output = execFileSync('claude', ['-p', '--permission-mode', 'plan'], execOptions);
+    // '--permission-mode dontAsk', not 'plan' -- changed 2026-09-03, see
+    // agent-engine.js's claude-agent.json config comment for the full
+    // story (plan mode's own approval-workflow semantics caused a real
+    // plan-file-diversion failure, and a prompt-level workaround for it
+    // made things worse, not better). dontAsk was tested live and
+    // preserves the exact same read-only guarantee with none of plan
+    // mode's baggage.
+    output = execFileSync('claude', ['-p', '--permission-mode', 'dontAsk'], execOptions);
   } catch (err) {
     exitCode = (err && err.status) || 1;
     output = (err && err.stdout) || '';
@@ -148,7 +155,7 @@ function main() {
   const prompt = task.payload + dep.injectedContext + getMandatorySuffix('claude-agent');
 
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
-  logEntry += `Command: claude -p --permission-mode plan (stdin-piped) "<prompt above>"\n`;
+  logEntry += `Command: claude -p --permission-mode dontAsk (stdin-piped) "<prompt above>"\n`;
 
   const result = runClaude(prompt, { envOverlay: secretReq.envOverlay });
 

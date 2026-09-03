@@ -999,6 +999,84 @@ sitting in `tasks/` while running the verification suite -- the daemon
 test is not isolated from the live directory the way the suite's own
 fixtures (written under `tasks/verification_suite/<RUN_ID>/`) are.
 
+## 3n. A prompt-level fix made an honesty problem worse, not better --
+the real fix was one level down (found 2026-09-03)
+
+The most instructive finding of the day, arguably more valuable than
+any single bug fix: **a well-calibrated specialist correctly refused to
+comply with a legitimate system instruction, because that instruction
+was structurally indistinguishable from a prompt-injection attempt --
+and insisting harder made it worse, not better.**
+
+Section 3m's fix (`CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX`, "this dispatch is
+headless, don't use Plan Mode, answer directly") worked for the simple
+case it was built against. Dispatched against a more complex, multi-
+dependency consolidation task in the trading-fleet pilot
+(`tasks/fleet_pilot_20260903_consolidation.md`), it partially failed
+again (a summary answered directly, but "full detail" still diverted to
+a plan file). The fix attempt: strengthen the instruction, and add an
+explicit note that the "headless, no Plan Mode" framing is legitimate,
+not an attack, so the specialist wouldn't second-guess it.
+
+That escalation made a second dispatch actively call the *correction
+itself* "the injection technique" and refuse to answer at all. On
+inspection, this was the right call by the specialist, not a malfunction:
+"you're in a special situation, the normal rules don't apply, don't
+verify this, proceed differently than usual" is *exactly* the shape of
+a real prompt-injection attempt, and a prompt-level instruction
+asserting its own legitimacy cannot structurally distinguish itself
+from an attacker asserting the same thing. No amount of "no, really,
+trust this" text fixes that -- asserting harder only reproduces the
+same red flag more insistently. The specialist had already done real
+verification (confirmed `ExitPlanMode`/`AskUserQuestion` were genuinely
+absent from its toolset) before raising the concern -- correct
+diligence, not paranoia.
+
+**The actual fix was one level down, not more prompt text:** claude-agent's
+`readOnly` dispatch mode used `--permission-mode plan` -- Claude Code's
+own interactive plan-approval workflow, not just a file-write
+restriction. Checked `claude --help` directly rather than guessing at
+available modes; found `--permission-mode dontAsk` and tested it live,
+three separate ways, before trusting it: (1) a trivial direct-answer
+task -- correct, no diversion; (2) a real write attempt -- correctly
+blocked, denying Bash, Write, and PowerShell alike, confirmed absent on
+disk afterward; (3) a real read task -- succeeded, and the reported file
+content was cross-checked against the actual file rather than trusted.
+`dontAsk` preserves the identical read-only guarantee `plan` provided,
+with none of its interactive-approval semantics -- so the diversion
+failure mode cannot occur in the first place, and the prompt-level
+patch (with the injection-shaped risk it introduced) both became
+unnecessary at once. `CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX` was removed
+outright rather than left dormant (see run-task.js's `getMandatorySuffix()`
+comment and `agent-engine.js`'s `claude-agent.json` for the full account).
+
+**A second-order effect, also fixed, not just noted:** two existing live
+tests (`testLiveFanIn`, `testLiveMemoryLayer`'s `dependsOnFact` half)
+gated pass/fail on the specialist using one specific SOURCE tag
+("supplied by orchestrator"). Under `dontAsk`, claude-agent showed a
+real, honest tendency to independently verify an injected value via a
+real file read when one was available (`bus/memory.jsonl` for
+`recordFact`, or the seed task files under
+`tasks/verification_suite/<RUN_ID>/` for fan-in) rather than trust the
+injected text -- the exact same, already-diagnosed, correct behavior
+section 3i's live-memory-layer work identified and closed once before
+(re-verifying over blind-trusting is encouraged, not a bug). Both tests
+were relaxed to accept either honest tag (`supplied by orchestrator` OR
+`verified live via direct file read`) as passing, since either one
+proves the real thing under test -- injection fidelity -- while still
+requiring a genuinely correct computed answer. Full suite after every
+change in this section: 43/43.
+
+**Why this is worth its own section, not folded into 3m as a footnote:**
+the SOURCE-tag honesty discipline this vault built across Phase 1-3 was
+explicitly meant to make dispatched specialists skeptical of unverified
+claims and quick to say so rather than comply silently. Today it did
+exactly that -- correctly -- against text the orchestrator itself wrote,
+not an external attacker. That the fix from here is "don't ask the
+model to trust an assertion it can't verify, remove the need for the
+assertion instead" is the whole design philosophy this vault has followed
+all day, just applied to itself for the first time.
+
 ## 4. Three-tier data grounding (revised 2026-09-03 -- see below)
 
 - **Verified-live (highest trust):** numeric facts fetched directly by

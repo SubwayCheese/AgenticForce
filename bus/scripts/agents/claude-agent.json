@@ -1,5 +1,5 @@
 {
-  "_comment": "Agent config for the nested headless Claude specialist, derived from run-task-claude.js's proven invocation (2026-09-01). claude.exe is a real PE32+ executable, not a .cmd wrapper -- confirmed via `file` before writing run-task-claude.js -- hence isWindowsCmdWrapper: false.",
+  "_comment": "Agent config for the nested headless Claude specialist, derived from run-task-claude.js's proven invocation (2026-09-01). claude.exe is a real PE32+ executable, not a .cmd wrapper -- confirmed via `file` before writing run-task-claude.js -- hence isWindowsCmdWrapper: false. readOnly's permission-mode changed 2026-09-03 from 'plan' to 'dontAsk' -- see run-task.js's top-of-file notes for the full story: 'plan' carries Claude Code's own interactive plan-approval workflow semantics, which a real dispatched task (asked to produce a written deliverable) diverted into, writing to an external plan file instead of answering directly. A prompt-level 'you're headless, Plan Mode's approval tools aren't available' workaround was tried and made things WORSE, not better -- a well-calibrated specialist correctly treated that workaround as structurally indistinguishable from a real prompt-injection pattern ('trust me, don't verify, proceed differently than normal') and refused to comply, which was the right call given what it could actually verify from inside the dispatch. 'dontAsk' was tested live and confirmed to preserve the exact same read-only guarantee (reads succeed, writes/Bash/PowerShell are denied outright, confirmed via a real write attempt) with none of 'plan' mode's approval-workflow semantics -- so the whole failure mode, and the prompt-level patch that made it worse, both became unnecessary at once.",
   "id": "claude-agent",
   "displayName": "Claude",
   "binary": "claude",
@@ -10,7 +10,7 @@
   "boundaryTestMethodNote": "Found 2026-09-01: a raw shell write attempt gets blocked by the Bash-tool approval gate, not the file-permission boundary being tested -- a real but different mechanism than Codex's uniform sandbox, and not the apples-to-apples test. The native Write/Edit tool is gated separately by working-directory scoping, which IS the equivalent test to Codex's sandbox boundary -- confirmed empirically: blocked with 'outside the session's approved working directories', not a Bash-approval message.",
   "modes": {
     "readOnly": {
-      "args": ["-p", "--permission-mode", "plan"]
+      "args": ["-p", "--permission-mode", "dontAsk"]
     },
     "write": {
       "args": ["-p", "--permission-mode", "acceptEdits"]
