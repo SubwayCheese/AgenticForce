@@ -27,6 +27,7 @@ const { buildSnapshot, buildAgentGraph } = require('./dashboard-status.js');
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DASHBOARD_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'dashboard.html');
 const AGENTS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'agents.html');
+const MARKETS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'markets.html');
 const BACKLOG_STATUS_PATH = path.join(VAULT_ROOT, 'bus', 'status.json');
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8877;
 
@@ -79,6 +80,18 @@ const server = http.createServer((req, res) => {
     } catch (err) {
       send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
     }
+    return;
+  }
+
+  // Markets page (added 2026-09-03) -- embeds real TradingView charts
+  // for the Core Watchlist. Purely static; unlike /agents.html this has
+  // no companion JSON endpoint, since the watchlist ticker list lives
+  // as a small JS array inside the page itself, not computed server-side.
+  if (url === '/markets.html') {
+    fs.readFile(MARKETS_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read markets.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
     return;
   }
 

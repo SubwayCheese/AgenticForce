@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Markets</title>
+<style>
+  :root{
+    --bg:#0b0e13;
+    --panel:#12161d;
+    --panel-2:#161b23;
+    --line:rgba(255,255,255,0.07);
+    --line-strong:rgba(255,255,255,0.13);
+    --top-hi:inset 0 1px 0 rgba(255,255,255,0.045);
+    --ink:#e7e9ec;
+    --dim:#8891a0;
+    --dim-2:#5a6270;
+    --amber:#e8a33d;
+    --teal:#4fb0a8;
+    --red:#d9695f;
+    --green:#6fae6a;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Mono","SF Mono",Consolas,monospace;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    overflow:hidden;
+  }
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    padding:20px 28px 16px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  h1{font-size:17px;font-weight:500;letter-spacing:0.01em;margin:0;}
+  .subtitle{color:var(--dim);font-size:12.5px;margin-top:5px;}
+  .navlinks{display:flex;gap:10px;}
+  .navlink{color:var(--dim);font-size:11.5px;border:1px solid var(--line);padding:4px 10px;border-radius:4px;text-decoration:none;white-space:nowrap;transition:color .15s ease,border-color .15s ease;}
+  .navlink:hover{color:var(--ink);border-color:var(--line-strong);}
+
+  .tabs{
+    display:flex;gap:8px;padding:14px 28px 0;flex-shrink:0;flex-wrap:wrap;
+  }
+  .tab{
+    background:var(--panel);border:1px solid var(--line);color:var(--dim);
+    font-family:inherit;font-size:12.5px;padding:8px 16px;border-radius:5px 5px 0 0;
+    cursor:pointer;box-shadow:var(--top-hi);transition:color .15s ease,border-color .15s ease;
+  }
+  .tab:hover{color:var(--ink);}
+  .tab.active{color:var(--amber);border-color:rgba(232,163,61,0.4);border-bottom-color:var(--bg);position:relative;top:1px;}
+
+  .chart-wrap{
+    flex:1;padding:0 28px 20px;min-height:0;
+  }
+  .chart-panel{
+    height:100%;background:var(--panel);border:1px solid var(--line);border-radius:0 5px 5px 5px;
+    box-shadow:var(--top-hi);overflow:hidden;display:none;
+  }
+  .chart-panel.active{display:block;}
+  .chart-panel .tradingview-widget-container{height:100%;width:100%;}
+
+  .meta{
+    padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--dim);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+  }
+  .meta .notes-path{color:var(--teal);}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>bus / markets</h1>
+    <div class="subtitle">live TradingView charts for the Core Watchlist -- see the vault's "06 - Markets &amp; Trading Research" category for the source-tagged research notes</div>
+  </div>
+  <div class="navlinks">
+    <a class="navlink" href="/" target="_blank">console &rarr;</a>
+    <a class="navlink" href="/agents.html" target="_blank">agent graph &rarr;</a>
+  </div>
+</header>
+
+<div class="tabs" id="tabs"></div>
+<div class="chart-wrap" id="chartWrap"></div>
+
+<script>
+// Watchlist mirrors "06 - Markets & Trading Research/02 - Watchlists &
+// Investment Theses/Core Watchlist.md" as of 2026-09-03 -- not read
+// dynamically from that note (it's plain markdown, not served as
+// data). Add a ticker here when the watchlist grows; this list is the
+// one manual step, everything else below is generic per-entry.
+const WATCHLIST = [
+  { ticker: 'AAPL', tvSymbol: 'NASDAQ:AAPL', name: 'Apple Inc.' },
+  { ticker: 'MSFT', tvSymbol: 'NASDAQ:MSFT', name: 'Microsoft Corporation' },
+  { ticker: 'NVDA', tvSymbol: 'NASDAQ:NVDA', name: 'NVIDIA Corporation' },
+  { ticker: 'JPM',  tvSymbol: 'NYSE:JPM',    name: 'JPMorgan Chase & Co.' },
+];
+
+const tabsEl = document.getElementById('tabs');
+const chartWrapEl = document.getElementById('chartWrap');
+let activeTicker = WATCHLIST[0].ticker;
+const loaded = new Set(); // widgets are only created once, on first activation -- avoids loading all N TradingView widgets up front
+
+function activate(ticker){
+  activeTicker = ticker;
+  document.querySelectorAll('.tab').forEach(el => el.classList.toggle('active', el.dataset.ticker === ticker));
+  document.querySelectorAll('.chart-panel').forEach(el => el.classList.toggle('active', el.dataset.ticker === ticker));
+  if (!loaded.has(ticker)) loadWidget(ticker);
+}
+
+// TradingView's Advanced Chart embed -- the standard free, no-API-key
+// embeddable widget. This is the one deliberate exception to this
+// dashboard's usual zero-external-dependency approach: there is no way
+// to get a genuine, real-time TradingView chart without loading
+// TradingView's own script from their CDN.
+function loadWidget(ticker){
+  loaded.add(ticker);
+  const panel = document.querySelector(`.chart-panel[data-ticker="${ticker}"] .tradingview-widget-container`);
+  const script = document.createElement('script');
+  script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+  script.async = true;
+  script.innerHTML = JSON.stringify({
+    autosize: true,
+    symbol: WATCHLIST.find(w => w.ticker === ticker).tvSymbol,
+    interval: 'D',
+    timezone: 'Etc/UTC',
+    theme: 'dark',
+    style: '1',
+    locale: 'en',
+    backgroundColor: '#12161d',
+    gridColor: 'rgba(255, 255, 255, 0.06)',
+    hide_top_toolbar: false,
+    hide_legend: false,
+    allow_symbol_change: false,
+    support_host: 'https://www.tradingview.com',
+  });
+  panel.appendChild(script);
+}
+
+WATCHLIST.forEach((w, i) => {
+  const tab = document.createElement('button');
+  tab.className = 'tab' + (i === 0 ? ' active' : '');
+  tab.textContent = w.ticker;
+  tab.dataset.ticker = w.ticker;
+  tab.addEventListener('click', () => activate(w.ticker));
+  tabsEl.appendChild(tab);
+
+  const panel = document.createElement('div');
+  panel.className = 'chart-panel' + (i === 0 ? ' active' : '');
+  panel.dataset.ticker = w.ticker;
+  panel.innerHTML = `
+    <div class="meta">
+      <span>${w.name} (${w.ticker})</span>
+      <span>research notes: <span class="notes-path">06 - Markets &amp; Trading Research/03 - Companies/</span> (open in Obsidian)</span>
+    </div>
+    <div class="tradingview-widget-container"></div>
+  `;
+  chartWrapEl.appendChild(panel);
+});
+
+loadWidget(WATCHLIST[0].ticker);
+</script>
+</body>
+</html>
