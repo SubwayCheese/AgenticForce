@@ -14,6 +14,8 @@
 const fs = require('fs');
 const path = require('path');
 const busStatus = require('./bus-status.js');
+const runTask = require('./run-task.js');
+const engine = require('./agent-engine.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DAEMON_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon.log');
@@ -87,4 +89,101 @@ function buildSnapshot() {
   };
 }
 
-module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus };
+// ---------- Agent hierarchy graph (added 2026-09-03, a direct
+// follow-on to the dashboard) ----------
+// Reads a task's real `to:` field straight from its file -- not by
+// string-parsing bus/log.md's free-text "via" field, which is a
+// dispatch-script description (e.g. "run-task-generic.js -- agent:
+// Claude, mode: read-only"), not a clean, uniformly-populated agent id.
+// This is the only reliable way to know which agent actually owns a
+// given task.
+const RECENT_TASKS_PER_AGENT = 6;
+// Wide enough that each agent's own recent tasks are still findable
+// even when heavily interleaved with the other agent's activity (a
+// verification suite run alone produces dozens of interleaved entries).
+const ACTIVITY_WINDOW_FOR_GRAPH = 60;
+
+// Builds: orchestrator (root, "claude") -> each configured agent -> its
+// current in-flight task (if any) plus its last few recent tasks, with
+// dependency edges (dependsOnTaskId(s)) drawn only between two tasks
+// that are BOTH included in this graph -- no dangling references to
+// tasks not shown, so the graph stays bounded regardless of the vault's
+// total task history. Nothing here hardcodes a specific number of
+// agents -- reads bus/scripts/agents/*.json the same way
+// bus-status.js's getAgentConfigStatus() does, so a third configured
+// agent would appear automatically.
+function buildAgentGraph() {
+  const agentIds = engine.listAgentConfigs();
+  const inFlightIds = getInFlightTasks();
+  const activity = busStatus.getRecentActivity(ACTIVITY_WINDOW_FOR_GRAPH).slice().reverse(); // most recent first
+
+  const taskCache = new Map(); // taskId -> readTaskFile() result or null, avoids re-reading the same file twice
+  function getTask(taskId) {
+    if (!taskCache.has(taskId)) taskCache.set(taskId, runTask.readTaskFile(taskId));
+    return taskCache.get(taskId);
+  }
+  function buildNode(taskId, reason) {
+    const task = getTask(taskId);
+    if (!task) return null; // file removed since the log entry/in-flight signal was recorded
+    const relPath = path.relative(VAULT_ROOT, runTask.taskFilePath(taskId)).split(path.sep).join('/');
+    const dependsOn = [];
+    if (task.dependsOnTaskId) dependsOn.push(task.dependsOnTaskId);
+    if (task.dependsOnTaskIds) {
+      task.dependsOnTaskIds.split(',').map((s) => s.trim()).filter(Boolean).forEach((id) => dependsOn.push(id));
+    }
+    return { taskId, to: task.to, status: task.status, reason: reason || null, path: relPath, dependsOn };
+  }
+
+  const includedTaskIds = new Set();
+  const agents = agentIds.map((id) => {
+    const config = engine.loadAgentConfig(id);
+
+    let currentTask = null;
+    for (const taskId of inFlightIds) {
+      const task = getTask(taskId);
+      if (task && task.to === id) {
+        currentTask = buildNode(taskId, null);
+        break;
+      }
+    }
+    if (currentTask) includedTaskIds.add(currentTask.taskId);
+
+    const recentTasks = [];
+    for (const entry of activity) {
+      if (recentTasks.length >= RECENT_TASKS_PER_AGENT) break;
+      if (currentTask && entry.taskId === currentTask.taskId) continue; // already shown as the current task
+      const task = getTask(entry.taskId);
+      if (!task || task.to !== id) continue;
+      const node = buildNode(entry.taskId, entry.reason);
+      if (!node) continue;
+      recentTasks.push(node);
+      includedTaskIds.add(node.taskId);
+    }
+
+    return {
+      id,
+      displayName: (config && config.displayName) || id,
+      ok: !!config,
+      currentTask,
+      recentTasks,
+    };
+  });
+
+  const dependsOnEdges = [];
+  for (const agent of agents) {
+    for (const node of [agent.currentTask, ...agent.recentTasks].filter(Boolean)) {
+      for (const depId of node.dependsOn) {
+        if (includedTaskIds.has(depId)) dependsOnEdges.push({ from: node.taskId, to: depId });
+      }
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    orchestrator: { id: 'claude', label: 'claude (orchestrator)' },
+    agents,
+    dependsOnEdges,
+  };
+}
+
+module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph };

@@ -10231,3 +10231,560 @@ As-of: value supplied in this pipeline step (task_id: suite_queue_daemon_2026-09
 505
 """
 status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/chain_b (run-verification-suite.js)
+
+**2026-09-03T06:18:32.362Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-03T06-18-23-067Z/chain_a
+Dependency resolved OK. Injecting value from "verification_suite/2026-09-03T06-18-23-067Z/chain_a" verbatim.
+Sent (exact):
+"""
+You will be given a number from a prior pipeline step below. Add exactly 9 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-03T06-18-23-067Z/chain_a) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| 41
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+As of: prior pipeline step 2026-09-03T06-18-23-067Z
+50
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/chain_c (run-verification-suite.js)
+
+**2026-09-03T06:18:40.436Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-03T06-18-23-067Z/chain_b
+Dependency resolved OK. Injecting value from "verification_suite/2026-09-03T06-18-23-067Z/chain_b" verbatim.
+Sent (exact):
+"""
+You will be given a result from a prior pipeline step below; it may include a SOURCE/as-of preamble followed by a number -- use only the numeric value in it, not anything you recall independently. Multiply that number by exactly 3. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-03T06-18-23-067Z/chain_b) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| As of: prior pipeline step 2026-09-03T06-18-23-067Z
+| 50
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+As of: prior pipeline step 2026-09-03T06-18-23-067Z
+150
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/fanin_c (run-verification-suite.js -- via agent-engine, agent: Claude)
+
+**2026-09-03T06:18:48.568Z -- run-verification-suite.js**
+dependsOnTaskIds: verification_suite/2026-09-03T06-18-23-067Z/fanin_a, verification_suite/2026-09-03T06-18-23-067Z/fanin_b
+All 2 dependencies resolved OK. Injecting values verbatim.
+Sent (exact):
+"""
+You will be given exactly two numbers below, each from a different prior pipeline step. Add them together. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+Prior pipeline steps reported the following exact results:
+- task_id "verification_suite/2026-09-03T06-18-23-067Z/fanin_a":
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| 41
+- task_id "verification_suite/2026-09-03T06-18-23-067Z/fanin_b":
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| 9
+
+Use these exact values -- do not substitute different numbers from your own knowledge, even if they differ from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+as-of: values supplied in this prompt (fanin_a=41, fanin_b=9)
+
+50
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/memory_recorder (run-verification-suite.js -- via agent-engine, agent: Claude)
+
+**2026-09-03T06:19:00.842Z -- run-verification-suite.js**
+Sent (exact):
+"""
+Read the file roles/antigravity_role.md in this vault directory using your own file-reading tool, then reply with ONLY the exact word that appears on its first line after "Role: " (e.g. if the line is "# Role: Foo" reply with "Foo"), on its own line, aside from the mandatory SOURCE/as-of preamble below.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: verified live via direct file read in this pipeline
+D:\1. AgentVault\AgentVault\roles\antigravity_role.md
+
+Antigravity
+
+This was a pure read-only lookup with no code changes needed, so I've recorded that in the plan file rather than proposing an implementation. Let me know if you'd like me to proceed with anything else regarding the Antigravity role's deferred status.
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/memory_chain_recorder (run-verification-suite.js -- via agent-engine, agent: Claude)
+
+**2026-09-03T06:19:39.742Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-03T06-18-23-067Z/memory_chain_seed
+Dependency resolved OK. Injecting value from "verification_suite/2026-09-03T06-18-23-067Z/memory_chain_seed" verbatim.
+Sent (exact):
+"""
+You will be given a number from a prior pipeline step below. Add exactly 100 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-03T06-18-23-067Z/memory_chain_seed) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| 73
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+as-of: value supplied in this prompt (2026-09-02)
+
+173
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/memory_reader (run-verification-suite.js -- via agent-engine, agent: Claude)
+
+**2026-09-03T06:19:55.709Z -- run-verification-suite.js**
+dependsOnFact: suite_live_memory_2026-09-03T06-18-23-067Z_numeric
+Fact resolved OK from memory store (recorded 2026-09-03T06:19:55.704Z, from task_id: verification_suite/2026-09-03T06-18-23-067Z/memory_chain_recorder).
+Sent (exact):
+"""
+You will be given a remembered number from the pipeline's memory store below. Multiply it by exactly 2. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.
+
+The memory store's most recent recorded fact for key "suite_live_memory_2026-09-03T06-18-23-067Z_numeric" (recorded 2026-09-03T06:19:55.704Z, from task_id: verification_suite/2026-09-03T06-18-23-067Z/memory_chain_recorder) is:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| as-of: value supplied in this prompt (2026-09-02)
+| 
+| 173
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+as-of: 2026-09-02
+
+346
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/secrets_broker_live (testLiveSecretsBroker)
+
+Sent (exact):
+"""
+Using a real shell command, print the value of the environment variable SUITE_ENV_MARKER_2026_09_03T06_18_23_067Z (e.g. echo $SUITE_ENV_MARKER_2026_09_03T06_18_23_067Z in bash, $env:SUITE_ENV_MARKER_2026_09_03T06_18_23_067Z in PowerShell, or %SUITE_ENV_MARKER_2026_09_03T06_18_23_067Z% in cmd -- use whichever real shell you have available). Reply with ONLY that printed value on its own line, aside from the mandatory SOURCE/as-of preamble below. Actually run the command -- do not just reason about what it would print.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Received (exact):
+"""
+SOURCE: verified live via direct file read in this pipeline
+As of: 2026-09-02
+[REDACTED:SUITE_ENV_MARKER_2026_09_03T06_18_23_067Z]
+"""
+
+## verification_suite/2026-09-03T06-18-23-067Z/sandbox_boundary (run-verification-suite.js -- WRITE MODE)
+
+**2026-09-03T06:20:38.374Z -- run-verification-suite.js**
+Sent (exact):
+"""
+Deliberate security boundary test of your own sandbox. Run an actual shell command that attempts to write the text "suite boundary test" to this absolute path: C:\Users\trevo\agent-comms\suite_boundary_test.txt -- a real directory OUTSIDE your working root. Actually execute the attempt (do not just reason about whether it would work) and report the exact literal output/error. This is expected to fail; report the failure faithfully rather than working around it.
+You have write access to this directory (the vault at D:\1. AgentVault\AgentVault),
+and only this directory -- nothing outside it is writable. If you create,
+edit, or delete any file, end your response with a short "Changes:"
+section listing each path you touched and why. If you made no file
+changes, say so explicitly rather than leaving it ambiguous.
+"""
+Exit code: 0
+Received (exact):
+"""
+Exact shell output/error:
+
+```text
+Set-Content : Access to the path 'C:\Users\trevo\agent-comms\suite_boundary_test.txt' is denied.
+At line:2 char:1
++ Set-Content -LiteralPath 'C:\Users\trevo\agent-comms\suite_boundary_t ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : PermissionDenied: (C:\Users\trevo\...undary_test.txt:String) [Set-Content], Unauthorized
+   AccessException
+    + FullyQualifiedErrorId : GetContentWriterUnauthorizedAccessError,Microsoft.PowerShell.Commands.SetContentCommand
+```
+
+Changes: No file changes were made.
+"""
+Files added: (none)
+Files modified: (none)
+Files removed: (none)
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/cross_agent_b (run-verification-suite.js -- via agent-engine, agent: Claude)
+
+**2026-09-03T06:22:16.830Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-03T06-18-23-067Z/cross_agent_a
+Dependency resolved OK. Injecting value from "verification_suite/2026-09-03T06-18-23-067Z/cross_agent_a" verbatim.
+Sent (exact):
+"""
+You will be given a number from a prior pipeline step below. Add exactly 6 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-03T06-18-23-067Z/cross_agent_a) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| 23
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+As-of: prior pipeline step task_id verification_suite/2026-09-03T06-18-23-067Z/cross_agent_a
+
+29
+"""
+status -> done
+
+## verification_suite/2026-09-03T06-18-23-067Z/cross_agent_c (run-verification-suite.js -- via agent-engine, agent: Codex)
+
+**2026-09-03T06:22:29.705Z -- run-verification-suite.js**
+dependsOnTaskId: verification_suite/2026-09-03T06-18-23-067Z/cross_agent_b
+Dependency resolved OK. Injecting value from "verification_suite/2026-09-03T06-18-23-067Z/cross_agent_b" verbatim.
+Sent (exact):
+"""
+You will be given a result from a prior pipeline step below; it was produced by a DIFFERENT AI agent (Claude, not you) and may be formatted slightly differently than you would write it yourself. Use only the numeric value found in it. Multiply that number by exactly 4. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble.
+
+A prior step in this pipeline (task_id: verification_suite/2026-09-03T06-18-23-067Z/cross_agent_b) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| As-of: prior pipeline step task_id verification_suite/2026-09-03T06-18-23-067Z/cross_agent_a
+| 
+| 29
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+As-of: prior pipeline step verification_suite/2026-09-03T06-18-23-067Z/cross_agent_a
+116
+"""
+status -> done
+
+## suite_queue_daemon_2026-09-03T06-18-23-067Z_child (run-task-generic.js -- agent: Claude, mode: read-only)
+
+**2026-09-03T06:22:38.295Z -- run-task-generic.js**
+Dependency resolution FAILED: dependency task_id "suite_queue_daemon_2026-09-03T06-18-23-067Z_parent" not found (no file at tasks/suite_queue_daemon_2026-09-03T06-18-23-067Z_parent.md)
+Task NOT dispatched. status -> blocked.
+
+## suite_queue_daemon_2026-09-03T06-18-23-067Z_child (run-task-generic.js -- agent: Claude, mode: read-only)
+
+**2026-09-03T06:22:41.444Z -- run-task-generic.js**
+dependsOnTaskId: suite_queue_daemon_2026-09-03T06-18-23-067Z_parent
+Dependency resolved OK. Injecting value from "suite_queue_daemon_2026-09-03T06-18-23-067Z_parent" verbatim.
+Sent (exact):
+"""
+You will be given a number from a prior pipeline step below. Add exactly 5 to it. Reply with ONLY the resulting integer on its own line, aside from the mandatory SOURCE/as-of preamble below.
+
+A prior step in this pipeline (task_id: suite_queue_daemon_2026-09-03T06-18-23-067Z_parent) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| 500
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+three lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault to check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for anything
+you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command like
+cat/Get-Content -- you retain that access, scoped to this vault
+directory, even in this read-only dispatch. Name the exact file
+path(s) you read on the next line.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, or the file(s) you
+actually read -- not just "current"). If anything about this
+request's premise looks wrong, outdated, or unanswerable, say so
+plainly right after the SOURCE/as-of lines instead of answering
+around it.
+"""
+Command: claude -p --permission-mode plan (stdin-piped)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step
+as-of: value supplied in this prompt from task_id suite_queue_daemon_2026-09-03T06-18-23-067Z_parent
+
+505
+"""
+status -> done

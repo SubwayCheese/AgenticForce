@@ -1211,6 +1211,47 @@ function testInFlightDetectionFast() {
   );
 }
 
+// ---------- FAST: buildAgentGraph() shape/agreement (added 2026-09-03,
+// the agent hierarchy graph -- a direct follow-on to the dashboard)
+// ----------
+// Three real guarantees, not just "doesn't throw": every agent node
+// corresponds to a real bus/scripts/agents/*.json config (no fabricated
+// agents); every task node's real `to:` field (cross-checked via
+// readTaskFile, same drift-prevention idiom as the graph's own
+// resolveTaskAgent()) genuinely matches the agent it's placed under;
+// every dependency edge's two endpoints are both present in the
+// graph's own node set (the "no dangling references" guarantee the
+// design relies on).
+function testAgentGraphFast() {
+  const graph = dashboardStatus.buildAgentGraph();
+  const problems = [];
+  const configuredIds = new Set(engine.listAgentConfigs());
+  const nodeIds = new Set();
+
+  for (const agent of graph.agents) {
+    if (!configuredIds.has(agent.id)) problems.push(`agent "${agent.id}" in graph but no bus/scripts/agents/${agent.id}.json config`);
+    const taskNodes = [agent.currentTask, ...agent.recentTasks].filter(Boolean);
+    for (const node of taskNodes) {
+      nodeIds.add(node.taskId);
+      const realTask = runTask.readTaskFile(node.taskId);
+      if (!realTask || realTask.to !== agent.id) {
+        problems.push(`task "${node.taskId}" placed under agent "${agent.id}" but its real to: field is "${realTask ? realTask.to : '(file missing)'}"`);
+      }
+    }
+  }
+  for (const edge of graph.dependsOnEdges) {
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
+      problems.push(`dependsOnEdge ${edge.from} -> ${edge.to} references a task not present in the graph's own node set`);
+    }
+  }
+
+  record(
+    'buildAgentGraph(): every agent is a real config, every task genuinely belongs to its agent, every dependency edge is fully contained',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : `${graph.agents.length} agent(s), ${nodeIds.size} task node(s), ${graph.dependsOnEdges.length} dependency edge(s)`
+  );
+}
+
 // ---------- SLOW: generic engine parity (all configured agents) ----------
 // Added 2026-09-01 alongside agent-engine.js, the Phase 2 config-driven
 // scaffold. Dispatches the SAME simple prompt through engine.dispatch()
@@ -1335,6 +1376,7 @@ function main() {
   testSecretsBrokerFast();
   testStatusCountsAgreement();
   testInFlightDetectionFast();
+  testAgentGraphFast();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testLiveFanIn();

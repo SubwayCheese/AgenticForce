@@ -22,10 +22,11 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { buildSnapshot } = require('./dashboard-status.js');
+const { buildSnapshot, buildAgentGraph } = require('./dashboard-status.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DASHBOARD_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'dashboard.html');
+const AGENTS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'agents.html');
 const BACKLOG_STATUS_PATH = path.join(VAULT_ROOT, 'bus', 'status.json');
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8877;
 
@@ -56,6 +57,26 @@ const server = http.createServer((req, res) => {
       // Surfaced to the dashboard's own feed via its fetch-catch, not
       // hidden -- matches dashboard.html's existing poll-failure
       // handling, which already expects a fetch to be able to fail.
+      send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
+    }
+    return;
+  }
+
+  // Agent hierarchy graph (added 2026-09-03, a direct follow-on to the
+  // dashboard) -- same fresh-per-request pattern as /status.json.
+  if (url === '/agents.html') {
+    fs.readFile(AGENTS_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read agents.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/agent-graph.json') {
+    try {
+      const graph = buildAgentGraph();
+      send(res, 200, 'application/json', JSON.stringify(graph));
+    } catch (err) {
       send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
     }
     return;

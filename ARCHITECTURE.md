@@ -898,6 +898,51 @@ counts, in-flight, recent activity with a real blocked reason, memory
 panel, and agent badges all rendered correctly against live data both
 before and after a fresh full suite run, no console errors.
 
+**Addendum, same day: the agent hierarchy graph** (`bus/agents.html`, a
+second dashboard page). Direct follow-on after seeing the shipped
+dashboard, inspired by a reference screenshot of an Obsidian-style
+force-directed node graph. The honest translation onto this vault's real
+data (there's no agent-dispatches-agent chaining today, just one
+orchestrator and two flat-reporting specialists): orchestrator (root,
+"claude") -> each configured agent -> that agent's current in-flight
+task (if any) plus its last 6 real tasks, each carrying its actual file
+path and status. New `buildAgentGraph()` in `dashboard-status.js`
+resolves which agent a task belongs to by reading the task file's real
+`to:` field directly (`readTaskFile()`), not by string-parsing
+`bus/log.md`'s free-text "via" description -- the only reliable source,
+since that description isn't a clean, uniformly-populated agent id.
+Dependency edges (`dependsOnTaskId(s)`) are drawn only between two task
+nodes both already included in the graph -- no dangling references, so
+the graph stays bounded regardless of total task history, and this is
+what actually produces cross-agent connecting lines when e.g. a
+Claude-handled task depends on a Codex-handled one.
+
+Rendering (`bus/agents.html`) is a hand-rolled force-directed layout in
+vanilla JS + SVG -- no external library, matching `dashboard.html`'s
+existing zero-dependency, fully-offline approach: pairwise node
+repulsion, spring edges, a radial initial layout (orchestrator center,
+agents in a ring, each agent's tasks in a smaller ring around it), node
+positions persisted across polls (matched by id) so the layout doesn't
+jitter every 2s. Click a node for its full detail in a side panel
+(agent health, or a task's real path/status/reason/dependencies); drag
+to reposition (pinned only while dragging -- released nodes settle back
+into the simulation, which is correct behavior, not a bug). Two new
+routes on the same `serve-dashboard.js` (`/agents.html`,
+`/agent-graph.json`), plus small nav links each way between the two
+pages -- opens as a genuinely separate browser tab per the request, not
+a tab-switcher within the existing page.
+
+Verified: `testAgentGraphFast()` (new) confirms every agent node is a
+real configured agent, every task node's resolved owner genuinely
+matches that task's real `to:` field, and every dependency edge's
+endpoints are both actually present in the graph -- full suite 40/40.
+Live: both routes curl-tested, then `bus/agents.html` opened in a real
+Chrome tab -- the graph rendered correctly with real task data and
+cross-agent dependency edges, node click and drag both worked, the nav
+links between the two pages worked, no console errors. In-flight-task
+detection on this page reuses `getInFlightTasks()` unchanged from the
+main dashboard (already verified there), not re-proven separately here.
+
 ## 4. Two-tier data grounding
 
 - **Verified-live:** numeric facts fetched directly by Claude via the

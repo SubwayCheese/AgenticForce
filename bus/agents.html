@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agent Graph</title>
+<style>
+  :root{
+    --bg:#12161c;
+    --panel:#181d25;
+    --line:#262d38;
+    --ink:#dfe4ea;
+    --dim:#7a8494;
+    --amber:#e8a33d;
+    --teal:#4fb0a8;
+    --red:#d9695f;
+    --green:#6fae6a;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Mono","SF Mono",Consolas,monospace;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    overflow:hidden;
+  }
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    padding:20px 28px 14px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+  h1{font-size:17px;font-weight:600;letter-spacing:0.02em;margin:0;}
+  .subtitle{color:var(--dim);font-size:12.5px;margin-top:4px;}
+  .navlink{color:var(--dim);font-size:11.5px;border:1px solid var(--line);padding:3px 9px;border-radius:2px;text-decoration:none;white-space:nowrap;}
+  .navlink:hover{color:var(--ink);border-color:var(--dim);}
+
+  .main{flex:1;position:relative;overflow:hidden;}
+  svg{width:100%;height:100%;display:block;cursor:grab;}
+  svg:active{cursor:grabbing;}
+
+  .edge{stroke:var(--line);stroke-width:1.4;}
+  .edge.active-dispatch{stroke:var(--amber);stroke-width:2;}
+  .edge.depends{stroke:var(--teal);stroke-width:1;stroke-dasharray:3,4;opacity:0.6;}
+
+  .node-g{cursor:pointer;}
+  .node-g text{fill:var(--dim);font-size:10.5px;text-anchor:middle;pointer-events:none;}
+  .node-g.selected circle.main{stroke-width:2.5;}
+
+  circle.main.orchestrator{fill:#1c2b2a;stroke:var(--teal);stroke-width:2;}
+  circle.main.agent.ok{fill:var(--panel);stroke:var(--green);stroke-width:2;}
+  circle.main.agent.fail{fill:var(--panel);stroke:var(--red);stroke-width:2;}
+  circle.main.task{stroke-width:1.4;}
+  circle.main.task.status-done{fill:var(--green);stroke:var(--green);opacity:0.75;}
+  circle.main.task.status-blocked, circle.main.task.status-error{fill:var(--red);stroke:var(--red);}
+  circle.main.task.status-unverified{fill:var(--amber);stroke:var(--amber);}
+  circle.main.task.status-other{fill:var(--dim);stroke:var(--dim);opacity:0.6;}
+  circle.main.task.active-task{stroke:var(--amber);stroke-width:2;}
+
+  circle.halo{fill:none;stroke:var(--amber);opacity:0;}
+  .active-halo circle.halo{animation:pulse 1.6s ease-out infinite;}
+  @keyframes pulse{
+    0%{r:10;opacity:0.55;}
+    100%{r:22;opacity:0;}
+  }
+
+  .legend{
+    position:absolute;top:14px;left:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    padding:10px 13px;font-size:11px;color:var(--dim);
+    display:flex;flex-direction:column;gap:5px;
+  }
+  .legend .row{display:flex;align-items:center;gap:7px;}
+  .legend .swatch{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+
+  .infopanel{
+    position:absolute;bottom:14px;right:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    padding:13px 16px;font-size:12px;
+    max-width:420px;
+    display:none;
+  }
+  .infopanel.shown{display:block;}
+  .infopanel .title{font-size:13px;color:var(--ink);margin-bottom:6px;word-break:break-all;}
+  .infopanel .row{color:var(--dim);margin-bottom:3px;word-break:break-word;}
+  .infopanel .row b{color:var(--ink);}
+  .infopanel .close{position:absolute;top:8px;right:10px;color:var(--dim);cursor:pointer;font-size:13px;}
+
+  .feed-note{
+    position:absolute;bottom:14px;left:14px;
+    font-size:11px;color:var(--dim);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>bus / agent graph</h1>
+    <div class="subtitle">orchestrator &rarr; agents &rarr; current + recent tasks, live from serve-dashboard.js, polled every 2s</div>
+  </div>
+  <a class="navlink" href="/" target="_blank">console &rarr;</a>
+</header>
+
+<div class="main">
+  <svg id="graphSvg"><g id="edgeLayer"></g><g id="nodeLayer"></g></svg>
+
+  <div class="legend">
+    <div class="row"><span class="swatch" style="background:var(--teal)"></span> orchestrator</div>
+    <div class="row"><span class="swatch" style="background:var(--panel);border:2px solid var(--green)"></span> agent (config OK)</div>
+    <div class="row"><span class="swatch" style="background:var(--green)"></span> task: done</div>
+    <div class="row"><span class="swatch" style="background:var(--red)"></span> task: blocked / error</div>
+    <div class="row"><span class="swatch" style="background:var(--amber)"></span> task: unverified / active</div>
+    <div class="row"><span class="swatch" style="background:var(--dim)"></span> task: other</div>
+    <div class="row">— dispatch, ····· depends on</div>
+    <div class="row">drag a node to reposition it</div>
+  </div>
+
+  <div class="infopanel" id="infoPanel">
+    <span class="close" id="infoPanelClose">&times;</span>
+    <div class="title" id="infoTitle"></div>
+    <div id="infoBody"></div>
+  </div>
+
+  <div class="feed-note" id="feedNote"></div>
+</div>
+
+<script>
+// Renders bus/scripts/dashboard-status.js's buildAgentGraph() output
+// (served at /agent-graph.json) as a hand-rolled force-directed graph --
+// no external library, matching dashboard.html's existing zero-
+// dependency approach. Node positions persist across polls (matched by
+// id) so the layout doesn't jitter on every 2s refresh; only nodes that
+// actually appear/disappear in the data cause the graph to change shape.
+
+const svgNS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('graphSvg');
+const edgeLayer = document.getElementById('edgeLayer');
+const nodeLayer = document.getElementById('nodeLayer');
+const infoPanel = document.getElementById('infoPanel');
+const infoTitle = document.getElementById('infoTitle');
+const infoBody = document.getElementById('infoBody');
+const feedNote = document.getElementById('feedNote');
+
+let width = svg.clientWidth || 900;
+let height = svg.clientHeight || 600;
+window.addEventListener('resize', () => { width = svg.clientWidth; height = svg.clientHeight; });
+
+let nodes = new Map();   // id -> {id, type, x, y, vx, vy, fx, fy, r, label, ...}
+let edges = [];          // [{source, target, kind}]
+const nodeEls = new Map(); // id -> {g, circle, halo, text}
+const edgeEls = new Map(); // key -> line
+let selectedId = null;
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+}
+
+function statusClass(status){
+  if (status === 'done') return 'status-done';
+  if (status === 'blocked' || status === 'error') return 'status-blocked';
+  if (status === 'unverified') return 'status-unverified';
+  return 'status-other';
+}
+
+function place(id, initX, initY){
+  const prev = nodes.get(id);
+  if (prev) return prev;
+  const n = { id, x: initX, y: initY, vx: 0, vy: 0, fx: null, fy: null };
+  nodes.set(id, n);
+  return n;
+}
+
+function updateGraph(graph){
+  const cx = width / 2, cy = height / 2;
+  const keepIds = new Set();
+  const newEdges = [];
+
+  const orch = place('orchestrator', cx, cy);
+  keepIds.add('orchestrator');
+  orch.type = 'orchestrator';
+  orch.label = graph.orchestrator.label;
+  orch.r = 22;
+
+  const agentCount = graph.agents.length || 1;
+  graph.agents.forEach((agent, i) => {
+    const angle = (i / agentCount) * Math.PI * 2 - Math.PI / 2;
+    const aId = 'agent:' + agent.id;
+    const aNode = place(aId, cx + Math.cos(angle) * 170, cy + Math.sin(angle) * 170);
+    keepIds.add(aId);
+    aNode.type = 'agent';
+    aNode.label = agent.displayName;
+    aNode.ok = agent.ok;
+    aNode.r = 15;
+    aNode.data = agent;
+    newEdges.push({ source: 'orchestrator', target: aId, kind: 'dispatch' });
+
+    const taskList = [];
+    if (agent.currentTask) taskList.push(Object.assign({ active: true }, agent.currentTask));
+    (agent.recentTasks || []).forEach((t) => taskList.push(Object.assign({ active: false }, t)));
+
+    taskList.forEach((task, j) => {
+      const spread = Math.min(taskList.length, 6);
+      const tAngle = angle + (j - (spread - 1) / 2) * 0.4;
+      const tId = 'task:' + task.taskId;
+      const tNode = place(tId, aNode.x + Math.cos(tAngle) * 95, aNode.y + Math.sin(tAngle) * 95);
+      keepIds.add(tId);
+      tNode.type = 'task';
+      tNode.r = task.active ? 8 : 5.5;
+      tNode.data = task;
+      tNode.active = task.active;
+      newEdges.push({ source: aId, target: tId, kind: task.active ? 'active-dispatch' : 'dispatch' });
+    });
+  });
+
+  (graph.dependsOnEdges || []).forEach((e) => {
+    const fromId = 'task:' + e.from, toId = 'task:' + e.to;
+    if (keepIds.has(fromId) && keepIds.has(toId)) {
+      newEdges.push({ source: fromId, target: toId, kind: 'depends' });
+    }
+  });
+
+  for (const id of Array.from(nodes.keys())) {
+    if (!keepIds.has(id)) nodes.delete(id);
+  }
+  edges = newEdges;
+}
+
+function attachDrag(g, n){
+  let dragging = false;
+  let moved = false;
+  let startX = 0, startY = 0;
+  g.addEventListener('pointerdown', (ev) => {
+    dragging = true;
+    moved = false;
+    startX = ev.clientX; startY = ev.clientY;
+    g.setPointerCapture(ev.pointerId);
+  });
+  g.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    if (Math.abs(ev.clientX - startX) > 3 || Math.abs(ev.clientY - startY) > 3) moved = true;
+    const rect = svg.getBoundingClientRect();
+    n.fx = ev.clientX - rect.left;
+    n.fy = ev.clientY - rect.top;
+  });
+  function release(){
+    if (!dragging) return;
+    dragging = false;
+    n.fx = null; n.fy = null;
+    if (!moved) showInfo(n);
+  }
+  g.addEventListener('pointerup', release);
+  g.addEventListener('pointerleave', () => { if (dragging) release(); });
+}
+
+function showInfo(n){
+  selectedId = n.id;
+  infoPanel.classList.add('shown');
+  if (n.type === 'orchestrator') {
+    infoTitle.textContent = n.label;
+    infoBody.innerHTML = '<div class="row">the orchestrator -- every task is dispatched from here</div>';
+  } else if (n.type === 'agent') {
+    infoTitle.textContent = n.label + ' (' + n.id.replace('agent:', '') + ')';
+    infoBody.innerHTML =
+      '<div class="row"><b>config:</b> ' + (n.ok ? 'OK' : 'FAIL') + '</div>' +
+      '<div class="row">reports to: claude (orchestrator)</div>';
+  } else {
+    const t = n.data;
+    infoTitle.textContent = t.taskId;
+    infoBody.innerHTML =
+      '<div class="row"><b>agent:</b> ' + escapeHtml(t.to) + '</div>' +
+      '<div class="row"><b>status:</b> ' + escapeHtml(t.status) + (n.active ? ' (in flight)' : '') + '</div>' +
+      '<div class="row"><b>path:</b> ' + escapeHtml(t.path) + '</div>' +
+      (t.reason ? '<div class="row"><b>reason:</b> ' + escapeHtml(t.reason) + '</div>' : '') +
+      (t.dependsOn && t.dependsOn.length ? '<div class="row"><b>depends on:</b> ' + t.dependsOn.map(escapeHtml).join(', ') + '</div>' : '');
+  }
+}
+document.getElementById('infoPanelClose').addEventListener('click', () => {
+  infoPanel.classList.remove('shown');
+  selectedId = null;
+});
+
+function tick(){
+  const arr = Array.from(nodes.values());
+  for (let i = 0; i < arr.length; i++) {
+    for (let j = i + 1; j < arr.length; j++) {
+      const a = arr[i], b = arr[j];
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const distSq = Math.max(dx * dx + dy * dy, 25);
+      const dist = Math.sqrt(distSq);
+      if (dist < 260) {
+        const force = 1600 / distSq;
+        const fx = (dx / dist) * force, fy = (dy / dist) * force;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+    }
+  }
+  edges.forEach((e) => {
+    const a = nodes.get(e.source), b = nodes.get(e.target);
+    if (!a || !b) return;
+    const rest = e.kind === 'depends' ? 140 : (a.type === 'orchestrator' ? 170 : 95);
+    const k = e.kind === 'depends' ? 0.008 : 0.03;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+    const force = (dist - rest) * k;
+    const fx = (dx / dist) * force, fy = (dy / dist) * force;
+    a.vx += fx; a.vy += fy;
+    b.vx -= fx; b.vy -= fy;
+  });
+  nodes.forEach((n) => {
+    if (n.fx !== null && n.fx !== undefined) {
+      n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0;
+      return;
+    }
+    const pull = n.type === 'orchestrator' ? 0.025 : 0.0025;
+    n.vx += (width / 2 - n.x) * pull;
+    n.vy += (height / 2 - n.y) * pull;
+    n.vx *= 0.82; n.vy *= 0.82;
+    n.x += n.vx; n.y += n.vy;
+  });
+  render();
+  requestAnimationFrame(tick);
+}
+
+function render(){
+  const edgeKeys = new Set();
+  edges.forEach((e) => {
+    const a = nodes.get(e.source), b = nodes.get(e.target);
+    if (!a || !b) return;
+    const key = e.source + '->' + e.target + '#' + e.kind;
+    edgeKeys.add(key);
+    let line = edgeEls.get(key);
+    if (!line) {
+      line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('class', 'edge ' + e.kind);
+      edgeLayer.appendChild(line);
+      edgeEls.set(key, line);
+    }
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+  });
+  for (const [key, el] of Array.from(edgeEls.entries())) {
+    if (!edgeKeys.has(key)) { el.remove(); edgeEls.delete(key); }
+  }
+
+  const nodeIds = new Set();
+  nodes.forEach((n) => {
+    nodeIds.add(n.id);
+    let entry = nodeEls.get(n.id);
+    if (!entry) {
+      const g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('class', 'node-g');
+      const halo = document.createElementNS(svgNS, 'circle');
+      halo.setAttribute('class', 'halo');
+      const circle = document.createElementNS(svgNS, 'circle');
+      circle.setAttribute('class', 'main');
+      const text = document.createElementNS(svgNS, 'text');
+      g.appendChild(halo); g.appendChild(circle); g.appendChild(text);
+      nodeLayer.appendChild(g);
+      entry = { g, halo, circle, text };
+      nodeEls.set(n.id, entry);
+      attachDrag(g, n);
+    }
+    entry.g.setAttribute('class', 'node-g' + (n.active ? ' active-halo' : '') + (selectedId === n.id ? ' selected' : ''));
+    entry.circle.setAttribute('cx', n.x); entry.circle.setAttribute('cy', n.y); entry.circle.setAttribute('r', n.r || 6);
+    entry.halo.setAttribute('cx', n.x); entry.halo.setAttribute('cy', n.y);
+
+    let cls = 'main ' + n.type;
+    if (n.type === 'agent') cls += n.ok ? ' ok' : ' fail';
+    if (n.type === 'task') cls += ' ' + statusClass(n.data && n.data.status) + (n.active ? ' active-task' : '');
+    entry.circle.setAttribute('class', cls);
+
+    entry.text.setAttribute('x', n.x);
+    entry.text.setAttribute('y', n.y + (n.r || 6) + 12);
+    entry.text.textContent = n.type === 'task' ? '' : (n.label || n.id);
+  });
+  for (const [id, entry] of Array.from(nodeEls.entries())) {
+    if (!nodeIds.has(id)) { entry.g.remove(); nodeEls.delete(id); }
+  }
+}
+
+async function poll(){
+  try {
+    const res = await fetch('agent-graph.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const graph = await res.json();
+    updateGraph(graph);
+    feedNote.textContent = 'last updated ' + new Date(graph.generatedAt).toLocaleTimeString();
+  } catch (err) {
+    feedNote.textContent = 'poll failed: ' + err.message + ' (is serve-dashboard.js running?)';
+  }
+}
+
+poll();
+setInterval(poll, 2000);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
