@@ -39,6 +39,7 @@ const { validate: validateAgentConfig } = require('./validate-agent-config.js');
 const { search: vaultSearch } = require('./vault-search.js');
 const busStatus = require('./bus-status.js');
 const memoryStore = require('./memory-store.js');
+const secretsBroker = require('./secrets-broker.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
@@ -54,6 +55,28 @@ function writeTask(relId, lines) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, lines.join('\n'), 'utf8');
   return `verification_suite/${RUN_ID}/${relId}`;
+}
+
+// Added 2026-09-02 for the credential/secrets broker (Phase 3 piece 4).
+// Non-destructive: bus/secrets.local.json may already hold real
+// secrets by the time this suite runs against it, so this only ever
+// adds/removes the ONE test entry it owns, never overwrites the whole
+// file -- same refuse-to-clobber discipline testSandboxBoundary() uses
+// for its external target file.
+function withTestSecret(name, value, fn) {
+  const before = secretsBroker.loadAllSecrets();
+  if (Object.prototype.hasOwnProperty.call(before, name)) {
+    throw new Error(`withTestSecret: "${name}" already exists in bus/secrets.local.json -- refusing to overwrite a real entry`);
+  }
+  const after = { ...before, [name]: value };
+  fs.writeFileSync(secretsBroker.SECRETS_PATH, JSON.stringify(after, null, 2) + '\n', 'utf8');
+  try {
+    return fn();
+  } finally {
+    const restored = secretsBroker.loadAllSecrets();
+    delete restored[name];
+    fs.writeFileSync(secretsBroker.SECRETS_PATH, JSON.stringify(restored, null, 2) + '\n', 'utf8');
+  }
 }
 
 // Mirrors run-task.js's main() dispatch for a single task_id, reusing its
@@ -125,13 +148,28 @@ function runFullTaskGeneric(taskId) {
     return;
   }
   if (dep.logNote) logEntry += dep.logNote + '\n';
+
+  // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece
+  // 4) -- this mirror needs the same resolution the real
+  // run-task-generic.js has, or a withSecret-tagged test dispatched
+  // through here would silently get no env overlay at all.
+  const secretReq = runTask.resolveSecretRequirement(task);
+  if (!secretReq.ok) {
+    logEntry += `Secret resolution FAILED: ${secretReq.reason}\n`;
+    logEntry += `Task NOT dispatched. status -> blocked.\n`;
+    runTask.appendLog(logEntry);
+    runTask.writeTaskResult(taskId, { status: 'blocked', reason: secretReq.reason });
+    return;
+  }
+  if (task.withSecret) logEntry += `withSecret: ${task.withSecret}\nSecret resolved OK -- injected into the subprocess env, never the prompt.\n`;
+
   // getMandatorySuffix(task.to), not a flat MANDATORY_SUFFIX -- this
   // function dispatches to whichever agent config matches, and a flat
   // suffix would tell claude-agent it has "no live data lookup," which is
   // false for it (see run-task.js's LIVE_FILE_READ_CAPABLE comment).
   const prompt = task.payload + dep.injectedContext + runTask.getMandatorySuffix(task.to);
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
-  const result = engine.dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT });
+  const result = engine.dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT, envOverlay: secretReq.envOverlay });
   logEntry += `Exit code: ${result.exitCode}\n`;
   logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;
 
@@ -484,6 +522,74 @@ function testDependsOnFactFast() {
   record('resolveTaskDependencies(): dependsOnFact missing / present / combined with dependsOnTaskId', problems.length === 0, problems.join('; '));
 }
 
+// ---------- FAST: secrets-broker.js redaction + resolveSecretRequirement()
+// (added 2026-09-02 for the credential/secrets broker, Phase 3 piece 4) ----------
+function testSecretsBrokerFast() {
+  const problems = [];
+  const name = `SUITE_TEST_SECRET_${RUN_ID.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+  const value = 'sk-fake-do-not-leak-12345';
+
+  // No withSecret field at all -> ok, empty overlay, no file access needed.
+  let req = runTask.resolveSecretRequirement({});
+  if (!(req.ok && Object.keys(req.envOverlay).length === 0)) {
+    problems.push(`no-field case: expected ok/empty overlay, got ${JSON.stringify(req)}`);
+  }
+
+  // Missing secret -> blocked, reason names it.
+  req = runTask.resolveSecretRequirement({ withSecret: 'DOES_NOT_EXIST_12345' });
+  if (!(req.ok === false && req.reason.includes('DOES_NOT_EXIST_12345'))) {
+    problems.push(`missing-secret case: expected rejection naming the secret, got ${JSON.stringify(req)}`);
+  }
+
+  withTestSecret(name, value, () => {
+    // Found -> ok, overlay carries the real value under the secret's own name.
+    req = runTask.resolveSecretRequirement({ withSecret: name });
+    if (!(req.ok && req.envOverlay[name] === value)) {
+      problems.push(`found case: expected overlay["${name}"] to be the real value, got ${JSON.stringify(req)}`);
+    }
+
+    // redactSecrets(): known value replaced, unrelated text untouched.
+    const redacted = secretsBroker.redactSecrets(`before ${value} after`);
+    if (!(redacted.includes(`[REDACTED:${name}]`) && !redacted.includes(value))) {
+      problems.push(`redactSecrets(): expected the value replaced with a REDACTED marker, got ${JSON.stringify(redacted)}`);
+    }
+    const untouched = secretsBroker.redactSecrets('nothing sensitive here');
+    if (untouched !== 'nothing sensitive here') {
+      problems.push(`redactSecrets(): expected unrelated text unchanged, got ${JSON.stringify(untouched)}`);
+    }
+
+    // The structural guarantee: appendLog()/writeTaskResult() redact
+    // automatically, without the caller doing anything extra.
+    const taskId = writeTask('secrets_redaction_via_writetaskresult', [
+      '## t', 'from: claude', 'to: claude', 'type: response', 'status: pending',
+      'payload: (n/a)', 'timestamp: 2026-09-02T00:00:00Z', '',
+    ]);
+    runTask.writeTaskResult(taskId, { status: 'done', output: `leaked value: ${value}` });
+    const persisted = fs.readFileSync(path.join(VAULT_ROOT, 'tasks', `${taskId}.md`), 'utf8');
+    if (persisted.includes(value) || !persisted.includes(`[REDACTED:${name}]`)) {
+      problems.push('writeTaskResult(): expected the secret value redacted automatically in the persisted task file');
+    }
+  });
+
+  // Prompt-content check: the real secret value must never appear in a
+  // built prompt string -- withSecret only ever affects the subprocess
+  // env, never the text sent to the model. Deterministic, no live call.
+  withTestSecret(name, value, () => {
+    const task = { payload: 'do something', withSecret: name, dependsOnTaskId: '', dependsOnTaskIds: '', dependsOnFact: '' };
+    const dep = runTask.resolveTaskDependencies('x', task);
+    const secretReq = runTask.resolveSecretRequirement(task);
+    const prompt = task.payload + dep.injectedContext + runTask.getMandatorySuffix('codex');
+    if (prompt.includes(value)) {
+      problems.push('prompt-content check: the real secret value appeared in the built prompt string -- it must only ever reach the subprocess env');
+    }
+    if (!secretReq.ok || secretReq.envOverlay[name] !== value) {
+      problems.push(`prompt-content check setup: expected the overlay to still resolve correctly, got ${JSON.stringify(secretReq)}`);
+    }
+  });
+
+  record('secrets-broker.js: resolveSecretRequirement() + redactSecrets() + prompt-never-contains-the-value', problems.length === 0, problems.join('; '));
+}
+
 // ---------- SLOW: live 2-hop numeric chain ----------
 function testLiveChain() {
   const seed = 41; // different from the earlier manual 137 test, still non-round
@@ -650,6 +756,84 @@ function testLiveMemoryLayer() {
     readerTask.status === 'done' && usedSuppliedTag && got === expected,
     `status=${readerTask.status}, usedSuppliedTag=${usedSuppliedTag}, got=${got}`
   );
+}
+
+// ---------- SLOW: live credential/secrets broker (added 2026-09-02,
+// Phase 3 piece 4) ----------
+// Two real guarantees, proven end-to-end, not just unit-tested: (1) a
+// withSecret-tagged dispatch actually gets the real value in its
+// subprocess env (a real shell command reads and echoes it back --
+// proves injection genuinely worked, not just that the code compiles),
+// and (2) that value never survives into what gets persisted to disk
+// (proves the redaction net catches a real leak on the real write
+// path, not a fabricated string).
+//
+// A real, non-hypothetical finding on the first live run (found the same
+// way the injection-echo item was -- read the actual bus/log.md entry
+// rather than trusting the FAIL line alone): the first draft named the
+// env var SUITE_LIVE_SECRET_<RUN_ID> and told Codex "this is a deliberate
+// credential-handling test" -- Codex safety-refused outright ("I can't
+// retrieve or disclose secret environment variables"), exitCode 0, no
+// crash, just a correct refusal to a prompt that reads exactly like a
+// secret-exfiltration attempt. Not a plumbing bug -- the test's own
+// framing (the word "secret" in the var name, "credential-handling test"
+// in the prompt) is what triggered it. Every other live test in this
+// suite asks for an ordinary task without announcing "this is a test";
+// this one now does the same -- a neutral var name and a plain "print
+// this env var" instruction, no mention of secrets/credentials. The
+// value itself is still sourced from bus/secrets.local.json via the real
+// withSecret path, so the guarantee under test (injection genuinely
+// reaches the subprocess env, and is redacted on every persisted write)
+// is unchanged -- only the prompt's own honesty framing changed.
+function testLiveSecretsBroker() {
+  const name = `SUITE_ENV_MARKER_${RUN_ID.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+  const value = `env-marker-${RUN_ID}`;
+
+  withTestSecret(name, value, () => {
+    const taskId = writeTask('secrets_broker_live', [
+      '## t', 'from: claude', 'to: codex', 'type: request', 'status: pending',
+      `payload: Using a real shell command, print the value of the environment variable ${name} (e.g. echo $${name} in bash, $env:${name} in PowerShell, or %${name}% in cmd -- use whichever real shell you have available). Reply with ONLY that printed value on its own line, aside from the mandatory SOURCE/as-of preamble below. Actually run the command -- do not just reason about what it would print.`,
+      `timestamp: ${new Date().toISOString()}`, `withSecret: ${name}`, '',
+    ]);
+
+    // Dispatched directly rather than through runFullTaskGeneric() --
+    // that function persists via writeTaskResult() internally, which
+    // redacts before returning, so its caller can never see the true
+    // raw output. This mirrors exactly what runFullTaskGeneric() does,
+    // but keeps the raw result in a local variable first so both halves
+    // of the guarantee (real injection AND real redaction) can be
+    // checked against ground truth, not against already-redacted text.
+    const task = runTask.readTaskFile(taskId);
+    const agentConfig = engine.loadAgentConfig(task.to);
+    const secretReq = runTask.resolveSecretRequirement(task);
+    const prompt = task.payload + runTask.getMandatorySuffix(task.to);
+    const rawResult = engine.dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT, envOverlay: secretReq.envOverlay });
+
+    const rawContainsValue = rawResult.output && rawResult.output.includes(value);
+    record(
+      'live secrets broker: withSecret actually injects the real value into the subprocess env',
+      rawResult.exitCode === 0 && !!rawContainsValue,
+      `exitCode=${rawResult.exitCode}, rawContainsValue=${!!rawContainsValue}`
+    );
+
+    // Now persist through the REAL path (appendLog + writeTaskResult),
+    // exactly like every real dispatch script does, and check the
+    // ACTUAL files on disk -- not a fabricated string, the real
+    // redaction code path being exercised for real.
+    runTask.appendLog(`## ${taskId} (testLiveSecretsBroker)\n\nSent (exact):\n"""\n${prompt}\n"""\nReceived (exact):\n"""\n${rawResult.output}\n"""\n`);
+    const verification = runTask.verifyOutput(task, rawResult.output);
+    runTask.writeTaskResult(taskId, { status: verification.ok ? 'done' : 'unverified', output: rawResult.output, reason: verification.ok ? undefined : verification.reason });
+
+    const persistedText = fs.readFileSync(runTask.taskFilePath(taskId), 'utf8');
+    const logText = fs.readFileSync(path.join(VAULT_ROOT, 'bus', 'log.md'), 'utf8');
+    const persistedLeaksValue = persistedText.includes(value);
+    const logLeaksValue = logText.includes(value);
+    record(
+      'live secrets broker: the real value never survives into the persisted task file or bus/log.md',
+      !persistedLeaksValue && !logLeaksValue,
+      `persistedLeaksValue=${persistedLeaksValue}, logLeaksValue=${logLeaksValue}`
+    );
+  });
 }
 
 // ---------- SLOW: live sandbox boundary ----------
@@ -1088,10 +1272,12 @@ function main() {
   testMemoryStoreFast();
   testRecordFactEligibilityFast();
   testDependsOnFactFast();
+  testSecretsBrokerFast();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testLiveFanIn();
   testLiveMemoryLayer();
+  testLiveSecretsBroker();
   testSandboxBoundary();
   console.log('\n-- slow checks: generic engine, all configured agents --');
   testEnginePerAgentDispatch();

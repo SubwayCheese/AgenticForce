@@ -45,6 +45,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 const memoryStore = require('./memory-store.js');
+const secretsBroker = require('./secrets-broker.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
@@ -286,6 +287,12 @@ function readTaskFile(taskId) {
     // value of X is").
     recordFact: field('recordFact'),
     dependsOnFact: field('dependsOnFact'),
+    // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece
+    // 4). Opt-in: names a secret (by key, never a value) to make
+    // available to this dispatch as an environment variable -- see
+    // resolveSecretRequirement() below. The prompt itself never
+    // contains the secret; only the NAME appears here and in logs.
+    withSecret: field('withSecret'),
     output: outputMatch ? outputMatch[1] : null,
   };
 }
@@ -354,6 +361,16 @@ function writeTaskResult(taskId, { status, output, reason }) {
 
   // Strip any prior output/reason block before appending the new one
   text = text.replace(/\n## Result \(auto\)[\s\S]*$/m, '');
+
+  // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece
+  // 4): redact any currently-known secret VALUE before it's ever
+  // persisted to disk. Structural, not per-call-site -- every dispatch
+  // script already calls this one function to save a result, so this
+  // is the one place that guarantees a leak (e.g. a subprocess echoing
+  // its env) never survives into the task file. A no-op when no secrets
+  // are configured.
+  if (reason) reason = secretsBroker.redactSecrets(reason);
+  if (output !== undefined && output !== null) output = secretsBroker.redactSecrets(output);
 
   let resultBlock = '\n## Result (auto)\n';
   resultBlock += `resolved_at: ${nowIso()}\n`;
@@ -463,7 +480,10 @@ function verifyOutput(task, output) {
 }
 
 function appendLog(entry) {
-  fs.appendFileSync(LOG_PATH, '\n' + entry.trimEnd() + '\n', 'utf8');
+  // Same redaction guarantee as writeTaskResult() above, applied to
+  // bus/log.md -- both are the only two places any dispatch script
+  // persists text, so this pair is the entire surface that needs it.
+  fs.appendFileSync(LOG_PATH, '\n' + secretsBroker.redactSecrets(entry).trimEnd() + '\n', 'utf8');
 }
 
 function resolveDependency(taskId, dependsOnTaskId) {
@@ -604,7 +624,26 @@ function resolveTaskDependencies(taskId, task) {
   };
 }
 
-function runCodex(prompt) {
+// Added 2026-09-02 for the credential/secrets broker (Phase 3 piece 4).
+// Deliberately separate from resolveTaskDependencies() -- that function
+// is about DATA flowing between tasks (a value goes into the prompt);
+// this is about ENVIRONMENT/access (a secret goes into the subprocess's
+// env, the prompt is never touched at all), a genuinely different
+// concern even though the shape (opt-in field, block with a reason if
+// unresolved) rhymes with it. Never retried automatically by the daemon
+// -- a secret is a manual local-setup fact, not a pipeline dependency
+// that resolves itself the way a task output or a memory-store fact
+// does; see the plan this was built from for why that's deliberate.
+function resolveSecretRequirement(task) {
+  if (!task.withSecret) return { ok: true, envOverlay: {} };
+  const value = secretsBroker.loadSecret(task.withSecret);
+  if (value === null) {
+    return { ok: false, reason: `withSecret "${task.withSecret}" -- no secret found under that name in bus/secrets.local.json` };
+  }
+  return { ok: true, envOverlay: { [task.withSecret]: value } };
+}
+
+function runCodex(prompt, { envOverlay } = {}) {
   // The prompt is passed via stdin, not as a command-line argument.
   // codex.exe is a .cmd wrapper on Windows, so execFileSync needs
   // shell:true to resolve it at all -- but shell:true does NOT escape
@@ -620,10 +659,19 @@ function runCodex(prompt) {
   );
   let exitCode = 0;
   try {
+    const execOptions = { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, shell: true, stdio: ['pipe', 'pipe', 'pipe'] };
+    // envOverlay (the credential broker, Phase 3 piece 4): merged into
+    // the subprocess's own env, never the prompt -- process.env must be
+    // spread explicitly here because setting `env` at all replaces the
+    // default full-inherit behavior execFileSync has when `env` is
+    // omitted.
+    if (envOverlay && Object.keys(envOverlay).length > 0) {
+      execOptions.env = { ...process.env, ...envOverlay };
+    }
     execFileSync(
       'codex',
       ['exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check', '--output-last-message', tmpFile],
-      { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, shell: true, stdio: ['pipe', 'pipe', 'pipe'] }
+      execOptions
     );
   } catch (err) {
     exitCode = (err && err.status) || 1;
@@ -675,6 +723,21 @@ function main() {
   if (dep.logNote) logEntry += dep.logNote + '\n';
   const injectedContext = dep.injectedContext;
 
+  // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece
+  // 4). Resolved after dependencies, before building the prompt -- the
+  // secret's VALUE never enters the prompt at all, only its NAME (via
+  // task.withSecret, already logged below like any other field).
+  const secretReq = resolveSecretRequirement(task);
+  if (!secretReq.ok) {
+    logEntry += `Secret resolution FAILED: ${secretReq.reason}\n`;
+    logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: secretReq.reason });
+    console.log(`BLOCKED: ${secretReq.reason}`);
+    process.exit(0);
+  }
+  if (task.withSecret) logEntry += `withSecret: ${task.withSecret}\nSecret resolved OK -- injected into the subprocess env, never the prompt.\n`;
+
   // getMandatorySuffix('codex'), not the flat MANDATORY_SUFFIX -- found
   // 2026-09-02 as a real bug (not caught by the regression suite, which
   // only exercises this via engine.dispatch()/run-task-generic.js, never
@@ -686,7 +749,7 @@ function main() {
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message <file> "<prompt above>"\n`;
 
-  const result = runCodex(prompt);
+  const result = runCodex(prompt, { envOverlay: secretReq.envOverlay });
 
   logEntry += `Exit code: ${result.exitCode}\n`;
   logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;
@@ -724,6 +787,7 @@ module.exports = {
   writeTaskResult,
   resolveDependency,
   resolveTaskDependencies,
+  resolveSecretRequirement,
   verifyOutput,
   runCodex,
   appendLog,

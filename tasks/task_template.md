@@ -23,6 +23,9 @@ recordFact: (optional -- a key; on a successful "done" dispatch whose
 dependsOnFact: (optional -- a key; looks up the most recently recorded
   fact for that key, by MEANING rather than by task_id. Combinable with
   dependsOnTaskId/Ids, not exclusive to them. See below.)
+withSecret: (optional -- a name; injects that value from
+  bus/secrets.local.json into the dispatched subprocess's environment
+  only, never into the prompt text. See "withSecret" below.)
 
 ## Which agent, and how to dispatch (updated 2026-09-01)
 
@@ -207,6 +210,43 @@ Inspect the store directly: `node bus/scripts/memory-query.js <key>`
 (latest), `--history` (every recording), `--list` (every known key).
 `bus-status.js` also reports a summary (key count, total recordings,
 most recent).
+
+## withSecret (added 2026-09-02, the credential/secrets broker,
+Phase 3 piece 4)
+
+The gap this closes: before this field existed, the only way to get a
+credential to a dispatched task was pasting it directly into `payload:`
+-- which puts it in plaintext in the task file, in the specialist's
+visible prompt, and permanently in `bus/log.md`'s "Sent (exact)" block.
+
+**`withSecret: <name>`** -- opt-in. Looks up `<name>` in
+`bus/secrets.local.json` (gitignored, flat `{"NAME": "value"}`, never
+committed -- see `bus/secrets.local.json.example` for the format) and
+injects it into the dispatched subprocess's OWN ENVIRONMENT only --
+never appended to, or visible in, the prompt text itself. Missing
+secret -> `blocked`, naming which one, same "never guess" discipline as
+every other gate in this pipeline. Unlike `dependsOnFact`, a
+secret-blocked task is NOT covered by the daemon's auto-retry: a
+missing local secret is a manual setup fact, not a pipeline dependency
+that resolves itself.
+
+The task's payload should ask the specialist to actually read the
+named environment variable via a real shell command (`echo $NAME` /
+`$env:NAME` / `%NAME%`), the same way any ordinary env-var lookup task
+would be phrased. Do not mention "secret" or "credential" in the
+payload, and do not frame it as a test/security exercise -- a prompt
+that reads like a request to disclose a secret will (correctly) get
+safety-refused by a specialist, found for real the first time this was
+tested live (see `run-verification-suite.js`'s `testLiveSecretsBroker()`
+comment for the full story). Ask for it the same way you'd ask for any
+other environment value and it works exactly as expected.
+
+**Redaction is automatic, not something a task author has to think
+about**: every currently-known secret value is scrubbed (replaced with
+`[REDACTED:<name>]`) from anything written to a task's `Result:` block
+or appended to `bus/log.md`, regardless of whether that specific task
+used `withSecret` -- a structural safety net (`redactSecrets()` in
+`bus/scripts/secrets-broker.js`), not a per-call-site responsibility.
 
 ## enrichWithSearch (added 2026-09-01, opt-in only)
 

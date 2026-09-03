@@ -68,7 +68,7 @@ function buildArgs(modeArgs, substitutions) {
 // ('readOnly' or 'write'). Returns { exitCode, output }. Does NOT do
 // dependency resolution, verification, or logging -- callers (typically
 // run-task-generic.js) own that, reusing run-task.js's shared exports.
-function dispatch(agentConfig, prompt, { mode, cwd }) {
+function dispatch(agentConfig, prompt, { mode, cwd, envOverlay }) {
   const modeConfig = agentConfig.modes[mode];
   if (!modeConfig) {
     throw new Error(`Agent "${agentConfig.id}" has no "${mode}" mode defined in its config`);
@@ -111,6 +111,14 @@ function dispatch(agentConfig, prompt, { mode, cwd }) {
   };
   if (agentConfig.isWindowsCmdWrapper) {
     execOptions.shell = true;
+  }
+  // envOverlay (the credential broker, Phase 3 piece 4, added
+  // 2026-09-02): merged into the subprocess's own env, never the
+  // prompt -- see run-task.js's resolveSecretRequirement(). Setting
+  // `env` at all replaces execFileSync's default full-inherit behavior,
+  // so process.env must be spread explicitly here.
+  if (envOverlay && Object.keys(envOverlay).length > 0) {
+    execOptions.env = { ...process.env, ...envOverlay };
   }
 
   let exitCode = 0;
@@ -180,9 +188,9 @@ function diffSnapshots(before, after) {
 // baked in, since every write-mode caller needs this and it's easy to
 // forget (see run-verification-suite.js's history: the first draft of
 // run-task-collab.js's suite integration forgot audit logging entirely).
-function dispatchWrite(agentConfig, prompt, { cwd }) {
+function dispatchWrite(agentConfig, prompt, { cwd, envOverlay }) {
   const before = snapshotVault(cwd);
-  const result = dispatch(agentConfig, prompt, { mode: 'write', cwd });
+  const result = dispatch(agentConfig, prompt, { mode: 'write', cwd, envOverlay });
   const after = snapshotVault(cwd);
   const diff = diffSnapshots(before, after);
   return { ...result, diff };

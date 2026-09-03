@@ -62,6 +62,7 @@ const {
   readTaskFile,
   writeTaskResult,
   resolveTaskDependencies,
+  resolveSecretRequirement,
   verifyOutput,
   appendLog,
   taskFilePath,
@@ -74,7 +75,7 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function runClaude(prompt) {
+function runClaude(prompt, { envOverlay } = {}) {
   // No shell:true -- claude.exe is a real executable (verified via `file`
   // before writing this), so execFileSync passes argv through cleanly
   // without cmd.exe's argument-mangling risk. Prompt via stdin, matching
@@ -83,11 +84,14 @@ function runClaude(prompt) {
   let exitCode = 0;
   let output = '';
   try {
-    output = execFileSync(
-      'claude',
-      ['-p', '--permission-mode', 'plan'],
-      { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, stdio: ['pipe', 'pipe', 'pipe'] }
-    );
+    const execOptions = { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, stdio: ['pipe', 'pipe', 'pipe'] };
+    // envOverlay (the credential broker, Phase 3 piece 4, added
+    // 2026-09-02): merged into the subprocess's own env, never the
+    // prompt -- see run-task.js's resolveSecretRequirement().
+    if (envOverlay && Object.keys(envOverlay).length > 0) {
+      execOptions.env = { ...process.env, ...envOverlay };
+    }
+    output = execFileSync('claude', ['-p', '--permission-mode', 'plan'], execOptions);
   } catch (err) {
     exitCode = (err && err.status) || 1;
     output = (err && err.stdout) || '';
@@ -129,12 +133,24 @@ function main() {
   }
   if (dep.logNote) logEntry += dep.logNote + '\n';
 
+  // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece 4).
+  const secretReq = resolveSecretRequirement(task);
+  if (!secretReq.ok) {
+    logEntry += `Secret resolution FAILED: ${secretReq.reason}\n`;
+    logEntry += `Task NOT dispatched to Claude. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: secretReq.reason });
+    console.log(`BLOCKED: ${secretReq.reason}`);
+    process.exit(0);
+  }
+  if (task.withSecret) logEntry += `withSecret: ${task.withSecret}\nSecret resolved OK -- injected into the subprocess env, never the prompt.\n`;
+
   const prompt = task.payload + dep.injectedContext + getMandatorySuffix('claude-agent');
 
   logEntry += `\nSent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: claude -p --permission-mode plan (stdin-piped) "<prompt above>"\n`;
 
-  const result = runClaude(prompt);
+  const result = runClaude(prompt, { envOverlay: secretReq.envOverlay });
 
   logEntry += `Exit code: ${result.exitCode}\n`;
   logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;

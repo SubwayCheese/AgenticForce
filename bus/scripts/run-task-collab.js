@@ -41,6 +41,7 @@ const crypto = require('crypto');
 const {
   readTaskFile,
   writeTaskResult,
+  resolveSecretRequirement,
   appendLog,
   taskFilePath,
 } = require('./run-task.js');
@@ -108,7 +109,7 @@ function diffSnapshots(before, after) {
   return { added, modified, removed };
 }
 
-function runCodexWrite(prompt) {
+function runCodexWrite(prompt, { envOverlay } = {}) {
   // Same stdin-piping rationale as run-task.js's runCodex(): argv mangles
   // multi-line/quoted prompts on Windows, stdin doesn't. --sandbox
   // workspace-write scopes writes to codex's working root, which defaults
@@ -127,6 +128,13 @@ function runCodexWrite(prompt) {
   );
   let exitCode = 0;
   try {
+    const execOptions = { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, shell: true, stdio: ['pipe', 'pipe', 'pipe'] };
+    // envOverlay (the credential broker, Phase 3 piece 4, added
+    // 2026-09-02): merged into the subprocess's own env, never the
+    // prompt -- see run-task.js's resolveSecretRequirement().
+    if (envOverlay && Object.keys(envOverlay).length > 0) {
+      execOptions.env = { ...process.env, ...envOverlay };
+    }
     execFileSync(
       'codex',
       [
@@ -135,7 +143,7 @@ function runCodexWrite(prompt) {
         '--skip-git-repo-check',
         '--output-last-message', tmpFile,
       ],
-      { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, shell: true, stdio: ['pipe', 'pipe', 'pipe'] }
+      execOptions
     );
   } catch (err) {
     exitCode = (err && err.status) || 1;
@@ -173,14 +181,27 @@ function main() {
     process.exit(1);
   }
 
+  let logEntry = `## ${taskId} (run-task-collab.js -- WRITE MODE)\n\n**${nowIso()} -- run-task-collab.js**\n`;
+
+  // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece 4).
+  const secretReq = resolveSecretRequirement(task);
+  if (!secretReq.ok) {
+    logEntry += `Secret resolution FAILED: ${secretReq.reason}\n`;
+    logEntry += `Task NOT dispatched to Codex. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: secretReq.reason });
+    console.log(`BLOCKED: ${secretReq.reason}`);
+    process.exit(0);
+  }
+  if (task.withSecret) logEntry += `withSecret: ${task.withSecret}\nSecret resolved OK -- injected into the subprocess env, never the prompt.\n`;
+
   const prompt = task.payload + MANDATORY_SUFFIX_COLLAB;
 
-  let logEntry = `## ${taskId} (run-task-collab.js -- WRITE MODE)\n\n**${nowIso()} -- run-task-collab.js**\n`;
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: codex exec --ephemeral --sandbox workspace-write --skip-git-repo-check --output-last-message <file> "<prompt above>" (cwd: ${VAULT_ROOT})\n`;
 
   const before = snapshotVault();
-  const result = runCodexWrite(prompt);
+  const result = runCodexWrite(prompt, { envOverlay: secretReq.envOverlay });
   const after = snapshotVault();
   const diff = diffSnapshots(before, after);
 

@@ -9,3 +9,4 @@ bus/queue-daemon.log
 # bus/log.md than to the disposable operational logs above.
 .graph/
 tasks/verification_suite/
+bus/secrets.local.json

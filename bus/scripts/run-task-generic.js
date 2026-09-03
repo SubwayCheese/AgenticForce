@@ -25,6 +25,7 @@ const {
   readTaskFile,
   writeTaskResult,
   resolveTaskDependencies,
+  resolveSecretRequirement,
   verifyOutput,
   appendLog,
   taskFilePath,
@@ -115,10 +116,24 @@ function main() {
       console.error(`Task "${taskId}" declares a dependency field -- write mode does not support dependency resolution. Use read-only mode (no --write) instead.`);
       process.exit(1);
     }
+    // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece
+    // 4) -- allowed in write mode too, unlike the dependency fields
+    // above: this is an env-injection concern, orthogonal to read/write.
+    const secretReq = resolveSecretRequirement(task);
+    if (!secretReq.ok) {
+      logEntry += `Secret resolution FAILED: ${secretReq.reason}\n`;
+      logEntry += `Task NOT dispatched. status -> blocked.\n`;
+      appendLog(logEntry);
+      writeTaskResult(taskId, { status: 'blocked', reason: secretReq.reason });
+      console.log(`BLOCKED: ${secretReq.reason}`);
+      process.exit(0);
+    }
+    if (task.withSecret) logEntry += `withSecret: ${task.withSecret}\nSecret resolved OK -- injected into the subprocess env, never the prompt.\n`;
+
     const prompt = task.payload;
     logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
 
-    const result = dispatchWrite(agentConfig, prompt, { cwd: VAULT_ROOT });
+    const result = dispatchWrite(agentConfig, prompt, { cwd: VAULT_ROOT, envOverlay: secretReq.envOverlay });
 
     logEntry += `Exit code: ${result.exitCode}\n`;
     logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;
@@ -159,6 +174,18 @@ function main() {
   if (dep.logNote) logEntry += dep.logNote + '\n';
   const injectedContext = dep.injectedContext;
 
+  // Added 2026-09-02 for the credential/secrets broker (Phase 3 piece 4).
+  const secretReq = resolveSecretRequirement(task);
+  if (!secretReq.ok) {
+    logEntry += `Secret resolution FAILED: ${secretReq.reason}\n`;
+    logEntry += `Task NOT dispatched. status -> blocked.\n`;
+    appendLog(logEntry);
+    writeTaskResult(taskId, { status: 'blocked', reason: secretReq.reason });
+    console.log(`BLOCKED: ${secretReq.reason}`);
+    process.exit(0);
+  }
+  if (task.withSecret) logEntry += `withSecret: ${task.withSecret}\nSecret resolved OK -- injected into the subprocess env, never the prompt.\n`;
+
   const searchEnrichment = buildSearchEnrichment(task);
   if (task.enrichWithSearch === 'true') {
     logEntry += searchEnrichment
@@ -175,7 +202,7 @@ function main() {
   logEntry += `Sent (exact):\n"""\n${prompt}\n"""\n`;
   logEntry += `Command: ${agentConfig.binary} ${agentConfig.modes.readOnly.args.join(' ')} (stdin-piped)\n`;
 
-  const result = dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT });
+  const result = dispatch(agentConfig, prompt, { mode: 'readOnly', cwd: VAULT_ROOT, envOverlay: secretReq.envOverlay });
 
   logEntry += `Exit code: ${result.exitCode}\n`;
   logEntry += `Received (exact):\n"""\n${result.output}\n"""\n`;

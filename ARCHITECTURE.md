@@ -716,7 +716,77 @@ behavior, not a bug. Isolated with a synthetic, non-file-reverifiable
 fact instead: **10/10 correct**. See section 6 for the full
 investigation.
 
-## 3i-b. Vault housekeeping: consolidating test/proof task files
+## 3j. Phase 3, piece 4: the credential/secrets broker (added 2026-09-02)
+
+The real, demonstrated gap, not a hypothetical one: before this piece,
+the only way to get a credential to a dispatched task would have been
+pasting it into `payload:` -- which puts it in plaintext in the task
+file, in the specialist's visible prompt, and permanently in
+`bus/log.md`'s "Sent (exact)" block, exactly like every other piece of
+prompt text this vault dispatches. No real external API/service
+integration exists yet that needs one (FMP/LunarCrush are handled
+entirely by claude.ai's own connector auth and never touch `/bus/`), so
+per the user's call this piece builds and proves the leak-prevention
+*mechanism*, tested synthetically with a fake secret, ready for whenever
+a real one is needed.
+
+**Storage**: `bus/secrets.local.json` (gitignored, flat
+`{"NAME": "value"}`), plus a committed `bus/secrets.local.json.example`
+template. New module `bus/scripts/secrets-broker.js` (parallel to
+`memory-store.js`, `vault-search.js`) exports `loadSecret(name)`,
+`loadAllSecrets()`, and `redactSecrets(text)` -- literal substring
+replacement (not regex -- safe against a secret containing regex-special
+characters) of every currently-loaded secret's value with
+`[REDACTED:<name>]`.
+
+**New task field `withSecret: <name>`** (opt-in; see `task_template.md`).
+`resolveSecretRequirement(task)` in `run-task.js` -> `{ ok, reason?,
+envOverlay }`, deliberately separate from `resolveTaskDependencies()`:
+this is about environment/access, not data flowing between tasks.
+Missing secret -> `blocked`, naming which one -- and deliberately never
+auto-retried by the daemon (a missing local secret is a manual setup
+fact, not a pipeline dependency that resolves itself, unlike
+`dependsOnFact`).
+
+**The secret is injected at the subprocess env level, never the
+prompt.** Every subprocess-spawning function (`runCodex()`,
+`runClaude()`, `dispatch()`/`dispatchWrite()` in `agent-engine.js`)
+gained an optional env-overlay parameter merged into its `execFileSync`
+call's `env` option. Each dispatch call site
+(`run-task.js`/`run-task-claude.js`/`run-task-generic.js` both modes/
+`run-task-collab.js`) resolves the requirement once and passes the
+overlay through -- the prompt text itself is completely untouched by
+this field.
+
+**Redaction is automatic and structural, not per-call-site.** Unlike
+env-injection (which genuinely needs multiple touch points, since
+subprocess spawning differs per script), the output side needs exactly
+one: `redactSecrets()` is called inside `appendLog()` and inside
+`writeTaskResult()`'s result-block construction -- both already the
+single shared functions every dispatch script calls to persist a
+result. Every log entry and every task file gets scrubbed of any
+currently-known secret value automatically, regardless of which script
+produced it or whether that task used a secret at all (a cheap no-op
+when it didn't).
+
+**A real finding from the first live run, not a hypothetical one**: the
+first version of the live test named the env var
+`SUITE_LIVE_SECRET_<RUN_ID>` and told the dispatched specialist "this is
+a deliberate credential-handling test." Codex safety-refused outright
+("I can't retrieve or disclose secret environment variables"), exitCode
+0, no crash -- a correct refusal to a prompt that reads exactly like a
+secret-exfiltration attempt, not a plumbing bug. Fixed by renaming the
+variable and dropping the "secret"/"credential test" framing from the
+prompt, asking for it the same neutral way any other live test in this
+suite asks for its task -- the underlying guarantee (real env injection,
+real redaction on every persisted write) was never in question, only
+the test's own honesty framing was wrong. Confirmed live, both halves:
+a real shell command in the dispatched subprocess actually printed the
+real value (proves injection), and neither the persisted task file nor
+`bus/log.md` ever contained it (proves the redaction net catches a real
+leak on the real write path, not a fabricated string).
+
+## 3k. Vault housekeeping: consolidating test/proof task files
 (added 2026-09-02)
 
 By this point `tasks/` had accumulated ~55 top-level task files plus
