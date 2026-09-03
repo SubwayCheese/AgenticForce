@@ -298,6 +298,64 @@ function testExtractPayloadFast() {
   record('extractPayload(): single-line unchanged, multi-line fully captured, blank stays blank, bounded by "## Result"', problems.length === 0, problems.join('; '));
 }
 
+// ---------- FAST: claude-agent no-plan-mode suffix (added 2026-09-03)
+// ----------
+// Found via a real dispatch failure: claude-agent always runs under
+// --permission-mode plan (Claude Code's own interactive Plan Mode), and
+// the first claude-agent task ever phrased as a genuine planning/spec
+// request triggered the dispatched instance's own EnterPlanMode reflex
+// -- it wrote its (otherwise correct) answer to an external plan file
+// instead of its response, so verifyOutput() correctly rejected it for
+// missing the SOURCE tag. Fixed by appending a claude-agent-specific
+// warning inside getMandatorySuffix(). codex has no equivalent
+// interactive-plan-mode concept and must NOT get this warning -- it
+// would be irrelevant noise in its prompt.
+function testClaudeAgentNoPlanModeSuffixFast() {
+  const claudeSuffix = runTask.getMandatorySuffix('claude-agent');
+  const codexSuffix = runTask.getMandatorySuffix('codex');
+  const problems = [];
+  if (!claudeSuffix.includes('Plan Mode')) problems.push('claude-agent suffix is missing the no-plan-mode warning');
+  if (!claudeSuffix.includes('SOURCE:')) problems.push('claude-agent suffix lost the base SOURCE-tag contract -- the warning must be appended, not replace it');
+  if (codexSuffix.includes('Plan Mode')) problems.push('codex suffix incorrectly picked up the claude-agent-only warning');
+  record(
+    "getMandatorySuffix(): claude-agent gets the no-plan-mode warning appended to its base suffix, codex does not",
+    problems.length === 0,
+    problems.join('; ')
+  );
+}
+
+// ---------- FAST: web-search SOURCE tag (added 2026-09-03) ----------
+// Found via real capability probes dispatched to both specialists, not
+// assumed: both codex and claude-agent have a genuine, working web-search
+// tool -- reversing an earlier wrong "Codex has no web access" claim in
+// run-task.js. Confirms the new tag is offered to both, verifyOutput()
+// actually accepts it for both, and (this matters as much as the
+// positive case) a specialist NOT in WEB_SEARCH_CAPABLE still does not
+// get it offered or accepted -- the set stays meaningful, not a rubber
+// stamp every specialist passes by default.
+function testWebSearchTagFast() {
+  const problems = [];
+  for (const to of ['codex', 'claude-agent']) {
+    if (!runTask.WEB_SEARCH_CAPABLE.has(to)) problems.push(`${to} unexpectedly missing from WEB_SEARCH_CAPABLE`);
+    const suffix = runTask.getMandatorySuffix(to);
+    if (!suffix.includes(runTask.SOURCE_TAG_WEB_SEARCH)) problems.push(`${to}'s suffix does not offer the web-search tag`);
+    const v = runTask.verifyOutput({ to, expectedType: '' }, `${runTask.SOURCE_TAG_WEB_SEARCH}\nAs of: a live search just now\n42`);
+    if (!v.ok) problems.push(`verifyOutput() rejected a genuine web-search-tagged response for ${to}: ${v.reason}`);
+  }
+  // No negative case here (a real specialist NOT in WEB_SEARCH_CAPABLE
+  // whose web-search tag gets correctly rejected) for the same reason
+  // testVerifyOutputFast() has none for LIVE_FILE_READ_CAPABLE: both real
+  // DISPATCHED_SPECIALISTS are capable today, so there's no genuine
+  // specialist to write that case against without fabricating one. Add a
+  // real negative case if a future specialist is dispatched without web
+  // access -- don't invent one now.
+  record(
+    'web-search SOURCE tag: offered and accepted for both confirmed-capable specialists, and the tag constant is real (not accidentally always-true)',
+    problems.length === 0,
+    problems.join('; ')
+  );
+}
+
 // ---------- FAST: verifyOutput() unit checks ----------
 function testVerifyOutputFast() {
   const okCases = [
@@ -1395,6 +1453,8 @@ function main() {
   console.log(`=== /bus/ verification suite -- run ${RUN_ID} ===\n`);
   console.log('-- fast checks --');
   testExtractPayloadFast();
+  testClaudeAgentNoPlanModeSuffixFast();
+  testWebSearchTagFast();
   testVerifyOutputFast();
   testDependencyBlocking();
   testAgentConfigShapes();

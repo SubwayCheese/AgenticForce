@@ -999,15 +999,25 @@ sitting in `tasks/` while running the verification suite -- the daemon
 test is not isolated from the live directory the way the suite's own
 fixtures (written under `tasks/verification_suite/<RUN_ID>/`) are.
 
-## 4. Two-tier data grounding
+## 4. Three-tier data grounding (revised 2026-09-03 -- see below)
 
-- **Verified-live:** numeric facts fetched directly by Claude via the
-  connected **Financial Modeling Prep (FMP) API** (income statements,
-  quotes, company data). Proven deterministic: 3 back-to-back calls for
-  the same fact returned byte-identical results. Only Claude can call this
-  (in-session) -- `run-task.js` and `codex exec` cannot reach it.
-- **Tagged recall:** everything Codex answers without a supplied verified
-  figure. Every such response is required to open with the exact line:
+- **Verified-live (highest trust):** numeric facts fetched directly by
+  Claude via the connected **Financial Modeling Prep (FMP) API** (income
+  statements, quotes, company data). Proven deterministic: 3 back-to-back
+  calls for the same fact returned byte-identical results. Only Claude
+  can call this (in-session) -- a structured, deterministic API, not a
+  free-text web search.
+- **Specialist web search (live, but noisy -- added 2026-09-03):** see
+  the finding below. A dispatched specialist actually reaching the live
+  internet, tagged `SOURCE: web search performed live in this pipeline,
+  not independently verified`. Genuinely live, unlike recall -- but not
+  the same trust tier as the row above: AI-summarized search results can
+  contain wrong or unconfirmed claims stated as fact (see the finding),
+  so this tier is an honest "here's a live lead," not "here's a verified
+  number."
+- **Tagged recall (lowest trust):** everything a specialist answers
+  without a supplied verified figure or a live lookup. Every such
+  response is required to open with the exact line:
 
   ```
   SOURCE: training-data recall, not verified live
@@ -1016,6 +1026,63 @@ fixtures (written under `tasks/verification_suite/<RUN_ID>/`) are.
   (or `SOURCE: supplied by orchestrator from a prior verified step` when
   fed a verified figure), followed by an explicit as-of date. Enforced by
   `run-task.js`'s mandatory prompt suffix, not by convention alone.
+
+**Finding, 2026-09-03: "Codex has no web access" was wrong, or had gone
+stale -- corrected via direct live tests, not assumed either way.** This
+file used to state flatly that Codex has no live web data source
+(checked once, months earlier, no search/fetch flag found in its CLI at
+the time). The user pushed back directly, having confirmed otherwise
+themselves. Rather than trusting either the old cached finding or the
+new claim on faith, both were tested live: a capability-probe task was
+dispatched to each specialist, instructing it to actually invoke a
+real web-search tool (not reason about what one might return) and
+report a checkable, current headline. **Both complied and both
+produced genuinely live results** -- Codex explicitly stated "I
+verified live via a web-search tool" and correctly refused to misuse
+any of the three SOURCE tags that existed at the time to describe it
+("No listed SOURCE tag is truthful here" -- its own words); claude-agent
+did the same. This is a real capability this vault didn't know it had,
+confirmed the same "dispatch it for real and check the evidence" way
+every other finding in this document was confirmed.
+
+**The same test also caught a real reliability problem worth recording
+as prominently as the capability itself**: the AI-summarized search
+digests both specialists received included a specific, plausible-
+sounding but unconfirmed claim (a named executive replacing Tim Cook as
+Apple's CEO). Both specialists caught this themselves and flagged it as
+likely-hallucinated summarizer output rather than repeating it as fact
+-- exactly the honesty discipline this vault has been building toward
+all day, working as intended on a capability that was still brand new
+in the same test. This is why the new tag is worded "not independently
+verified" rather than folded into the existing live-file-read tag's
+higher trust tier: a live web search is a real, live source, but not a
+verified one in the same sense as a local vault file or an FMP fetch.
+
+Fixed in `run-task.js`: a new `SOURCE_TAG_WEB_SEARCH` constant and
+`WEB_SEARCH_CAPABLE` set (currently `{codex, claude-agent}`, both
+confirmed the way `LIVE_FILE_READ_CAPABLE` requires -- kept as a
+separate set even though membership is identical today, since local
+file access and live internet access are genuinely different
+capabilities a future specialist could have independently). The
+previously-static `MANDATORY_SUFFIX_LIVE_READ_CAPABLE` array was
+replaced with `buildLiveCapableSuffix()`, which composes however many
+honest SOURCE-tag options are actually true for a given specialist (2,
+3, or 4 depending on which of the two live-grounding capability sets it
+belongs to) instead of a fixed table -- the same generalization
+`getStatusCounts()` made for status values, applied here for the same
+reason: a second capability arriving the same day a fixed pair of
+constants was written made the fixed-table approach obsolete
+immediately. `verifyOutput()`'s accepted-tag list picks up the new tag
+automatically for any specialist in `WEB_SEARCH_CAPABLE`.
+
+New fast check `testWebSearchTagFast()` confirms the tag is offered and
+accepted for both confirmed-capable specialists, and that the composed
+suffix still contains the base SOURCE-tag contract (not replaced by the
+new option). Verified live: both capability-probe tasks were re-run
+after the fix and both now pass verification cleanly with the correct
+new tag, still visibly cautious about what they couldn't confirm (Codex:
+a Yahoo Finance rate-limit blocked direct confirmation of the exact
+headline text, and it said so rather than papering over it).
 
 **Background research crew** (added 2026-08-31, single-cycle mode --
 NOT yet scheduled continuously, awaiting user sign-off on scope/

@@ -56,17 +56,27 @@ const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'log.md');
 // figures for different fiscal years, but nothing marked them as unverified
 // training-data recall vs a checked fact, so the drift looked like an
 // error rather than what it actually was: two different years, neither one
-// labeled. codex exec has no live WEB data source (confirmed: no web-
-// search/fetch flag in its CLI, and no evidence of one configured), so a
-// figure like this -- nothing in the local vault could supply it -- is,
-// by construction, training-data recall. This suffix is still exactly
-// right for that case. (Updated 2026-09-02: "no live data source" is no
-// longer accurate as a blanket claim, though -- Codex's read-only sandbox
-// turns out to allow real local file reads, confirmed via its own sandbox
-// audit log; see LIVE_FILE_READ_CAPABLE below and getMandatorySuffix(),
-// which give Codex a third, honest option for exactly that case instead
-// of forcing this one.) Real grounding (a verified figure from a live
-// data source) is a categorically different path -- see the
+// labeled. This suffix is still exactly right for the plain-recall case.
+// (Updated 2026-09-02: Codex's read-only sandbox turns out to allow real
+// local file reads, confirmed via its own sandbox audit log -- see
+// LIVE_FILE_READ_CAPABLE below. Updated again 2026-09-03, and this one
+// was a real correction, not just an addition: the claim right above this
+// paragraph used to say flatly "codex exec has no live WEB data source
+// (confirmed: no web-search/fetch flag in its CLI)". That was wrong, or
+// had gone stale -- re-tested live 2026-09-03 by dispatching a direct
+// capability probe, and Codex used a real web-search tool without being
+// told how, then explicitly refused to misuse any of the three tags that
+// existed at the time to describe it ("No listed SOURCE tag is truthful
+// here" -- its own words). claude-agent has the same real capability,
+// confirmed the same way. See WEB_SEARCH_CAPABLE below for the honest
+// tag this added, and the trust-tier reasoning next to it -- a live web
+// search is NOT the same reliability tier as a local file read or an
+// orchestrator-sourced fetch; the same test that confirmed the
+// capability also caught a likely-hallucinated claim in the search
+// results, which is exactly why this needed its own tag rather than
+// being folded into SOURCE_TAG_LIVE_FILE_READ.) Real grounding via the
+// orchestrator's own verified connector fetch (not a specialist's own
+// web search) is a categorically different, higher-trust path -- see the
 // "orchestrator-sourced" task pattern in task_template.md -- and never
 // flows through this function.
 const MANDATORY_SUFFIX = [
@@ -123,6 +133,28 @@ const LIVE_FILE_READ_CAPABLE = new Set(['claude-agent', 'codex']);
 const SOURCE_TAG_TRAINING_RECALL = 'SOURCE: training-data recall, not verified live';
 const SOURCE_TAG_ORCHESTRATOR_SUPPLIED = 'SOURCE: supplied by orchestrator from a prior verified step';
 const SOURCE_TAG_LIVE_FILE_READ = 'SOURCE: verified live via direct file read in this pipeline';
+// Added 2026-09-03, confirmed live, not assumed: both codex and
+// claude-agent, dispatched exactly as this vault already dispatches
+// them, have a real working web-search tool -- see the corrected note
+// on MANDATORY_SUFFIX above for the full story (this directly reversed
+// an earlier wrong "Codex has no web access" claim in this same file).
+// Deliberately worded "not independently verified", a visibly lower
+// trust tier than SOURCE_TAG_LIVE_FILE_READ or an orchestrator-sourced
+// fetch: the same capability-confirming test caught a likely-
+// hallucinated claim in the search results (an AI-summarized digest
+// asserting a specific executive change), which the dispatched
+// specialist itself flagged as unconfirmed rather than repeating as
+// fact -- exactly the behavior this tag's wording is meant to keep
+// reinforcing, not undercut by implying "web search" and "verified"
+// mean the same thing.
+const SOURCE_TAG_WEB_SEARCH = 'SOURCE: web search performed live in this pipeline, not independently verified';
+
+// See the note above SOURCE_TAG_WEB_SEARCH for how this was confirmed.
+// Kept as its own set, separate from LIVE_FILE_READ_CAPABLE, even though
+// membership is identical today -- local vault file access and reaching
+// the live internet are genuinely different capabilities, and a future
+// specialist could plausibly have one without the other.
+const WEB_SEARCH_CAPABLE = new Set(['claude-agent', 'codex']);
 
 // Added 2026-09-02, found via a real failure in the memory layer's own
 // live test (Phase 3 piece 3): a dependency's injected value can itself
@@ -185,38 +217,92 @@ function wrapInjectedValue(value) {
   );
 }
 
-// Same shape as MANDATORY_SUFFIX, but offers a third, honest SOURCE tag
-// instead of forcing a choice between two options that are both false
-// when the specialist actually opened a file. Only used for specialists
-// in LIVE_FILE_READ_CAPABLE.
-const MANDATORY_SUFFIX_LIVE_READ_CAPABLE = [
+// Same job as MANDATORY_SUFFIX, but offers whichever honest SOURCE tags
+// are actually true for this specialist's real capabilities, instead of
+// forcing a choice among options that might all be false. Composed, not
+// a fixed table -- added 2026-09-03 when a second live-grounding
+// capability (web search) needed the same treatment live-file-read
+// already got, and a fixed 3-line/4-line pair of constants would have
+// meant a third near-duplicate the next time this happens. A specialist
+// with only one of the two live-grounding capabilities (a real future
+// possibility, not just a hypothetical) gets an honest menu sized to
+// what's actually true for it, not an all-or-nothing table.
+function buildLiveCapableSuffix(to) {
+  const options = [
+    [SOURCE_TAG_TRAINING_RECALL, [
+      '(use this only if you answered from what you already know, without',
+      'opening any file in this vault or reaching the live internet to',
+      'check)',
+    ]],
+    [SOURCE_TAG_ORCHESTRATOR_SUPPLIED, [
+      '(use this only if a verified figure was explicitly supplied to you',
+      'earlier in this prompt from a prior pipeline step -- not for',
+      'anything you looked up yourself)',
+    ]],
+  ];
+  if (LIVE_FILE_READ_CAPABLE.has(to)) {
+    options.push([SOURCE_TAG_LIVE_FILE_READ, [
+      '(use this if you actually opened a file in this vault to answer --',
+      'whether via a native file-reading tool or a real shell command',
+      'like cat/Get-Content -- you retain that access, scoped to this',
+      'vault directory, even in this read-only dispatch. Name the exact',
+      'file path(s) you read on the next line.)',
+    ]]);
+  }
+  if (WEB_SEARCH_CAPABLE.has(to)) {
+    options.push([SOURCE_TAG_WEB_SEARCH, [
+      '(use this if you actually invoked a real web-search/fetch tool in',
+      'this dispatch. Web search results are noisy and can contain',
+      'AI-summarized or outright wrong content -- state exactly what you',
+      'searched for and what came back, and flag anything in the results',
+      'that looks unconfirmed or implausible instead of repeating it as',
+      'settled fact.)',
+    ]]);
+  }
+  const lines = [
+    '',
+    `Before answering, your response MUST start with exactly one of these`,
+    `${options.length} lines -- pick whichever is actually true for how you produced`,
+    'this specific answer. Do not default to the first one out of habit:',
+  ];
+  options.forEach(([tag, explain]) => {
+    lines.push('', tag, ...explain);
+  });
+  lines.push(
+    '',
+    'On the line after your SOURCE tag, state the as-of date/period your',
+    'answer is anchored to (your training cutoff, the file(s) you',
+    'actually read, or what you searched for -- not just "current"). If',
+    "anything about this request's premise looks wrong, outdated, or",
+    'unanswerable, say so plainly right after the SOURCE/as-of lines',
+    'instead of answering around it.'
+  );
+  return lines.join('\n');
+}
+
+// Added 2026-09-03, found via a real dispatch failure, not a
+// hypothetical one: every claude-agent dispatch (both run-task-claude.js
+// and agent-engine.js's claude-agent.json config) uses `--permission-mode
+// plan` -- Claude Code's own interactive Plan Mode, not just a file-write
+// restriction. The first claude-agent task ever phrased as a genuine
+// planning/spec request (every earlier one was a direct Q&A shape)
+// triggered the dispatched instance's own EnterPlanMode reflex: instead
+// of answering in its response, it wrote the (genuinely excellent, fully
+// correct) answer to an external ~/.claude/plans/ file completely outside
+// this pipeline's tracking, then reported it couldn't call ExitPlanMode
+// in headless mode -- so verifyOutput() correctly rejected it (no SOURCE
+// tag in the actual response) even though the underlying work was fine.
+// codex has no equivalent interactive-plan-mode concept, so this is
+// claude-agent-specific, not folded into the shared suffix both
+// specialists get.
+const CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX = [
   '',
-  'Before answering, your response MUST start with exactly one of these',
-  'three lines -- pick whichever is actually true for how you produced',
-  'this specific answer. Do not default to the first one out of habit:',
-  '',
-  SOURCE_TAG_TRAINING_RECALL,
-  '(use this only if you answered from what you already know, without',
-  'opening any file in this vault to check)',
-  '',
-  SOURCE_TAG_ORCHESTRATOR_SUPPLIED,
-  '(use this only if a verified figure was explicitly supplied to you',
-  'earlier in this prompt from a prior pipeline step -- not for anything',
-  'you looked up yourself)',
-  '',
-  SOURCE_TAG_LIVE_FILE_READ,
-  '(use this if you actually opened a file in this vault to answer --',
-  'whether via a native file-reading tool or a real shell command like',
-  'cat/Get-Content -- you retain that access, scoped to this vault',
-  'directory, even in this read-only dispatch. Name the exact file',
-  'path(s) you read on the next line.)',
-  '',
-  'On the line after your SOURCE tag, state the as-of date/period your',
-  'answer is anchored to (your training cutoff, or the file(s) you',
-  'actually read -- not just "current"). If anything about this',
-  "request's premise looks wrong, outdated, or unanswerable, say so",
-  'plainly right after the SOURCE/as-of lines instead of answering',
-  'around it.',
+  'This dispatch is headless -- no human is present to review or approve',
+  'a plan. Do NOT use your own interactive Plan Mode workflow',
+  '(EnterPlanMode, or writing your answer to a plan file) for this',
+  'request, even if it asks you to "produce a plan/spec/design." Write',
+  'the complete answer directly in this response, in full, right now --',
+  'this response IS the deliverable, not a proposal to be approved later.',
 ].join('\n');
 
 // Picks the right suffix for a given `to:` value. Every dispatch call
@@ -225,7 +311,9 @@ const MANDATORY_SUFFIX_LIVE_READ_CAPABLE = [
 // this rather than hardcoding MANDATORY_SUFFIX, so a specialist's honesty
 // contract is decided in exactly one place.
 function getMandatorySuffix(to) {
-  return LIVE_FILE_READ_CAPABLE.has(to) ? MANDATORY_SUFFIX_LIVE_READ_CAPABLE : MANDATORY_SUFFIX;
+  const isLiveCapable = LIVE_FILE_READ_CAPABLE.has(to) || WEB_SEARCH_CAPABLE.has(to);
+  const base = isLiveCapable ? buildLiveCapableSuffix(to) : MANDATORY_SUFFIX;
+  return to === 'claude-agent' ? base + '\n' + CLAUDE_AGENT_NO_PLAN_MODE_SUFFIX : base;
 }
 
 function nowIso() {
@@ -475,6 +563,9 @@ function verifyOutput(task, output) {
     // two-tag set until it's verified the same rigorous way.
     const acceptedTags = [SOURCE_TAG_TRAINING_RECALL, SOURCE_TAG_ORCHESTRATOR_SUPPLIED];
     if (LIVE_FILE_READ_CAPABLE.has(task.to)) acceptedTags.push(SOURCE_TAG_LIVE_FILE_READ);
+    // Added 2026-09-03 alongside WEB_SEARCH_CAPABLE -- see run-task.js's
+    // top-of-file notes for how this was confirmed live.
+    if (WEB_SEARCH_CAPABLE.has(task.to)) acceptedTags.push(SOURCE_TAG_WEB_SEARCH);
     const hasSourceTag = acceptedTags.some((tag) => text.includes(tag));
     if (!hasSourceTag) {
       return { ok: false, reason: `missing the mandatory SOURCE tag -- none of the ${acceptedTags.length} accepted variant(s) for "${task.to}" found in the response` };
@@ -816,8 +907,9 @@ module.exports = {
   listPendingTaskIds,
   listTaskIdsByStatus,
   MANDATORY_SUFFIX,
-  MANDATORY_SUFFIX_LIVE_READ_CAPABLE,
   LIVE_FILE_READ_CAPABLE,
+  WEB_SEARCH_CAPABLE,
+  SOURCE_TAG_WEB_SEARCH,
   getMandatorySuffix,
   TASKS_DIR,
   extractPayload,
