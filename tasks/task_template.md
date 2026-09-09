@@ -324,6 +324,17 @@ autonomous): `run-task-collab.js <task_id>` (Codex) or
 `run-task-generic.js <task_id> --write` (either agent, config-driven).
 Does not support `dependsOnTaskId`. See `ARCHITECTURE.md` sections 3a/3d.
 
+**Narrow autonomous exception, added 2026-09-09:** two specific scripts --
+`execute-portfolio-setup.js --auto` and `monitor-paper-trades.js
+--execute` -- are authorized to run unattended, on a schedule, but ONLY
+against the Alpaca PAPER account (see `alpaca-client.js`'s hard-coded
+`paper-api.alpaca.markets` guard) and ONLY via
+`bus/scripts/pilot-supervisor.js`. Full design in `ARCHITECTURE.md`
+section 9. This does not change the rule above for anything else in
+`/bus/`, does not authorize new write-mode task dispatch, and does not
+apply to real-money trading -- that stays a separate, deliberate,
+human-made decision.
+
 ## Orchestrator-sourced tasks (real grounding, added 2026-08-31)
 
 For a verifiable numeric fact (revenue, price, filing date, etc.), prefer

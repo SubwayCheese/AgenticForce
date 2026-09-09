@@ -1731,10 +1731,15 @@ still holds as a hard boundary:
   isn't `paper-api.alpaca.markets`; there is no "live mode" flag
   anywhere in this codebase to flip. Graduating to a real account is an
   explicit, separate, later decision -- not a config change.
-- **No autonomous position sizing.** `submitOrder()` always requires an
-  explicit `qty` argument; nothing in this pipeline computes how many
-  shares to trade. Every quantity used so far has been a human-chosen
-  placeholder, not a designed sizing formula.
+- **No autonomous position sizing formula.** `submitOrder()` always
+  requires an explicit `qty`/`notional` argument. As of section 9's
+  unattended pilot (2026-09-09), the `--auto` execution path uses two
+  fixed constants (`AUTO_EQUITY_QTY_PER_LEG`, `AUTO_CRYPTO_NOTIONAL_PER_LEG`
+  in `execute-portfolio-setup.js`) rather than a per-run human choice --
+  this is still not a sizing FORMULA (nothing computes a size from
+  volatility, conviction, or account equity), and those two constants
+  themselves require an explicit one-time human sign-off before `--auto`
+  is ever run on a live schedule (see section 9).
 - **No real-money autonomous execution with no per-trade human
   approval**, even paper-proven, even framed as small/acceptable-loss
   training -- see the standing boundary in
@@ -1750,6 +1755,98 @@ still holds as a hard boundary:
   approved setups on the paper account after that output lands. The
   disclaimer describes the research/synthesis layer's own authority,
   not whether a downstream script exists.
+
+## 9. 24/7 unattended paper-trading pilot (added 2026-09-09)
+
+**Scope, stated once, applies to everything below:** PAPER-TRADING ONLY,
+transitively guaranteed by `alpaca-client.js`'s `paper-api.alpaca.markets`
+guard (section above). This section documents how the equity and crypto
+pilots run without a human generating task files, executing approved
+candidates, or checking exits by hand each day -- not a change to
+whether real money is ever involved (it isn't).
+
+**Why this was needed:** every prior cycle (`fleet_pilot_*`,
+`crypto_pilot_*`) required a human to hand-author each round's task
+files, then hand-run `execute-portfolio-setup.js <taskId>` and
+`monitor-paper-trades.js --execute`. `bus/scripts/run-queue-daemon.js`
+already dispatches/chains any `status: pending` file it finds with zero
+human input -- the actual gap was authorship, not dispatch.
+
+**New pieces:**
+- `bus/scripts/generate-pilot-tasks.js` -- authors each day's
+  `status: pending` thesis/challenge/synthesis task files, reusing
+  `fleet-status.js`/`crypto-status.js`'s own `discoverRound3Versions()`/
+  `parseRound3Output()` for both naming-convention correctness and the
+  self-improvement loop below. Every generated task is `to: codex`,
+  never `to: claude-agent` -- confirmed real incidents in `bus/log.md`
+  (two session-limit hits during `fleet_pilot_20260903` round-1
+  dispatch) were both on `claude-agent`, which shares this interactive
+  session's own usage pool; Codex does not.
+- **Self-improvement loop, now real**: `getPriorLearnings()` reads the
+  most recent prior cycle's round-3 `keyLearnings` and injects it into
+  every new round-1 task as an explicit "Prior learnings" section --
+  verified live against real committed data (2026-09-08's crypto and
+  fleet cycles both produced non-empty `keyLearnings`, both read back
+  correctly). Previously this only ever happened when a human manually
+  copied yesterday's learnings into today's prompt.
+- **The one real credential gap**: every prior data-snapshot step used
+  the FMP MCP connector, only callable from an interactive Claude
+  session. `bus/scripts/fmp-client.js` calls FMP's REST API directly
+  instead, but `FMP_API_KEY` does not exist yet in
+  `bus/secrets.local.json` -- confirmed by a direct `secrets-broker.js`
+  read. Until it's added, `generateDataSnapshotTasks()` degrades
+  gracefully: it sends an ntfy alert and generates nothing further for
+  that pilot that day, rather than fabricating data. `computeScreenScore()`
+  (the confirmed 50%/30%/20% momentum/liquidity/scale formula from
+  section 3q) is real and ready the moment the key exists.
+- `bus/scripts/pilot-supervisor.js` -- the coarse "is today's cycle due"
+  decision, meant to run every 30 min via Task Scheduler. Equity gates on
+  Alpaca's own `/v2/clock` (no hand-rolled holiday calendar) plus
+  10:00 ET; crypto gates on 02:00 UTC daily, deliberately offset from
+  equity's dispatch window so load never stacks. Each pilot generates at
+  most once/day (`todayCycleExists()`), then calls
+  `execute-portfolio-setup.js --auto --pilot=<x>` and
+  `monitor-paper-trades.js --execute` unconditionally every wake (both
+  cheap no-ops when there's nothing new to do).
+- **`execute-portfolio-setup.js` extended, not replaced**: new
+  `--auto --pilot=fleet|crypto` path (auto-discovers the latest
+  `status: done`, not-yet-executed round-3 task); a real idempotency
+  guard (`alreadyExecuted()`, checks `paper-trades.jsonl` before every
+  order -- applies to the manual path too, a genuine gap fixed
+  regardless of autonomy); and two sizing constants,
+  `AUTO_EQUITY_QTY_PER_LEG = 10` / `AUTO_CRYPTO_NOTIONAL_PER_LEG = 50`,
+  used only on `--auto`, matching today's existing manual scale.
+  **These two numbers need your explicit one-time sign-off before
+  `--auto` is ever run on a live schedule** -- confirm them or give
+  different ones.
+- `run-queue-daemon.js`'s `dispatchOne()` gained real backoff: a
+  rate-limit-shaped failure (429/quota/session-limit text) now requeues
+  after 15 minutes (up to 3 attempts) instead of being logged and
+  dropped, with an ntfy alert once retries are exhausted.
+- Policy: `tasks/task_template.md`'s "never autonomous" line for
+  write-enabled dispatch stays true in general; a narrow, named exception
+  was added immediately below it covering exactly these two scripts.
+
+**Host, not yet registered**: two separate Task Scheduler jobs are the
+plan (`TradingPilotQueueDaemon` running `run-queue-daemon.js` at startup,
+`TradingPilotSupervisor` running `pilot-supervisor.js` every 30 min, both
+"run whether user is logged on or not" -- deliberately not the "logon
+only" mode `AgentCommsBackbone` uses, since that wouldn't survive nobody
+being logged in). Not registered yet -- gated on the FMP key above and a
+supervised end-to-end dry run first.
+
+**Verified so far (2026-09-09, this build)**: `computeScreenScore()`
+ranks correctly against synthetic data; `generateThesisTask()`/
+`generateChallengeTask()`/`generateSynthesisTask()` produce real task
+files matching `discoverRound3Versions()`'s naming regex exactly (tested
+live against a throwaway future-dated cycle, then removed); prior-cycle
+`keyLearnings` read back correctly for both pilots against real
+2026-09-08 data; `pilot-supervisor.js`'s market-clock and
+`todayCycleExists()` gating both behave correctly against live state.
+**Not yet verified**: a full generated cycle actually dispatched
+end-to-end by `run-queue-daemon.js` (blocked on the FMP key), the
+idempotency guard against a real duplicate execution attempt, and the
+rate-limit requeue path against a real 429.
 
 ## Related Notes
 
