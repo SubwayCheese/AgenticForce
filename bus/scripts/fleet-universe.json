@@ -1,0 +1,10 @@
+{
+  "_comment": "The 50-symbol equity screening universe, seeded 2026-09-09 from the real symbol set used in fleet_pilot_20260908_universe50_consolidation.md. Membership is stable day-to-day (a human/Claude call, not a formula); computeScreenScore() in generate-pilot-tasks.js re-ranks this same set fresh against live data every cycle. Edit this list by hand to add/remove candidates -- nothing re-derives it automatically.",
+  "symbols": [
+    "INTC", "NVDA", "AMD", "TSLA", "AAPL", "MSFT", "GOOGL", "AMZN", "AVGO", "QCOM",
+    "ORCL", "BAC", "JPM", "META", "JNJ", "CSCO", "KO", "VZ", "CAT", "CVX",
+    "V", "LLY", "HD", "WMT", "PEP", "UNH", "GE", "NKE", "MS", "PFE",
+    "NFLX", "COP", "XOM", "MCD", "BA", "GS", "PG", "DIS", "MRK", "SCHW",
+    "COST", "HON", "WFC", "TMO", "ABT", "MA", "ABBV", "SBUX", "CRM", "ADBE"
+  ]
+}

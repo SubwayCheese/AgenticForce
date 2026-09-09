@@ -80,6 +80,22 @@ const queue = [];
 let processing = false;
 let lastActivityAt = Date.now();
 
+// Rate-limit backoff, added for the 24/7 unattended pilot (ARCHITECTURE.md
+// section 9) -- real incidents confirmed in bus/log.md (session-limit hits
+// on claude-agent dispatches), and until now dispatchOne() just logged a
+// failure and dropped the task on the floor, no retry of any kind. Scoped
+// to rate-limit-SHAPED failures only (real logic/verification failures
+// should NOT be silently retried) and capped at 3 attempts per taskId per
+// process lifetime, so a persistently broken task can't loop forever.
+const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000; // 15 min
+const MAX_RATE_LIMIT_RETRIES = 3;
+const rateLimitRetryCounts = new Map();
+
+function isRateLimitError(text) {
+  const t = String(text || '').toLowerCase();
+  return /\b429\b/.test(t) || t.includes('rate limit') || t.includes('quota') || t.includes('resets ') || t.includes('session limit');
+}
+
 function resetBlockedToPending(taskId) {
   const p = taskFilePath(taskId);
   const text = fs.readFileSync(p, 'utf8').replace(/^status:\s*.*$/m, 'status: pending');
@@ -94,6 +110,28 @@ function dispatchOne(taskId) {
     out = execFileSync('node', [RUN_TASK_GENERIC, taskId], { cwd: VAULT_ROOT, encoding: 'utf8' });
   } catch (err) {
     out = (err && err.stdout) || '';
+    const failureText = `${err.message}\n${out}`;
+    if (isRateLimitError(failureText)) {
+      const attempts = (rateLimitRetryCounts.get(taskId) || 0) + 1;
+      rateLimitRetryCounts.set(taskId, attempts);
+      if (attempts <= MAX_RATE_LIMIT_RETRIES) {
+        log(`${taskId}: rate-limit-shaped failure (attempt ${attempts}/${MAX_RATE_LIMIT_RETRIES}) -- requeueing in ${RATE_LIMIT_BACKOFF_MS / 60000} min instead of dropping.`);
+        setTimeout(() => {
+          resetBlockedToPending(taskId); // no-op if already pending; safe either way
+          queuedOrProcessing.add(taskId);
+          queue.push(taskId);
+          processQueue();
+        }, RATE_LIMIT_BACKOFF_MS);
+        return;
+      }
+      log(`${taskId}: rate-limit-shaped failure, exhausted ${MAX_RATE_LIMIT_RETRIES} retries -- giving up, alerting.`);
+      sendNtfy({
+        title: `${taskId}: dispatch retries exhausted`,
+        message: `run-queue-daemon.js gave up on ${taskId} after ${MAX_RATE_LIMIT_RETRIES} rate-limit-shaped failures. Last error: ${err.message.split('\n')[0]}`,
+        priority: 4,
+      }).catch(() => {});
+      return;
+    }
     log(`${taskId}: run-task-generic.js exited non-zero -- ${err.message.split('\n')[0]}${out ? ` -- stdout: ${out.trim().split('\n').pop()}` : ''}`);
     return;
   }

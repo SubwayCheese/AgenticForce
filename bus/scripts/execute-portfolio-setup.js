@@ -28,12 +28,62 @@ const fs = require('fs');
 const path = require('path');
 const alpaca = require('./alpaca-client.js');
 const cryptoSymbols = require('./crypto-symbols.js');
+const fleetStatus = require('./fleet-status.js');
+const cryptoStatus = require('./crypto-status.js');
+const runTask = require('./run-task.js');
 
 const VAULT_ROOT = path.join(__dirname, '..', '..');
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
 
+// Sizing used ONLY on the --auto path (pilot-supervisor.js's unattended
+// runs). Proposed, matching today's existing scale -- see ARCHITECTURE.md
+// section 9: these numbers need your one-time confirmation before --auto
+// is ever registered on a schedule. The manual <taskId> path below is
+// completely unaffected and keeps its existing fail-loud/10-share-default
+// behavior.
+const AUTO_EQUITY_QTY_PER_LEG = 10; // shares/leg, matches today's silent default
+const AUTO_CRYPTO_NOTIONAL_PER_LEG = 50; // dollars/leg, matches the 2026-09-08 mechanism-test scale
+
 function appendLog(record) {
   fs.appendFileSync(LOG_PATH, JSON.stringify(record) + '\n');
+}
+
+function readTradeLog() {
+  if (!fs.existsSync(LOG_PATH)) return [];
+  return fs.readFileSync(LOG_PATH, 'utf8').split('\n').filter((l) => l.trim()).map((l) => {
+    try { return JSON.parse(l); } catch (_) { return null; }
+  }).filter(Boolean);
+}
+
+// Real gap fixed here regardless of autonomy: nothing previously checked
+// whether a candidate had already been executed before placing a new
+// order, so re-running this script twice against the same round-3 task
+// would double-enter positions. Applies to BOTH the manual and --auto
+// paths.
+function alreadyExecuted(sourceTask, symbol) {
+  const entries = readTradeLog();
+  return entries.some((r) => r.type === 'research-driven-entry' && r.sourceTask === sourceTask && r.symbol === symbol);
+}
+
+// Finds the latest status:done round-3 task for a pilot that hasn't been
+// executed yet (no research-driven-entry log rows referencing it at all).
+// Reuses the same discovery functions the dashboards already trust.
+function findLatestUnexecutedRound3(pilot) {
+  const status = pilot === 'crypto' ? cryptoStatus : fleetStatus;
+  const findDate = pilot === 'crypto' ? status.findLatestCryptoPipelineDate : status.findLatestPipelineDate;
+  const date = findDate();
+  if (!date) return null;
+  const versions = status.discoverRound3Versions(date);
+  if (!versions.length) return null;
+  const latest = versions[versions.length - 1];
+  const task = runTask.readTaskFile(latest.taskId);
+  if (!task || task.status !== 'done' || !task.output) return null;
+
+  const entries = readTradeLog();
+  const alreadyRun = entries.some((r) => r.sourceTask === latest.taskId);
+  if (alreadyRun) return null; // today's cycle already executed -- --auto is safe to call every supervisor wake
+
+  return latest.taskId;
 }
 
 function extractApprovedCandidates(taskId) {
@@ -70,6 +120,11 @@ async function executeOne(candidate, sourceTask, sizing) {
   const isCrypto = cryptoSymbols.isCryptoSymbol(symbol);
   const sizeLabel = sizing.qty != null ? `${sizing.qty}sh` : `$${sizing.notional} notional`;
   console.log(`\n=== ${symbol} (${direction}) ===`);
+
+  if (alreadyExecuted(sourceTask, symbol)) {
+    console.log(`  SKIPPED: ${sourceTask}::${symbol} already has a research-driven-entry in paper-trades.jsonl -- not re-entering.`);
+    return;
+  }
 
   console.log(`Submitting entry: ${direction} ${sizeLabel} market...`);
   // Crypto rejects "day" (equity-only value, confirmed live: 422 "invalid
@@ -159,15 +214,7 @@ async function executeOne(candidate, sourceTask, sizing) {
   });
 }
 
-async function main() {
-  const taskId = process.argv[2];
-  if (!taskId) {
-    console.error('Usage: node execute-portfolio-setup.js <taskId> [qtyPerLeg] [--notionalPerLeg=<dollars>]');
-    process.exit(1);
-  }
-  const notionalArg = process.argv.find((a) => a.startsWith('--notionalPerLeg='));
-  const notionalPerLeg = notionalArg ? Number(notionalArg.split('=')[1]) : null;
-  const qtyPerLeg = Number(process.argv[3]) || null; // if not given, uses a fixed placeholder qty (equities only) below
+async function runForTask(taskId, notionalPerLeg, qtyPerLeg) {
   const candidates = extractApprovedCandidates(taskId);
   console.log(`Found ${candidates.length} approved candidate(s) in ${taskId}.`);
 
@@ -175,24 +222,53 @@ async function main() {
     const symbol = candidate.conditionalSetup.symbol;
     const isCrypto = cryptoSymbols.isCryptoSymbol(symbol);
     if (isCrypto) {
-      // No default dollar amount is invented for crypto -- position sizing
-      // is explicitly the human operator's call (same boundary as equity
-      // qtyPerLeg), and a wrong guess here is real money-shaped, even in
-      // paper: fail loudly rather than silently pick a number.
+      // No default dollar amount is invented for crypto on the MANUAL
+      // path -- position sizing is explicitly the human operator's call,
+      // and a wrong guess here is real money-shaped, even in paper: fail
+      // loudly rather than silently pick a number. (--auto uses the
+      // AUTO_CRYPTO_NOTIONAL_PER_LEG constant instead -- see main().)
       if (!notionalPerLeg) {
         console.error(`FAILED: ${symbol} is a crypto candidate but no --notionalPerLeg=<dollars> was supplied. Crypto positions size by dollar notional, not share qty -- pass e.g. --notionalPerLeg=50.`);
         process.exit(1);
       }
       await executeOne(candidate, taskId, { notional: notionalPerLeg });
     } else {
-      // Position sizing remains explicitly out of scope for this pipeline's
-      // own logic (see ARCHITECTURE.md) -- qtyPerLeg is either passed in by
-      // the human operator, or this falls back to a fixed small placeholder
-      // qty (10 shares) rather than inventing a sizing formula.
       const qty = qtyPerLeg || 10;
       await executeOne(candidate, taskId, { qty });
     }
   }
+}
+
+async function main() {
+  const isAuto = process.argv.includes('--auto');
+
+  if (isAuto) {
+    const pilotArg = process.argv.find((a) => a.startsWith('--pilot='));
+    const pilot = pilotArg ? pilotArg.split('=')[1] : null;
+    if (pilot !== 'fleet' && pilot !== 'crypto') {
+      console.error('Usage: node execute-portfolio-setup.js --auto --pilot=fleet|crypto');
+      process.exit(1);
+    }
+    const taskId = findLatestUnexecutedRound3(pilot);
+    if (!taskId) {
+      console.log(`[--auto] No unexecuted status:done round-3 task found for ${pilot} -- nothing to do.`);
+      return;
+    }
+    console.log(`[--auto] Executing ${taskId} (${pilot}) with AUTO_${pilot === 'crypto' ? 'CRYPTO_NOTIONAL' : 'EQUITY_QTY'}_PER_LEG.`);
+    await runForTask(taskId, AUTO_CRYPTO_NOTIONAL_PER_LEG, AUTO_EQUITY_QTY_PER_LEG);
+    console.log('\nDone.');
+    return;
+  }
+
+  const taskId = process.argv[2];
+  if (!taskId) {
+    console.error('Usage: node execute-portfolio-setup.js <taskId> [qtyPerLeg] [--notionalPerLeg=<dollars>]\n   or: node execute-portfolio-setup.js --auto --pilot=fleet|crypto');
+    process.exit(1);
+  }
+  const notionalArg = process.argv.find((a) => a.startsWith('--notionalPerLeg='));
+  const notionalPerLeg = notionalArg ? Number(notionalArg.split('=')[1]) : null;
+  const qtyPerLeg = Number(process.argv[3]) || null;
+  await runForTask(taskId, notionalPerLeg, qtyPerLeg);
   console.log('\nDone.');
 }
 
