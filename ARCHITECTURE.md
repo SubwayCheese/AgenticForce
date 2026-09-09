@@ -1649,172 +1649,71 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 6. Known open items
 
-- [x] ~~A dependency value's own embedded SOURCE/as-of preamble, when
-      well-formed, can look exactly like a complete valid response --
-      a specialist sometimes copies the whole quoted block verbatim
-      (its embedded SOURCE tag included) instead of stating its own
-      honest "supplied by orchestrator" tag~~ -- **closed 2026-09-02,
-      re-diagnosed the same day it was found.** First measured at 4-6/10
-      across two `wrapInjectedValue()` iterations (a trailing warning,
-      then a leading+delimited warning, then blockquote-prefixing every
-      line) and left open as "a real, substantial improvement, not a
-      complete fix." Investigated further at the user's request: a clean
-      10-rep probe (a real script, not shell-escaped `node -e`, which
-      had quietly corrupted earlier manual reps) revealed the actual
-      mechanism was NOT injection confusion at all in most failures --
-      the test's own fact value happened to be file-derived
-      (`roles/antigravity_role.md`), and claude-agent, which retains real
-      Read/Grep/Glob access, was **honestly re-reading the live file
-      itself** rather than trusting the supplied value, then correctly
-      tagging that as `SOURCE: verified live via direct file read`. Not
-      a bug -- exactly the behavior the SOURCE-tag system exists to
-      encourage (verify when you honestly can, don't just trust). It
-      just meant the test was measuring "does the model prefer live
-      verification when trivially available" rather than "does
-      `dependsOnFact` actually inject and get used correctly." Re-tested
-      with a synthetic, non-file-reverifiable numeric fact (nothing in
-      the vault to independently re-derive it from) -- **10/10 correct**
-      with `wrapInjectedValue()`'s existing fix. `testLiveMemoryLayer` in
-      `run-verification-suite.js` rewritten to use this design. The
-      earlier low numbers were real, but they were measuring a
-      different, non-broken thing conflated with the actual mechanism --
-      worth remembering as a lesson on isolating what a live test
-      actually exercises before trusting its pass rate as the metric.
-- [x] ~~`MANDATORY_SUFFIX`'s claim "you have no live data lookup... this is
-      true for every response you give in this pipeline" is not actually
-      true for the Claude specialist~~ -- **closed 2026-09-02.** Found
-      2026-09-01 while testing opt-in search enrichment (section 3e).
-      Fixed via `getMandatorySuffix(to)` + `LIVE_FILE_READ_CAPABLE` (see
-      section 3e's 2026-09-02 update for the full design). Whether
-      Codex's `--sandbox read-only` has the same read-but-not-write
-      property remains untested -- deliberately NOT added to
-      `LIVE_FILE_READ_CAPABLE` without that verification, tracked as its
-      own new open item directly below.
-- [x] ~~Whether Codex's `--sandbox read-only` invocation actually has the
-      same read-but-not-write property Claude's `--permission-mode plan`
-      does~~ -- **closed 2026-09-02, same day.** Tested directly: dispatched
-      `tasks/verify_codex_live_read.md`, instructing Codex to
-      `Get-Content` a live vault file (`roles/antigravity_role.md`) via a
-      real shell command. It returned the correct content (vault-specific
-      text -- "Antigravity" -- with no plausible training-data-recall
-      explanation), but still opened with "SOURCE: training-data recall,
-      not verified live," simply parroting the then-blanket suffix rather
-      than catching the contradiction the way Claude did. Codex's
-      self-report was NOT trusted alone -- cross-checked against
-      `~/.codex/.sandbox/sandbox.*.log`, which recorded the literal
-      `Get-Content -LiteralPath 'roles/antigravity_role.md'` PowerShell
-      call actually executing at the matching timestamp, with no
-      denial/error logged around it. Confirmed: yes, same property.
-      `codex` added to `LIVE_FILE_READ_CAPABLE` alongside `claude-agent`;
-      `MANDATORY_SUFFIX`'s old blanket claim now has no real dispatched
-      specialist it's actually true for (it remains `getMandatorySuffix()`'s
-      default for a future specialist without local file access, not
-      deleted).
+*(Trimmed 2026-09-09 -- resolved items collapsed to one line each; the
+full forensic narrative for each was archived in git history, not lost.
+Only genuinely open items keep full detail below.)*
 
-      **A second real bug found immediately after, re-verifying this
-      fix**: `tasks/verify_codex_live_read2.md` re-ran the same live-read
-      test expecting the new three-way tag -- and Codex still opened with
-      the old two-tag line, this time visibly confused by the
-      contradiction ("Premise wrong: I read the local file directly."
-      instead of actually answering). Not a model failure: `run-task.js`'s
-      own `main()` (the direct `node run-task.js <task_id>` path used by
-      both this test and the suite's `runFullTask()`) had been missed
-      when `getMandatorySuffix()` was introduced and still hardcoded the
-      flat `MANDATORY_SUFFIX`. A vault-wide sweep for every remaining
-      flat-suffix call site turned up three more real, still-live ones
-      with the same staleness -- `run-research-crew.js`,
-      `run-backlog.js`, `watch-inbox.js` -- all fixed the same way.
-      `tasks/verify_codex_live_read3.md` then confirmed the actual fix:
-      `SOURCE: verified live via direct file read in this pipeline` /
-      `As of: roles/antigravity_role.md` / `Antigravity` -- correct tag,
-      correct file cited, correct answer.
-- [x] ~~`verifyOutput()`'s `expectedType: number` check scans the entire
-      response for any digit, not specifically the answer~~ -- **closed
-      2026-09-01.** Tightened to check only the last non-empty line
-      (matching every task's own "reply with ONLY the number on its own
-      line" convention), after verifying the change against all 16 real
-      dispatched responses recorded so far that day -- old and new logic
-      agreed on every one, confirming the tightening only affects the
-      actual false-positive shape, not real traffic. A regression case
-      for exactly this (digit only in the as-of preamble, non-numeric
-      last line) is now permanent in `run-verification-suite.js`.
+- [x] ~~SOURCE/as-of preamble copy-through~~ -- resolved 2026-09-02. Root
+      cause turned out to be honest live re-verification by claude-agent,
+      not injection confusion; `wrapInjectedValue()` confirmed 10/10 once
+      tested with a properly non-reverifiable fact.
+- [x] ~~`MANDATORY_SUFFIX`'s "no live data lookup" claim, false for
+      file-read-capable specialists~~ -- resolved 2026-09-02 via
+      `getMandatorySuffix(to)` + `LIVE_FILE_READ_CAPABLE`.
+- [x] ~~Whether Codex's `--sandbox read-only` has the same read-but-not-
+      write property as Claude's plan mode~~ -- resolved 2026-09-02,
+      confirmed via a live `Get-Content` test cross-checked against
+      Codex's own sandbox log. `codex` added to `LIVE_FILE_READ_CAPABLE`.
+      A second bug found while re-verifying this fix (four call sites --
+      `run-task.js`, `run-research-crew.js`, `run-backlog.js`,
+      `watch-inbox.js` -- still hardcoding the old flat suffix) was found
+      and fixed the same pass.
+- [x] ~~`verifyOutput()`'s number check scanned the whole response for
+      any digit~~ -- resolved 2026-09-01, tightened to the last non-empty
+      line; permanent regression case added to `run-verification-suite.js`.
+- [x] ~~No verification/peer-review gate existed in `/bus/`~~ -- resolved
+      2026-08-31 via `verifyOutput()` in `run-task.js` (shape/SOURCE-tag
+      check, not semantic correctness); tested against a clean pass and a
+      deliberately sabotaged response.
+- [x] ~~Dependency chains tested only for a single linear hop~~ --
+      resolved 2026-09-01: verified lossless across a 3-hop and a 5-hop
+      chain (alternating Codex/Claude), zero drift. The fan-in gap noted
+      at the time ("`dependsOnTaskId` is a scalar, not a list") is itself
+      now stale -- `dependsOnTaskIds` (plural, array) exists and is in
+      real daily use by every `fleet_pilot`/`crypto_pilot` round-3
+      synthesis task, which depends on the full set of that cycle's
+      round-1 and round-2 tasks at once.
+- [x] ~~Background research crew not wired to run continuously~~ --
+      resolved 2026-08-31 via the `BusResearchCrewContinuous` Windows
+      Scheduled Task (bounded 2-hour window, not indefinite). Found and
+      fixed along the way: a shell job-control PID didn't map to the real
+      Windows node.exe PID on this Git-Bash/MSYS setup -- verify process
+      kills via `Get-CimInstance`, not a shell-reported PID.
+
+**Still open:**
+
 - [ ] `run-task.js` cannot call the FMP connector itself -- only Claude
       can, in-session. Orchestrator-sourced tasks are written by hand each
       time; the grounding step itself isn't scripted, only its consumption
-      (via `dependsOnTaskId`) is.
-- [x] ~~No verification/peer-review gate exists in `/bus/`~~ -- **closed
-      2026-08-31.** `verifyOutput()` in `bus/scripts/run-task.js` is a
-      second, independent check (non-empty output, mandatory SOURCE tag
-      present for Codex tasks, `expectedType` match if declared) that must
-      pass before a task can land as `done`; a failing task lands as
-      `unverified` with the reason recorded, never silently passed.
-      Deliberately minimal -- checks the response has the right shape, not
-      that it's semantically correct. Tested against a clean pass
-      (`task_20260831_verify_pass`) and a deliberately sabotaged response
-      with the SOURCE tag stripped (`task_20260831_verify_sabotage`,
-      correctly caught).
-- [ ] Antigravity has no real invocation mechanism in `/bus/` -- fully
-      deferred (deliberately set aside 2026-09-01 in favor of proving the
-      Phase 2 scaffold against a second real agent -- Claude, via
-      `run-task-claude.js`/section 3c -- instead of a third stub).
-      **Update 2026-09-01 (confirmed, not yet acted on):** the Gemini
-      CLI side-note below turned out to matter. Explicitly asked to
-      check it -- a web search confirms Google Antigravity is real and
-      current ("Antigravity 2.0," launched at Google I/O 2026, a
-      standalone desktop app for agentic AI) and **now ships a CLI and
-      SDK**, not just a GUI. This directly contradicts
-      [[antigravity_role]]'s long-standing "no CLI/API exists"
-      claim -- that file has been updated to say so. Still NOT tested:
-      whether the CLI is actually installed on this machine, its real
-      flags, or whether it can be wired into `/bus/` the same way Codex
-      and Claude were (section 3c/3d's playbook). This is a confirmed
-      lead, not a completed integration -- a fourth `/bus/` specialist
-      is a real, separate decision, not something to build from a
-      one-paragraph web search result.
-      Original side-note: Gemini CLI's free tier ("Gemini Code Assist
-      for individuals") is no longer supported -- Google's own error
-      message points users toward "Antigravity" (antigravity.google) as
-      the replacement.
-- [x] ~~Dependency chains tested only for a single linear hop~~ -- **closed
-      2026-09-01.** Ran a 3-task linear chain (`task_20260901_chain_a` ->
-      `_b` -> `_c`): a hand-authored seed value (137, deliberately
-      non-round), then two Codex steps each doing a deterministic
-      transformation (+15, then x2). Final result landed exactly 304 --
-      the mathematically correct value, not a plausible-looking guess --
-      confirming injected values propagate losslessly across two hops, even
-      though step C had to parse the real number out of step B's full
-      SOURCE-tagged output blob rather than a clean value. Both steps'
-      verification gate passed correctly. **Still open:** true fan-in (one
-      task depending on multiple parents) isn't testable because it isn't
-      implemented -- `dependsOnTaskId` is a single scalar field in the task
-      schema, not a list.
-      **Chain length beyond 3 hops: closed 2026-09-01.** Ran a 5-hop
-      chain (`task_20260901_longchain_a` -> `f`), alternating Claude and
-      Codex at every hop (seed 7 -> +5[Claude]=12 -> x3[Codex]=36 ->
-      +8[Claude]=44 -> x2[Codex]=88 -> +19[Claude]=107), dispatched
-      entirely through `run-task-generic.js`. Landed exactly 107 -- zero
-      drift across 5 hops and 3 agent switches. Nothing in the mechanism
-      turned out to be hop-count-sensitive, confirming the earlier
-      suspicion with actual evidence instead of leaving it open.
-- [ ] `agent-comms`'s own Antigravity adapter (used by its general
-      broadcast task system, separate from the dashboard) is still a
-      confirmed-fake stub. Doesn't affect `/bus/` correctness, but is real
-      unresolved debt in the system being kept for dashboard use.
-- [x] ~~Background research crew not wired to run continuously~~ --
-      **closed 2026-08-31.** User confirmed the proposed scope/thresholds
-      by requesting a run; wired via a Windows Scheduled Task
-      (`BusResearchCrewContinuous`) running `bus/scripts/run-continuous.js`
-      for a bounded 2-hour window (not indefinite -- matches what was
-      actually asked). Note found and fixed along the way: a shell
-      job-control PID from a background test process did not map to the
-      real Windows node.exe PID on this Git-Bash/MSYS setup, leaving an
-      orphaned duplicate watcher running -- same class of gotcha as
-      agent-comms' earlier orphaned-process issue. Verify process kills
-      via `Get-CimInstance`/PowerShell, not a shell-reported PID.
-- [ ] The autonomous research crew can only run Codex-recall categories
-      (SOURCE-tagged as such) -- same as `run-task.js`, it has no path to
-      the FMP connector, so real-data-grounded research categories can't
-      be part of an unattended loop without Claude present to fetch them.
+      (via `dependsOnTaskId`) is. **Directly relevant to the 24/7
+      autonomous pilot (section 9): the plan there proposes a standalone
+      `fmp-client.js` using a real FMP REST key specifically to close this
+      gap for the trading pilots.**
+- [ ] Antigravity has no real invocation mechanism in `/bus/` -- deferred
+      2026-09-01 in favor of proving the scaffold against Claude instead
+      of a third stub. **Update, still not acted on:** Google Antigravity
+      is confirmed real and now ships a CLI/SDK, not just a GUI --
+      [[antigravity_role]] updated to reflect this. Still untested: whether
+      that CLI is installed on this machine, its real flags, or whether it
+      can be wired in via section 3c/3d's playbook. A confirmed lead, not
+      a completed integration -- a fourth `/bus/` specialist is a separate
+      decision.
+- [ ] `agent-comms`'s own Antigravity adapter (its general broadcast task
+      system, separate from the dashboard) is still a confirmed-fake stub.
+      Doesn't affect `/bus/` correctness, but is real unresolved debt.
+- [ ] The autonomous research crew can only run Codex-recall categories --
+      same FMP-connector gap as above, no path to real-data-grounded
+      research without Claude present to fetch it.
 - [ ] `check-inbox.js` deliberately does not act on what it finds in
       `bus/inbox_claude.md` -- it notifies either way, but interpreting
       and executing new instructions still requires a real, reviewed

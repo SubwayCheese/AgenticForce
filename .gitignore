@@ -14,3 +14,4 @@ discord-codex-bot/node_modules/
 discord-codex-bot/.env
 discord-codex-bot/tokens/
 discord-codex-bot-deploy.zip
+bus/memory.jsonl.backup-*
