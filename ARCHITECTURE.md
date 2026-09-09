@@ -1141,6 +1141,381 @@ different number in a fact's own As-of annotation than the fact's
 value -- e.g. label it "derived from seed 73" instead of bare `(73)` --
 so there is nothing for a careful reader to misread as a conflict.
 
+## 3p. Paper-trading execution + portfolio-approval round-3 (added
+2026-09-08)
+
+The trading-fleet pilot (scoped in `tasks/trading_fleet_scoping_plan.md`,
+section 3-ish of the project's own history -- see memory
+`project_agentvault_phase4_trading_fleet.md` for the full narrative)
+graduated from research-only to real paper-trade execution the same day.
+
+**Pipeline shape, as actually built and run:** scan a universe of stocks
+via individual FMP `profile-symbol` calls (bulk screener is tier-gated,
+confirmed unavailable) -> compute a unified `screenScore` -> take the
+top 15-20 by score as the deep-dive shortlist -> for each shortlisted
+symbol, round 1 (independent thesis, dispatched to Codex or claude-agent)
+-> round 2 (adversarial challenge, dispatched to a DIFFERENT specialist
+than wrote round 1 where practical) -> round 3 (synthesis). Universe
+scanned so far: 50 stocks; shortlist depth used: 15.
+
+**Round 3 was redesigned mid-project from single-winner to
+portfolio-approval.** The original design ranked all surviving
+candidates and picked at most ONE `conditionalSetup`. The user's
+explicit instruction (2026-09-08): "i want multiple trades happening
+not just a 1 and done." Round 3 now independently approves or rejects
+EACH shortlisted symbol on its own merits -- zero, several, or (in
+principle) all of them can be approved in the same run. A human-set cap
+(3-5 approvals) applies to the current pilot phase only; the user has
+explicitly stated future runs should have NO cap once this mode is
+proven -- this must stay a standing instruction embedded in every
+round-3 task payload, not silently re-applied as a permanent design
+choice.
+
+**A real design bug in round 3's first version, caught and fixed same
+day:** the first portfolio-approval run gated every approved
+candidate's entry on a FUTURE scheduled event (e.g. "enter short only
+after the Oct 28 earnings report misses estimates"). The user correctly
+rejected this -- the whole point is trades executable TODAY, not a
+6-9-week conditional watchlist. Fixed by re-running round 3 with an
+explicit constraint: `conditionalSetup.entryCondition` must be
+actionable at today's close using data already in the ledger; earnings
+dates may still appear in `riskWarnings` as disclosed risk, but must
+never gate entry. `invalidationCondition` became a price-level stop
+(e.g. "closes above $390.00") or a session-count time exit, not a
+future confirming event.
+
+**Execution layer: `bus/scripts/alpaca-client.js`.** Real REST wrapper
+around Alpaca's paper-trading API (`paper-api.alpaca.markets`). Hard
+guard: throws if `ALPACA_ENDPOINT` doesn't contain that host string --
+not a convention, an actual code check, so a mistyped/edited endpoint
+can never silently route at a live account. `submitOrder()` supports
+`market`, `limit`, `stop`, and `stop_limit` order types; deliberately
+has NO position-sizing logic of its own -- `qty` is always a required
+argument (a separate, later, human decision per the approved plan).
+
+**A real operational bug found and fixed the same day: entry and stop
+protection were placed in two separate steps, ~90 minutes apart.** The
+first real multi-trade execution (3 shorts: TSLA/GOOGL/CSCO) placed
+entry orders via one ad hoc script, then a SEPARATE stop-order script
+was run roughly 90 minutes later. In that gap, the positions moved
+against the account with zero downside protection; the user manually
+closed all three at a small loss via Alpaca's own dashboard before the
+stop orders were ever placed (confirmed by order history: the closing
+fills carry no `access_key` source tag, unlike every order this
+pipeline's own scripts place). **Fix: `bus/scripts/execute-portfolio-setup.js`**
+is now the canonical executor -- for each approved candidate, it places
+the entry order, confirms the fill, THEN IMMEDIATELY places the
+protective GTC stop order (parsed straight out of the setup's own
+`invalidationCondition` string) in the same script run, with no
+human-timed step in between. This supersedes the two-script ad hoc
+process used for the first run; do not go back to placing entry and
+stop as separate manually-sequenced steps.
+
+**What a stop order does NOT cover: the time-based half of the exit
+rule.** `invalidationCondition` often reads "...or exit after N sessions
+if not triggered" -- a price-level stop order can't express that.
+`bus/scripts/monitor-paper-trades.js` is the separate piece for this:
+reads `bus/paper-trades.jsonl` for open research-driven positions,
+counts trading sessions elapsed (a simple Mon-Fri weekday count --
+does NOT know about market holidays, a documented approximation, not a
+silently-assumed one), and if a position has outlived its stated
+horizon, closes it (cancelling any associated stop order first) and
+logs the exit. Defaults to a DRY-RUN report; `--execute` is required to
+actually place a closing order or write a reconciliation record. Also
+handles reconciliation: if the log thinks a position is open but the
+live account shows it already closed (e.g. a stop order fired, or a
+human closed it manually), it detects the mismatch and (in `--execute`
+mode) writes the missing exit record rather than leaving the log
+silently wrong.
+
+**Deliberately still NOT built:** wiring `monitor-paper-trades.js` into
+an unattended recurring schedule (e.g. a Windows Scheduled Task, the
+same pattern already used for `BusResearchCrewContinuous` -- see the
+closed item in section 6). The script is built and tested against real
+positions; turning it into an autonomous recurring trigger is a further
+step the user should explicitly approve, since it's new autonomy scope
+beyond "the script exists and works when run."
+
+**Trade log:** every entry, stop-order-placed, and exit record is
+appended to `bus/paper-trades.jsonl` (one JSON object per line) --
+`type` field distinguishes `research-driven-entry`,
+`stop-order-placed`, `research-driven-exit`, and the original
+`mechanism-test` (the first-ever SPY round-trip used to prove the
+pipeline end-to-end before any research-driven trade was placed).
+
+## 3q. Fleet-pilot dashboard (added 2026-09-08)
+
+`bus/fleet.html` + `bus/scripts/fleet-status.js`, served by two new
+routes on the existing `serve-dashboard.js` (`/fleet.html`,
+`/fleet-status.json`). A read-only, non-technical-friendly view of ONE
+pipeline run: the funnel (universe scan -> shortlist -> round 1 ->
+round 2 -> round 3), what round 3 approved and rejected, every
+shortlisted symbol with the specialist that handled each round, the
+live paper account, the trade log in plain language, and the run's
+recorded learnings.
+
+**Purely observational.** It places no orders and touches neither
+`execute-portfolio-setup.js` nor `monitor-paper-trades.js` -- it only
+reads what those already wrote. It reaches Alpaca exactly the way every
+other script here does (`alpaca-client.js`), for account/positions only.
+
+**Nothing is hardcoded to a run.** `findLatestPipelineDate()` takes the
+largest `fleet_pilot_<YYYYMMDD>_` prefix in `tasks/`;
+`discoverShortlist()` derives the symbol list from the round-1/round-2
+filenames themselves (keeping the highest `v<N>` per symbol, matching
+the 2026-09-03 run's `thesis_r1v3_aapl` convention); and
+`discoverRound3Versions()` picks the newest round 3, preferring
+`_portfolio` variants outright when both designs exist for the same
+date (they do for 2026-09-08: the legacy single-winner `_r3.md` sits
+alongside the portfolio-approval `_r3_portfolio*.md` files). A future
+run on a different date renders with no code change.
+
+**Why the round-3 parser is defensive, with a real reason.** Round-3
+output has appeared in two genuinely different formats from the same
+pipeline on the same day: `_portfolio_v2` emitted a ` ```json ` fence
+with a clean `approvedCandidates` array, while `_portfolio_v3` emitted
+pure prose/Markdown with **no JSON anywhere**. This is not
+hypothetical -- `execute-portfolio-setup.js`, which only understands the
+JSON form, throws outright on v3. `parseRound3Output()` therefore tries
+the JSON fence first, falls back to a Markdown section/bullet parser,
+and if both fail returns `{format:'raw', rawText}` so the page shows the
+human the output exactly as written rather than a blank panel. Every
+field below the symbol is best-effort and independently regexed, so one
+malformed candidate never drops the rest. The returned `format` is shown
+in the UI ("parsed as markdown"), keeping provenance visible the same
+way the SOURCE-tag discipline does elsewhere.
+
+**A distinction the page deliberately keeps visible**: "the current
+recommendation" and "what is actually open in the account" are not the
+same thing. On 2026-09-08, v3 was the active recommendation while the
+only executed trades came from v2 (entered, then manually closed by the
+human before their stops were placed). `getTradeLog()` cross-references
+`sourceTask` against the ACTIVE round 3 to compute
+`executedApprovedSymbols`, and each trade card carries an
+EXECUTED/not-yet-executed pill off that -- so a recommendation is never
+mistaken for a live position.
+
+It also surfaces `sameSpecialistBothRounds` honestly. Round 2 is meant
+to go to a different specialist than round 1 "where practical," and it
+genuinely did not always (CSCO drew Codex for both rounds that day).
+
+Two fast regression tests cover this in `run-verification-suite.js`:
+`testFleetStatusParserFast()` asserts both real production formats still
+parse to the same three approved candidates with correct
+same-day/multi-day hold types (so a future format drift fails loudly
+here instead of silently emptying the dashboard), and
+`testFleetSymbolGridFast()` re-reads every grid cell's task file to
+confirm the specialist and status shown match the file's real `to:` and
+`status:` fields -- the same drift-prevention idiom
+`testAgentGraphFast()` uses.
+
+## 3r. Crypto trading -- BTC/ETH/XRP (added 2026-09-08/09)
+
+Extends the same account, the same 3-round deliberation design, and the
+same execution scripts to crypto -- because the equity pipeline is
+gated by market hours (hit directly the same day: round 3 approved
+equity trades while the market was closed) and crypto trades 24/7.
+Purely additive -- nothing about the equity pipeline changed or was
+removed.
+
+**Confirmed live, not assumed, before building anything**: BTC/USD,
+ETH/USD, XRP/USD are all tradable on this paper account; crypto here is
+spot, cash-settled, and **long-only** (`shortable:false` on every
+crypto asset -- no short side exists at all); fractional/continuous
+sizing (BTC min order ≈0.0000126, ~$1) means crypto positions size by
+dollar `notional`, not share `qty`; the account is genuinely 24/7 (no
+crypto-specific session-hours concept, confirmed via `/v2/clock` being
+equities-only). FMP's crypto data (`mcp__claude_ai_FMP__crypto`) is
+price/volume/market-cap only -- **no earnings, valuation multiples, or
+analyst targets exist for this asset class, structurally, not as a
+today-gap.** LunarCrush (crypto social/sentiment) is wired up but
+returns "subscription required" on every real call -- not usable
+without a paid upgrade.
+
+**`bus/scripts/crypto-symbols.js`** (new) -- the one place that knows
+both symbol conventions in play: Alpaca's order-placement format is
+slash-delimited (`BTC/USD`), FMP's research format is not (`BTCUSD`).
+A flat, hardcoded table of exactly the 3 coins, not a general
+asset-class registry. `isCryptoSymbol()`/`toAlpacaSymbol()`/
+`toFmpSymbol()` are called from every other file below rather than each
+re-deriving the format inline.
+
+**`bus/scripts/alpaca-client.js`** -- `submitOrder()` gains `notional`
+as an alternate to `qty` (exactly one required), and a pre-flight guard
+(`assertNotCryptoShortEntry()`, exported separately so it's unit-testable
+with zero network calls) rejects an attempted crypto short **entry**
+before any HTTP call, with a clear message -- replacing what would
+otherwise be an opaque Alpaca rejection. The guard is scoped to
+entry-style orders only (`orderType` not `stop`/`stop_limit`) so it does
+not block the legitimate sell-side stop that closes an existing long.
+
+**Three real Alpaca crypto quirks found live, not in any doc, each
+causing a real order rejection or a wrong sizing before being fixed:**
+1. **`time_in_force: "day"` is rejected for crypto** (422 "invalid
+   crypto time_in_force") -- crypto entries and closes use `"gtc"`
+   instead. Equity behavior is unchanged.
+2. **Plain `"stop"` orders are rejected for crypto** (422 "invalid order
+   type for crypto order") -- Alpaca crypto only supports `stop_limit`,
+   not stop-market. `execute-portfolio-setup.js` now places crypto stops
+   as `stop_limit` with a 1% stop/limit buffer (fillable through normal
+   slippage rather than sitting unfilled at an exact price); equity
+   stops are unchanged.
+3. **Crypto fees are deducted IN-KIND from the asset itself** -- an
+   order's own `filled_qty` can be measurably larger than what's
+   actually available in the resulting position afterward (found live:
+   `0.000124636` filled vs. `0.000124324` available on a $10 BTC test
+   buy). Sizing a protective stop off `filled_qty` can request more than
+   the account holds and get a 403 "insufficient balance." Fixed: for
+   crypto, `execute-portfolio-setup.js` re-fetches the live position
+   after entry and sizes the stop off ITS `qty_available`, not the
+   order's `filled_qty`. Equities have no such mechanic and are
+   unaffected.
+4. **`GET /v2/positions` returns crypto symbols WITHOUT the slash**
+   (`"BTCUSD"`) even though orders and account activities use the slash
+   (`"BTC/USD"`) -- a real asymmetry within Alpaca's own API surface.
+   Every symbol this pipeline logs is the order-format (slash), so
+   `monitor-paper-trades.js`'s live-position lookup normalizes crypto
+   position keys back to the slash form before matching -- without this,
+   a genuinely open crypto position would be silently misread as already
+   closed. Found by running the real monitor script against a real open
+   position, not by inspection.
+
+5. **The no-short guard (bug 2's fix) was itself too blunt at first,
+   found the next session when the mechanism-test position's own
+   2-hour time exit tried to close it.** Guarding on `orderType` alone
+   (exempting only `stop`/`stop_limit`) can't distinguish "market sell
+   that OPENS a new short" from "market sell that CLOSES an existing
+   long" -- both are `side:"sell", orderType:"market"`.
+   `monitor-paper-trades.js`'s time-based exit is exactly the second
+   case, and got wrongly rejected by the guard. Fixed: `submitOrder()`
+   gained an explicit `intent: "open"|"close"` parameter (default
+   `"open"`, matching prior behavior for the common entry case); the
+   guard now checks `intent !== "close"` instead of `orderType`. Every
+   closing call site (`execute-portfolio-setup.js`'s protective stop,
+   `monitor-paper-trades.js`'s time-based flatten) now passes
+   `intent: "close"` explicitly. Equities are unaffected either way
+   (the guard only fires for crypto symbols).
+
+6. **Same-day exits weren't handled at all until 2026-09-09** --
+   `monitor-paper-trades.js` only understood session-count and
+   crypto-hour deadlines; round-3 v3's actual same-day setups (GOOGL,
+   CSCO -- "...exit at today's close if not stopped out.") had no
+   corresponding trigger. Added `isSameDayExit()` (regex on
+   `invalidationCondition`) + `sameDayTriggered()` (true once the
+   entry's own trading session has genuinely ended -- either the ET
+   calendar date has rolled past entry day, or it's still entry day but
+   `/v2/clock` shows the market has since closed; never true while
+   still inside the same session). **Real bug caught in testing, not
+   production**: the first regex (`/exit at (today's|the) close/`)
+   false-positived on TSLA's actual multi-day phrasing, "...exit at the
+   close of the fifth trading session after entry" -- both share "exit
+   at the close" as a substring. Fixed with a negative lookahead
+   excluding `close of ...`. Verified against all 3 real fleet_pilot_v3
+   invalidationCondition strings before shipping.
+
+All six were caught by actually running the code against the real
+paper account (a deliberate small BTC mechanism-test trade, same
+discipline as the original SPY round-trip -- see 3p; bug 5 specifically
+was found when that same test position's real 2-hour exit fired a
+session later), not by reading Alpaca's documentation, which does not
+clearly state several of these.
+
+**`bus/scripts/execute-portfolio-setup.js`** -- crypto candidates size
+via a new `--notionalPerLeg=<dollars>` CLI arg; **no default dollar
+amount is invented** -- a crypto candidate present with no notional
+supplied fails loudly rather than guessing, matching the existing
+equity `qtyPerLeg` boundary (position sizing is the human operator's
+call, not this pipeline's). `research-driven-entry` and
+`stop-order-placed` log records now carry `assetClass: "equity"|"crypto"`
+-- a logged fact, not something later code sniffs from symbol format.
+
+**`bus/scripts/monitor-paper-trades.js`** -- new `hoursElapsed()`/
+`parseHourDeadline()` (plain calendar-hour diff, no weekday filtering)
+alongside the existing `sessionsElapsed()`/`parseSessionDeadline()`,
+kept as separate functions rather than overloading one with ambiguous
+units. Branches on the logged `assetClass` field. The short-closing
+branch is structurally unreachable for crypto rows (long-only by
+construction) -- commented inline so a future reader doesn't wonder why.
+
+**Research pipeline, `crypto_pilot_<YYYYMMDD>_*` task naming** (parallel
+to but never colliding with `fleet_pilot_*`): no universe-scan/shortlist
+stage needed (3 fixed symbols) -- one orchestrator-sourced
+`crypto_pilot_<date>_data_snapshot.md` (same pattern as the equity
+shortlist-enrichment file) feeds round 1. Round-1/round-2 reuse the
+equity output schema as a structural contract but the content is a real
+rewrite: price/volume/trend/volatility/drawdown only, any macro/
+narrative claim must be tagged `INTERPRETATION: unverified narrative, no
+data source backing this claim` and never FACT, and confidence should
+rarely reach "high" on narrative alone given no fundamentals floor
+exists. Round 3's evidence-quality gate is explicitly recalibrated
+(stated in its own payload) rather than silently holding crypto to the
+equity standard it structurally cannot clear, and its hard boundaries
+forbid `direction:"short"` outright -- a bear case means reject/stay-out.
+
+**First real run's result (2026-09-08), worth recording as a clean
+outcome, not a failure**: round 1 produced 3 genuinely engaged
+neutral-insufficient-edge theses; round 2 found real substance in every
+one (a moving-average invalidation-ordering error on XRP -- round 1 had
+the 200-day average, which is actually ABOVE the 50-day average,
+backwards; ~95.8% of ETH's entire 30-day gain concentrated in one 3-day
+window with the other 26 days netting near zero; BTC's nearest bearish
+invalidation trigger sitting inside a single average day's volatility);
+round 3 **rejected all 3 candidates** under the recalibrated bar --
+`approvedCandidates: []`. This is the discipline holding, the same way
+the equity pipeline's early NO_ACTIONABLE_CANDIDATE runs validated it
+wasn't manufacturing certainty from thin data. Zero live crypto trades
+came from this research pass. A separate, explicitly-labeled
+`crypto_pilot_20260908_mechanism_test` (NOT research-driven, modeled on
+the original SPY test) proved the execution code path itself: a real
+$10 BTC paper buy, filled, protected by a real `stop_limit` GTC stop,
+`assetClass:"crypto"` correctly logged, `monitor-paper-trades.js`
+correctly finding and tracking it afterward -- this is what surfaced
+bugs 1-4 above.
+
+**Dashboard integration, built the next session** (`bus/crypto.html` +
+`bus/scripts/crypto-status.js`, routes `/crypto.html`/`/crypto-status.json`
+on the same `serve-dashboard.js`): mirrors `fleet.html`'s shape but
+simpler -- no universe/shortlist funnel (only 3 fixed symbols), reuses
+`fleet-status.js`'s `parseRound3Output()`/`getTradeLog()` directly
+rather than duplicating the dual-format parser. Live positions/account
+are filtered to crypto symbols only (`cryptoSymbols.isCryptoSymbol()`);
+the trade feed is filtered to `assetClass:"crypto"` records. Nav links
+added both ways between all 4 dashboard pages.
+
+**Tabbed layout, added 2026-09-09** after direct user feedback that
+both pages were "not very organized" stacking 7 sections vertically.
+Both `fleet.html` and `crypto.html` now have: a persistent KPI pill
+strip above the tabs (approved count, market open/closed on fleet.html
+only, equity, open-position count -- always visible regardless of
+active tab, sourced from `fleet-status.js`'s new `getMarketClock()`,
+a small `/v2/clock` call with the same never-throw contract as
+`getLivePositionsAndAccount()`); and 4 tabs grouping the same sections
+by concern rather than round: Overview (funnel + recommendation),
+Research (symbol grid + rejected detail), Trading (positions + trade
+feed), Learnings & History. Grounded in real research, not just
+internal-pattern reuse: dashboard UX guidance on top-loading 3-5 KPIs
+before detail; tab-navigation guidance confirming this grouping avoids
+tabbing sequential or comparison content; and this project's own
+`artifact-design` skill (pills encode state, not plain text; existing
+color/type system already correct, not touched). Tab CSS is a flat
+GitHub/Stripe-style animated underline, not `markets.html`'s boxed
+per-tab chart panels (different content shape, different pattern).
+Zero changes to either page's render functions or `poll()` -- only
+markup regrouping plus the small `renderKpis()`/tab-click addition.
+
+**Originally deliberately NOT built in the first pass (see the crypto
+plan's own scoping call)**: dashboard integration. `fleet-status.js`'s discovery regexes
+are anchored to `fleet_pilot_*` and its 5-stage funnel assumes stages
+crypto doesn't have -- the `crypto_pilot_*` naming was chosen
+specifically so it won't collide with or get silently swept into
+today's discovery (the dashboard correctly shows nothing crypto-shaped,
+not something wrong). Live positions/account and the raw trade-log feed
+in `bus/fleet.html` ARE already asset-class-unfiltered, so a real crypto
+trade already appears there today with zero code changes -- only the
+funnel/symbol-grid panels stay equity-shaped. A future
+`crypto-status.js`/`crypto.html` (3-row grid, no funnel, reusing
+`parseRound3Output()`) is the natural follow-up if wanted.
+
 ## 4. Three-tier data grounding (revised 2026-09-03 -- see below)
 
 - **Verified-live (highest trust):** numeric facts fetched directly by
@@ -1447,10 +1822,35 @@ only, 10-min poll) still exists but is no longer the one wired into
 
 ## 7. What this system does NOT do
 
-No broker integration. No trade execution. No position sizing. No risk
-management. No live order flow. Nothing in this system touches real money
-or a live market in any way -- it is task orchestration and research
-plumbing only.
+**Updated 2026-09-08 -- this section was stale.** Broker integration and
+real trade execution DO now exist (see section 3p) -- Alpaca
+paper-trading, real orders, real fills, real P&L. What remains true and
+still holds as a hard boundary:
+
+- **No real money, ever, without a separate, deliberate future
+  decision.** `alpaca-client.js` hard-guards against any endpoint that
+  isn't `paper-api.alpaca.markets`; there is no "live mode" flag
+  anywhere in this codebase to flip. Graduating to a real account is an
+  explicit, separate, later decision -- not a config change.
+- **No autonomous position sizing.** `submitOrder()` always requires an
+  explicit `qty` argument; nothing in this pipeline computes how many
+  shares to trade. Every quantity used so far has been a human-chosen
+  placeholder, not a designed sizing formula.
+- **No real-money autonomous execution with no per-trade human
+  approval**, even paper-proven, even framed as small/acceptable-loss
+  training -- see the standing boundary in
+  `project_agentvault_phase4_trading_fleet.md` (memory). Full autonomy
+  is the agreed target for the PAPER phase specifically; real money
+  keeps a human go/no-go per trade until the user explicitly revisits
+  that.
+- **No individualized investment advice, suitability claims, or
+  guarantees** -- every synthesis task's output carries the disclaimer
+  "Research decision-support only. A human must independently decide
+  whether to act; this system cannot execute trades" verbatim, even
+  though, as of 2026-09-08, a human-run script now DOES execute the
+  approved setups on the paper account after that output lands. The
+  disclaimer describes the research/synthesis layer's own authority,
+  not whether a downstream script exists.
 
 ## Related Notes
 
