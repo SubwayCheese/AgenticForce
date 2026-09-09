@@ -41,6 +41,9 @@ const busStatus = require('./bus-status.js');
 const memoryStore = require('./memory-store.js');
 const secretsBroker = require('./secrets-broker.js');
 const dashboardStatus = require('./dashboard-status.js');
+const fleetStatus = require('./fleet-status.js');
+const cryptoSymbols = require('./crypto-symbols.js');
+const alpaca = require('./alpaca-client.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1416,6 +1419,172 @@ function testAgentGraphFast() {
   );
 }
 
+// ---------- FAST: fleet-status.js's dual-format round-3 parser ----------
+// Added 2026-09-08 with bus/fleet.html. This is the one genuinely
+// fragile piece of that dashboard: round-3 synthesis output has appeared
+// in TWO different real formats -- v2 emitted a ```json fence with an
+// approvedCandidates array, v3 emitted pure prose/Markdown with no JSON
+// anywhere (execute-portfolio-setup.js, which only understands the JSON
+// form, would throw outright on v3). A future run could drift again, so
+// this asserts both real production outputs still parse, against the
+// actual task files rather than a synthetic fixture -- if a format
+// changes, this fails here instead of silently emptying the dashboard.
+function testFleetStatusParserFast() {
+  const problems = [];
+  const cases = [
+    { taskId: 'fleet_pilot_20260908_synthesis_r3_portfolio_v2', expectFormat: 'json', expectHoldTypes: false },
+    { taskId: 'fleet_pilot_20260908_synthesis_r3_portfolio_v3', expectFormat: 'markdown', expectHoldTypes: true },
+  ];
+  const details = [];
+
+  for (const c of cases) {
+    const task = runTask.readTaskFile(c.taskId);
+    if (!task || !task.output) {
+      problems.push(`${c.taskId}: task file or its output field is missing`);
+      continue;
+    }
+    const parsed = fleetStatus.parseRound3Output(task.output);
+    if (parsed.format !== c.expectFormat) {
+      problems.push(`${c.taskId}: expected format "${c.expectFormat}", got "${parsed.format}"`);
+    }
+    const symbols = parsed.approvedCandidates.map((x) => x.symbol).sort();
+    const expected = ['CSCO', 'GOOGL', 'TSLA'];
+    if (symbols.join(',') !== expected.join(',')) {
+      problems.push(`${c.taskId}: expected approved [${expected}], got [${symbols}]`);
+    }
+    if (parsed.rejectedCandidates.length !== 12) {
+      problems.push(`${c.taskId}: expected 12 rejected candidates, got ${parsed.rejectedCandidates.length}`);
+    }
+    for (const cand of parsed.approvedCandidates) {
+      if (!cand.direction && !cand.stance) problems.push(`${c.taskId}/${cand.symbol}: no direction or stance parsed`);
+      if (!cand.invalidationCondition) problems.push(`${c.taskId}/${cand.symbol}: no invalidationCondition parsed`);
+    }
+    // holdType (same-day vs multi-day) only exists from v3 onward -- it
+    // postdates v2's schema, so its absence there is correct, not a miss.
+    if (c.expectHoldTypes) {
+      const byId = new Map(parsed.approvedCandidates.map((x) => [x.symbol, x.holdType]));
+      if (byId.get('TSLA') !== 'multi-day') problems.push(`${c.taskId}: TSLA holdType expected "multi-day", got "${byId.get('TSLA')}"`);
+      for (const sym of ['GOOGL', 'CSCO']) {
+        if (byId.get(sym) !== 'same-day') problems.push(`${c.taskId}: ${sym} holdType expected "same-day", got "${byId.get(sym)}"`);
+      }
+    }
+    details.push(`${c.taskId} -> ${parsed.format}, ${parsed.approvedCandidates.length} approved`);
+  }
+
+  record(
+    'parseRound3Output(): both real round-3 output formats (v2 JSON fence, v3 prose) parse to the same 3 approved candidates',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : details.join(' | ')
+  );
+}
+
+// Every symbol in the fleet dashboard's grid must trace to a real task
+// file whose `to:` field genuinely matches the specialist shown -- the
+// same drift-prevention idiom testAgentGraphFast() uses, applied to the
+// other page that attributes work to an agent.
+function testFleetSymbolGridFast() {
+  const problems = [];
+  const filenames = require('fs').readdirSync(runTask.TASKS_DIR).filter((f) => f.endsWith('.md'));
+  const date = fleetStatus.findLatestPipelineDate(filenames);
+  if (!date) {
+    record('fleet symbol grid: every round-1/round-2 cell matches its task file\'s real to: field', true, 'no fleet_pilot_* run present -- nothing to check');
+    return;
+  }
+  const shortlist = fleetStatus.discoverShortlist(date, filenames);
+  const grid = fleetStatus.buildSymbolGrid(shortlist, null);
+  for (const row of grid) {
+    for (const round of ['round1', 'round2']) {
+      const cell = row[round];
+      if (!cell) continue;
+      const real = runTask.readTaskFile(cell.taskId);
+      if (!real) { problems.push(`${row.symbol}/${round}: task file ${cell.taskId} missing`); continue; }
+      if (real.to !== cell.agentId) problems.push(`${row.symbol}/${round}: grid says agent "${cell.agentId}", file says "${real.to}"`);
+      if (real.status !== cell.status) problems.push(`${row.symbol}/${round}: grid says status "${cell.status}", file says "${real.status}"`);
+    }
+  }
+  record(
+    'fleet symbol grid: every round-1/round-2 cell matches its task file\'s real to: and status: fields',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : `${grid.length} symbol(s) checked for run ${date}`
+  );
+}
+
+// ---------- FAST: crypto-symbols.js's dual-convention mapping ----------
+// Added 2026-09-08/09 alongside crypto trading support (BTC/ETH/XRP only).
+// Alpaca's order-placement symbol format ("BTC/USD") and FMP's research
+// format ("BTCUSD") are opposite conventions -- this asserts the mapping
+// table converts correctly both ways for all 3 coins, and specifically
+// guards against isCryptoSymbol() ever false-positiving on a real equity
+// symbol, since that would incorrectly block a legitimate equity short via
+// alpaca-client.js's new pre-flight guard.
+function testCryptoSymbolsFast() {
+  const problems = [];
+  for (const asset of cryptoSymbols.CRYPTO_ASSETS) {
+    const fromCoin = cryptoSymbols.toAlpacaSymbol(asset.coin);
+    const fromFmp = cryptoSymbols.toAlpacaSymbol(asset.fmpSymbol);
+    const fromAlpaca = cryptoSymbols.toFmpSymbol(asset.alpacaSymbol);
+    if (fromCoin !== asset.alpacaSymbol) problems.push(`toAlpacaSymbol("${asset.coin}") = "${fromCoin}", expected "${asset.alpacaSymbol}"`);
+    if (fromFmp !== asset.alpacaSymbol) problems.push(`toAlpacaSymbol("${asset.fmpSymbol}") = "${fromFmp}", expected "${asset.alpacaSymbol}"`);
+    if (fromAlpaca !== asset.fmpSymbol) problems.push(`toFmpSymbol("${asset.alpacaSymbol}") = "${fromAlpaca}", expected "${asset.fmpSymbol}"`);
+    if (!cryptoSymbols.isCryptoSymbol(asset.alpacaSymbol)) problems.push(`isCryptoSymbol("${asset.alpacaSymbol}") should be true`);
+    if (!cryptoSymbols.isCryptoSymbol(asset.fmpSymbol)) problems.push(`isCryptoSymbol("${asset.fmpSymbol}") should be true`);
+  }
+  for (const equitySymbol of ['TSLA', 'AAPL', 'SPY']) {
+    if (cryptoSymbols.isCryptoSymbol(equitySymbol)) problems.push(`isCryptoSymbol("${equitySymbol}") should be false -- real equity symbol falsely classified as crypto`);
+  }
+  record(
+    'crypto-symbols.js: BTC/ETH/XRP convert correctly between Alpaca and FMP formats, equities never false-positive as crypto',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : `${cryptoSymbols.CRYPTO_ASSETS.length} coin(s) x 2 conventions verified, 3 equity symbols correctly excluded`
+  );
+}
+
+// ---------- FAST: crypto no-short guard on alpaca-client.js ----------
+// Exercises alpaca.assertNotCryptoShortEntry() directly -- a pure,
+// exported, no-network function (see alpaca-client.js) -- so this makes
+// ZERO real API calls, unlike testing through submitOrder() itself would.
+// Confirms the guard fires for an attempted crypto short OPEN (intent
+// defaults to "open") but does NOT fire when intent:"close" is passed --
+// orderType alone can't distinguish these (a market sell that closes a
+// long and a market sell that opens a short look identical without it;
+// this was a real bug found live in monitor-paper-trades.js's time-based
+// exit before intent was added).
+function testCryptoNoShortGuardFast() {
+  const problems = [];
+  try {
+    alpaca.assertNotCryptoShortEntry({ symbol: 'BTC/USD', side: 'sell' });
+    problems.push('assertNotCryptoShortEntry did not throw for a crypto short-open attempt (BTC/USD, side:sell, default intent)');
+  } catch (err) {
+    if (!/spot\/long-only|no short side/i.test(err.message)) {
+      problems.push(`assertNotCryptoShortEntry threw, but not with the expected message: "${err.message}"`);
+    }
+  }
+  try {
+    // Must NOT throw -- a stop that closes an existing long, intent explicit.
+    alpaca.assertNotCryptoShortEntry({ symbol: 'BTC/USD', side: 'sell', intent: 'close' });
+  } catch (err) {
+    problems.push(`assertNotCryptoShortEntry incorrectly threw for intent:"close" (stop closing a long): "${err.message}"`);
+  }
+  try {
+    // Must NOT throw -- a plain market sell that closes a long (the real
+    // bug case: monitor-paper-trades.js's time-based exit).
+    alpaca.assertNotCryptoShortEntry({ symbol: 'BTC/USD', side: 'sell', intent: 'close' });
+  } catch (err) {
+    problems.push(`assertNotCryptoShortEntry incorrectly threw for a market sell closing a long with intent:"close": "${err.message}"`);
+  }
+  try {
+    // A real equity short (e.g. TSLA) must remain unaffected by this guard.
+    alpaca.assertNotCryptoShortEntry({ symbol: 'TSLA', side: 'sell' });
+  } catch (err) {
+    problems.push(`assertNotCryptoShortEntry incorrectly threw for a real equity short (TSLA): "${err.message}"`);
+  }
+  record(
+    'alpaca-client.js: crypto no-short guard blocks a short open by default, does not block intent:"close"or a real equity short',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : 'guard fired only for the crypto market short-entry case'
+  );
+}
+
 // ---------- SLOW: generic engine parity (all configured agents) ----------
 // Added 2026-09-01 alongside agent-engine.js, the Phase 2 config-driven
 // scaffold. Dispatches the SAME simple prompt through engine.dispatch()
@@ -1545,6 +1714,10 @@ function main() {
   testStatusCountsAgreement();
   testInFlightDetectionFast();
   testAgentGraphFast();
+  testFleetStatusParserFast();
+  testFleetSymbolGridFast();
+  testCryptoSymbolsFast();
+  testCryptoNoShortGuardFast();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testLiveFanIn();

@@ -23,11 +23,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { buildSnapshot, buildAgentGraph } = require('./dashboard-status.js');
+const { buildFleetSnapshot } = require('./fleet-status.js');
+const { buildCryptoSnapshot } = require('./crypto-status.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DASHBOARD_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'dashboard.html');
 const AGENTS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'agents.html');
 const MARKETS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'markets.html');
+const FLEET_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'fleet.html');
+const CRYPTO_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'crypto.html');
 const BACKLOG_STATUS_PATH = path.join(VAULT_ROOT, 'bus', 'status.json');
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8877;
 
@@ -92,6 +96,46 @@ const server = http.createServer((req, res) => {
       if (err) return send(res, 500, 'text/plain', `Failed to read markets.html: ${err.message}`);
       send(res, 200, 'text/html; charset=utf-8', html);
     });
+    return;
+  }
+
+  // Fleet-pilot dashboard (added 2026-09-08) -- the trading-fleet
+  // pipeline's own read-only view. Same fresh-per-request contract as
+  // every route above, with one difference: buildFleetSnapshot() is
+  // async (it makes a real Alpaca call for live positions), so this
+  // route resolves a Promise rather than computing inline. A failure
+  // inside the snapshot still surfaces as a 500 with its message, the
+  // same shape /status.json's catch produces.
+  if (url === '/fleet.html') {
+    fs.readFile(FLEET_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read fleet.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/fleet-status.json') {
+    buildFleetSnapshot()
+      .then((snapshot) => send(res, 200, 'application/json', JSON.stringify(snapshot)))
+      .catch((err) => send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) })));
+    return;
+  }
+
+  // Crypto-pilot dashboard (added 2026-09-09, the deferred follow-up noted
+  // in ARCHITECTURE.md 3r) -- same fresh-per-request, async-snapshot pattern
+  // as /fleet.html and /fleet-status.json, just for the 3-symbol crypto run.
+  if (url === '/crypto.html') {
+    fs.readFile(CRYPTO_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read crypto.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/crypto-status.json') {
+    buildCryptoSnapshot()
+      .then((snapshot) => send(res, 200, 'application/json', JSON.stringify(snapshot)))
+      .catch((err) => send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) })));
     return;
   }
 

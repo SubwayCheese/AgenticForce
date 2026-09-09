@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Crypto Pilot</title>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#12161d; --panel-2:#161b23;
+    --line:rgba(255,255,255,0.07); --line-strong:rgba(255,255,255,0.13);
+    --top-hi:inset 0 1px 0 rgba(255,255,255,0.045);
+    --ink:#e7e9ec; --dim:#8891a0; --dim-2:#5a6270;
+    --amber:#e8a33d; --teal:#4fb0a8; --red:#d9695f; --green:#6fae6a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Mono","SF Mono",Consolas,monospace;padding:30px;min-height:100vh;}
+  .wrap{max-width:1040px;margin:0 auto;}
+  header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px;}
+  h1{font-size:17px;font-weight:500;letter-spacing:0.01em;margin:0;}
+  .subtitle{color:var(--dim);font-size:12.5px;margin-top:5px;}
+  .navlink{color:var(--dim);font-size:11.5px;border:1px solid var(--line);padding:4px 10px;border-radius:4px;text-decoration:none;white-space:nowrap;transition:color .15s ease,border-color .15s ease;}
+  .navlink:hover{color:var(--ink);border-color:var(--line-strong);}
+  .section-label{font-size:11px;color:var(--dim-2);letter-spacing:0.05em;margin:26px 0 10px;}
+  .section-label:first-of-type{margin-top:0;}
+  .banner{display:none;margin-bottom:16px;padding:10px 14px;border:1px solid rgba(217,105,95,0.45);border-radius:5px;color:var(--red);font-size:12px;background:rgba(217,105,95,0.06);}
+  .banner.show{display:block;}
+  .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px;}
+  .kpi{display:flex;align-items:center;gap:7px;padding:7px 14px;background:var(--panel);border:1px solid var(--line);border-radius:20px;font-size:11.5px;box-shadow:var(--top-hi);}
+  .kpi .kpi-label{color:var(--dim-2);}
+  .kpi .kpi-value{color:var(--ink);font-weight:600;}
+  .kpi.kpi-green .kpi-value{color:var(--green);}
+  .kpi.kpi-amber .kpi-value{color:var(--amber);}
+  .kpi.kpi-dim .kpi-value{color:var(--dim-2);}
+  .tabs{display:flex;gap:22px;margin:0 0 22px;border-bottom:1px solid var(--line);}
+  .tab{background:none;border:none;color:var(--dim);font-family:inherit;font-size:12.5px;padding:0 0 11px;cursor:pointer;position:relative;transition:color .15s ease;}
+  .tab:hover{color:var(--ink);}
+  .tab.active{color:var(--amber);}
+  .tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--amber);border-radius:2px 2px 0 0;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+  .cards{display:flex;gap:14px;flex-wrap:wrap;}
+  .card{flex:1;min-width:290px;background:var(--panel);border:1px solid var(--line);border-radius:5px;box-shadow:var(--top-hi);padding:16px 18px;}
+  .card-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px;}
+  .ticker{font-size:19px;font-weight:600;letter-spacing:0.02em;}
+  .badge{font-size:10.5px;padding:2px 8px;border-radius:3px;border:1px solid var(--line);color:var(--dim);white-space:nowrap;}
+  .badge.long{color:var(--green);border-color:rgba(111,174,106,0.45);}
+  .badge.live{color:var(--green);border-color:rgba(111,174,106,0.45);}
+  .badge.notlive{color:var(--dim-2);}
+  .plan{font-size:12.5px;line-height:1.55;color:var(--ink);margin-bottom:9px;}
+  .why{font-size:11.5px;line-height:1.5;color:var(--dim);}
+  .provenance{font-size:10.5px;color:var(--dim-2);margin-top:10px;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;box-shadow:var(--top-hi);padding:15px 18px;font-size:12px;}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  th{text-align:left;font-weight:500;color:var(--dim-2);font-size:10.5px;letter-spacing:0.04em;padding:0 10px 8px 0;border-bottom:1px solid var(--line);}
+  td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);color:var(--dim);vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  td.sym{color:var(--ink);font-weight:600;}
+  .v-approved{color:var(--green);} .v-rejected{color:var(--red);} .v-pending{color:var(--dim-2);}
+  .agentbadge{font-size:10px;padding:1px 6px;border:1px solid var(--line);border-radius:3px;color:var(--teal);white-space:nowrap;}
+  .dupe{color:var(--amber);font-size:10px;margin-left:5px;}
+  .pos{color:var(--green);} .neg{color:var(--red);}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:5px;box-shadow:var(--top-hi);padding:12px 18px;}
+  summary{cursor:pointer;font-size:11.5px;color:var(--dim);outline:none;}
+  summary:hover{color:var(--ink);}
+  details[open] summary{margin-bottom:10px;}
+  ul.learnings{margin:0;padding-left:17px;font-size:11.5px;line-height:1.65;color:var(--dim);}
+  ul.learnings li{margin-bottom:7px;}
+  ul.learnings strong{color:var(--ink);font-weight:600;}
+  .feed{max-height:170px;overflow-y:auto;font-size:11.5px;color:var(--dim);}
+  .feed-line{margin-bottom:6px;}
+  .feed-line .t{color:var(--dim-2);margin-right:8px;}
+  .history{font-size:11px;color:var(--dim-2);line-height:1.7;}
+  .disclaimer{font-size:11px;color:var(--dim-2);margin-top:10px;font-style:italic;}
+  .empty{color:var(--dim-2);font-size:12px;}
+  pre.raw{white-space:pre-wrap;word-break:break-word;font-size:11px;color:var(--dim);margin:0;}
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>bus / crypto pilot</h1>
+      <div class="subtitle" id="subtitle">BTC / ETH / XRP -- price &amp; trend research, no fundamentals exist for this asset class</div>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+      <a class="navlink" href="/" target="_blank">console &rarr;</a>
+      <a class="navlink" href="/fleet.html" target="_blank">fleet pilot &rarr;</a>
+      <a class="navlink" href="/agents.html" target="_blank">agent graph &rarr;</a>
+      <a class="navlink" href="/markets.html" target="_blank">markets &rarr;</a>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="research">Research</button>
+    <button class="tab" data-tab="trading">Trading</button>
+    <button class="tab" data-tab="learnings">Learnings &amp; History</button>
+  </div>
+
+  <div class="tab-panel active" data-tab="overview">
+    <div class="section-label">today's recommendation</div>
+    <div id="approvedWrap"></div>
+  </div>
+
+  <div class="tab-panel" data-tab="research">
+    <div class="section-label">not approved this round</div>
+    <div id="rejectedWrap"></div>
+
+    <div class="section-label">BTC / ETH / XRP -- round by round</div>
+    <div class="panel" id="gridWrap"></div>
+  </div>
+
+  <div class="tab-panel" data-tab="trading">
+    <div class="section-label">live crypto positions</div>
+    <div class="panel" id="positionsWrap"></div>
+
+    <div class="section-label">trade activity</div>
+    <div class="panel"><div class="feed" id="feedWrap"></div></div>
+  </div>
+
+  <div class="tab-panel" data-tab="learnings">
+    <div class="section-label">what the agents learned</div>
+    <div class="panel" id="learningsWrap"></div>
+
+    <div class="section-label">run history</div>
+    <div class="panel"><div class="history" id="historyWrap"></div></div>
+  </div>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+function money(n){ const v = Number(n); return (v<0?"-$":"$") + Math.abs(v).toFixed(v<1?6:2); }
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === btn.dataset.tab));
+  });
+});
+
+function kpi(label, value, tone){
+  return `<div class="kpi${tone ? ' kpi-' + tone : ''}"><span class="kpi-label">${esc(label)}</span><span class="kpi-value">${value}</span></div>`;
+}
+function renderKpis(d){
+  const approvedCount = (d.round3 && d.round3.approvedCandidates) ? d.round3.approvedCandidates.length : 0;
+  const posCount = (d.positions && d.positions.positions) ? d.positions.positions.length : 0;
+  const parts = [kpi('approved', approvedCount, approvedCount > 0 ? 'green' : 'dim')];
+  if (d.positions && d.positions.available) {
+    parts.push(kpi('equity', money(d.positions.account.equity)));
+    parts.push(kpi('open crypto positions', posCount, posCount > 0 ? 'green' : 'dim'));
+  }
+  $("kpis").innerHTML = parts.join("");
+}
+
+function plainPlan(c){
+  const bits = [];
+  if (c.entryCondition) bits.push(esc(c.entryCondition));
+  if (c.invalidationCondition) bits.push("Exit rule: " + esc(c.invalidationCondition));
+  if (!bits.length && c.timeHorizon) bits.push("Time horizon: " + esc(c.timeHorizon));
+  return bits.join("<br>");
+}
+
+function renderApproved(round3, executed){
+  const wrap = $("approvedWrap");
+  if (!round3) { wrap.innerHTML = `<div class="panel empty">No round-3 synthesis found for this run.</div>`; return; }
+  const list = round3.approvedCandidates || [];
+  if (!list.length) {
+    const raw = round3.format === 'raw' && round3.rawText
+      ? `<div class="panel"><div class="empty" style="margin-bottom:8px;">Could not auto-summarize this run's output -- showing it exactly as written:</div><pre class="raw">${esc(round3.rawText)}</pre></div>`
+      : `<div class="panel empty">No candidates were approved this run -- crypto has no fundamentals data, so the bar is evidence-only and this is a real, common outcome, not an error.</div>`;
+    wrap.innerHTML = raw; return;
+  }
+  const execSet = new Set(executed || []);
+  wrap.innerHTML = `<div class="cards">` + list.map(c => {
+    const isExec = execSet.has(c.symbol);
+    return `<div class="card">
+      <div class="card-top">
+        <div class="ticker">${esc(c.symbol)}</div>
+        <span class="badge long">LONG</span>
+        <span class="badge ${isExec ? 'live' : 'notlive'}">${isExec ? 'EXECUTED' : 'not yet executed'}</span>
+      </div>
+      <div class="plan">${plainPlan(c)}</div>
+      ${c.oneLineRationale ? `<div class="why">${esc(c.oneLineRationale)}</div>` : ``}
+      <div class="provenance">from ${esc(round3.taskId)} &middot; parsed as ${esc(round3.format)}</div>
+    </div>`;
+  }).join("") + `</div>` +
+  (round3.disclaimer ? `<div class="disclaimer">${esc(round3.disclaimer)}</div>` : ``);
+}
+
+function renderRejected(round3){
+  const list = (round3 && round3.rejectedCandidates) || [];
+  $("rejectedWrap").innerHTML = !list.length
+    ? `<div class="panel empty">Nothing was explicitly rejected in this round.</div>`
+    : `<details><summary>${list.length} symbol(s) considered and passed over -- click to see why</summary>
+        <table><tbody>${list.map(r=>`<tr><td class="sym" style="width:70px">${esc(r.symbol)}</td><td>${esc(r.reason)}</td></tr>`).join("")}</tbody></table>
+      </details>`;
+}
+
+function renderGrid(grid){
+  if (!grid || !grid.length) { $("gridWrap").innerHTML = `<div class="empty">No crypto pipeline run found.</div>`; return; }
+  const cell = (r) => r
+    ? `${esc(r.status)} ${r.agent ? `<span class="agentbadge">${esc(r.agent)}</span>` : ``}`
+    : `<span class="v-pending">not run</span>`;
+  $("gridWrap").innerHTML = `<table>
+    <thead><tr><th style="width:66px">symbol</th><th>round 1 -- thesis</th><th>round 2 -- challenge</th><th style="width:110px">verdict</th></tr></thead>
+    <tbody>${grid.map(s=>`<tr>
+      <td class="sym">${esc(s.symbol)}</td>
+      <td>${cell(s.round1)}</td>
+      <td>${cell(s.round2)}${s.sameSpecialistBothRounds ? `<span class="dupe" title="round 2 is meant to go to a different specialist where practical">same specialist</span>` : ``}</td>
+      <td class="v-${esc(s.verdict)}">${esc(s.verdict)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+function renderPositions(p){
+  const wrap = $("positionsWrap");
+  if (!p || !p.available) {
+    wrap.innerHTML = `<div class="empty">Live account data not available right now${p && p.error ? ` -- ${esc(p.error)}` : ``}.</div>`;
+    return;
+  }
+  const acct = p.account || {};
+  const head = `<div style="color:var(--dim);margin-bottom:10px;">account equity <b style="color:var(--ink)">${money(acct.equity)}</b> &middot; cash ${money(acct.cash)} &middot; ${esc(acct.status)} <span style="color:var(--dim-2)">(shared with the equity account -- crypto trades on the same paper account)</span></div>`;
+  if (!p.positions || !p.positions.length) {
+    wrap.innerHTML = head + `<div class="empty">No open crypto positions.</div>`;
+    return;
+  }
+  wrap.innerHTML = head + `<table>
+    <thead><tr><th style="width:66px">symbol</th><th>side</th><th>qty</th><th>entry</th><th>now</th><th>unrealized</th></tr></thead>
+    <tbody>${p.positions.map(x=>`<tr>
+      <td class="sym">${esc(x.symbol)}</td><td>${esc(x.side)}</td><td>${x.qty}</td>
+      <td>${money(x.avgEntryPrice)}</td><td>${money(x.currentPrice)}</td>
+      <td class="${x.unrealizedPl>=0?'pos':'neg'}">${money(x.unrealizedPl)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+function describeTrade(r){
+  if (r.type === 'research-driven-entry') return `Opened ${r.direction} ${r.symbol}${r.notional ? ` ($${r.notional} notional)` : ` x${r.qty}`}${r.actualFillPrice ? ` filled at ${money(r.actualFillPrice)}` : ''}`;
+  if (r.type === 'stop-order-placed') return `Protective stop set on ${r.symbol} x${r.qty} at ${money(r.stopPrice)}`;
+  if (r.type === 'research-driven-exit') return `Closed ${r.symbol}${r.exitFillPrice ? ` at ${money(r.exitFillPrice)}` : ''}${r.reason ? ` (${r.reason})` : ''}`;
+  return `${r.type || 'record'} ${r.symbol || ''}`;
+}
+function renderFeed(tradeLog){
+  const recs = ((tradeLog && tradeLog.records) || []).slice().reverse();
+  $("feedWrap").innerHTML = recs.length
+    ? recs.map(r=>`<div class="feed-line"><span class="t">${esc(new Date(r.ts).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}))}</span>${esc(describeTrade(r))}</div>`).join("")
+    : `<div class="empty">No crypto trades recorded yet.</div>`;
+}
+
+function renderLearnings(round3){
+  const wrap = $("learningsWrap");
+  const items = (round3 && round3.keyLearnings) || [];
+  wrap.innerHTML = items.length
+    ? `<ul class="learnings">${items.map(i=>`<li>${esc(i)}</li>`).join("")}</ul>`
+    : `<div class="empty">No learnings recorded for this run.</div>`;
+}
+
+function renderHistory(versions, active){
+  const list = versions || [];
+  $("historyWrap").innerHTML = list.length
+    ? list.map(v=>`v${v.version} &mdash; ${esc(v.taskId)}${active && v.taskId===active.taskId ? ` <span style="color:var(--green)">&larr; current</span>` : ` <span style="color:var(--dim-2)">(superseded)</span>`}`).join("<br>")
+    : `<span class="empty">No round-3 runs found.</span>`;
+}
+
+async function poll(){
+  try {
+    const res = await fetch('/crypto-status.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    $("banner").className = "banner";
+
+    renderKpis(d);
+
+    if (d.empty) {
+      $("subtitle").textContent = d.message || 'no crypto pipeline run found';
+      renderApproved(null); renderRejected(null); renderGrid([]);
+      renderPositions(d.positions); renderFeed(d.tradeLog); renderLearnings(null); renderHistory([], null);
+      return;
+    }
+
+    const dt = d.pipelineDate;
+    $("subtitle").textContent = `run ${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)} -- BTC/ETH/XRP, price & trend research only, no fundamentals exist for crypto`;
+
+    renderApproved(d.round3, d.tradeLog && d.tradeLog.executedApprovedSymbols);
+    renderRejected(d.round3);
+    renderGrid(d.symbolGrid);
+    renderPositions(d.positions);
+    renderFeed(d.tradeLog);
+    renderLearnings(d.round3);
+    renderHistory(d.priorRound3Versions, d.round3);
+  } catch (err) {
+    const b = $("banner");
+    b.className = "banner show";
+    b.textContent = "Couldn't reach /crypto-status.json -- is serve-dashboard.js running? (" + err.message + ")";
+  }
+}
+
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>
