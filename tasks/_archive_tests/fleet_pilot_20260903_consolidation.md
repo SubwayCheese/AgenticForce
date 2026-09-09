@@ -25,9 +25,9 @@ timestamp: 2026-09-03T22:45:00Z
 dependsOnTaskIds: fleet_pilot_20260903_scan_batch_a, fleet_pilot_20260903_scan_batch_b, fleet_pilot_20260903_universe_snapshot
 
 ## Result (auto)
-resolved_at: 2026-09-03T22:59:43.285Z
+resolved_at: 2026-09-08T05:10:10.069Z
 output:
-```
+````
 SOURCE: supplied by orchestrator from a prior verified step
 As of: 2026-09-03 frozen snapshot (task_id `fleet_pilot_20260903_universe_snapshot`), as relayed through prior steps `fleet_pilot_20260903_scan_batch_a` and `fleet_pilot_20260903_scan_batch_b`.
 
@@ -92,4 +92,4 @@ Universe-wide anchors used (all FACT-tagged, from the frozen snapshot):
 2. **Batch A's arithmetic checks out.** I recomputed all 8 of its reported scores (TSLA 76.8, NVDA 66.6, MSFT 56.3, AAPL 45.9, GOOGL 45.7, AMZN 45.3, CAT 18.6, HD 15.6) against its stated formula and they match to 1 decimal — no errors found there.
 3. **CAT and LLY have nearly identical Avg Volume** (3,039,409 vs 3,038,805, a 604-share difference) — both sit at the effective volume floor for this universe. Not an error, just worth knowing that CAT's low unified score isn't a fluke, it's structurally the second-most illiquid name here despite positive momentum.
 4. Both original batches' caveat about trend/volatility being a same-day-change proxy (no 52-week range field in the snapshot) still applies here — I haven't introduced any volatility measure into the unified score, it's confined to Chg%/Volume/Cap exactly as instructed.
-```
+````
