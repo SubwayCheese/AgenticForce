@@ -112,6 +112,45 @@ const ACTIVITY_WINDOW_FOR_GRAPH = 60;
 // agents -- reads bus/scripts/agents/*.json the same way
 // bus-status.js's getAgentConfigStatus() does, so a third configured
 // agent would appear automatically.
+// Domain activity for bus/city.html (added 2026-09-09) -- buildAgentGraph()'s
+// existing recentTasks is capped at RECENT_TASKS_PER_AGENT (6) per agent
+// out of a 60-entry activity window, not enough for a real "how active has
+// this domain been" figure across potentially dozens of task files. This
+// does a full, separate scan of tasks/ instead, bucketed by filename
+// prefix -- so a new pilot/domain shows up automatically the day its first
+// task file lands, no hardcoded domain list to maintain.
+const DOMAIN_PATTERNS = [
+  { id: 'fleet', label: 'Equity Fleet', prefix: /^fleet_pilot_/ },
+  { id: 'crypto', label: 'Crypto Fleet', prefix: /^crypto_pilot_/ },
+];
+function getDomainActivity() {
+  const files = fs.existsSync(runTask.TASKS_DIR) ? fs.readdirSync(runTask.TASKS_DIR).filter((f) => f.endsWith('.md')) : [];
+  const now = Date.now();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  const domains = DOMAIN_PATTERNS.map((d) => ({ id: d.id, label: d.label, total: 0, last7Days: 0 }));
+  const otherDomain = { id: 'vault-ops', label: 'Vault Ops', total: 0, last7Days: 0 };
+
+  for (const f of files) {
+    const match = DOMAIN_PATTERNS.find((d) => d.prefix.test(f));
+    const bucket = match ? domains.find((d) => d.id === match.id) : otherDomain;
+    bucket.total += 1;
+    // Prefer the filename's own embedded YYYYMMDD (stable, doesn't drift
+    // on a git checkout/clone the way mtime does); fall back to mtime for
+    // undated files (probes, one-off tests).
+    const dateMatch = /_(\d{8})_/.exec(f);
+    let ts;
+    if (dateMatch) {
+      const s = dateMatch[1];
+      ts = new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00Z`).getTime();
+    } else {
+      try { ts = fs.statSync(path.join(runTask.TASKS_DIR, f)).mtimeMs; } catch (_) { ts = 0; }
+    }
+    if (ts && now - ts <= sevenDaysMs) bucket.last7Days += 1;
+  }
+
+  return [...domains, otherDomain];
+}
+
 function buildAgentGraph() {
   const agentIds = engine.listAgentConfigs();
   const inFlightIds = getInFlightTasks();
@@ -183,7 +222,8 @@ function buildAgentGraph() {
     orchestrator: { id: 'claude', label: 'claude (orchestrator)' },
     agents,
     dependsOnEdges,
+    domains: getDomainActivity(),
   };
 }
 
-module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph };
+module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph, getDomainActivity };

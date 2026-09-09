@@ -29,6 +29,7 @@ const { buildCryptoSnapshot } = require('./crypto-status.js');
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DASHBOARD_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'dashboard.html');
 const AGENTS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'agents.html');
+const CITY_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'city.html');
 const MARKETS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'markets.html');
 const FLEET_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'fleet.html');
 const CRYPTO_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'crypto.html');
@@ -72,6 +73,14 @@ const server = http.createServer((req, res) => {
   if (url === '/agents.html') {
     fs.readFile(AGENTS_HTML_PATH, 'utf8', (err, html) => {
       if (err) return send(res, 500, 'text/plain', `Failed to read agents.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/city.html') {
+    fs.readFile(CITY_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read city.html: ${err.message}`);
       send(res, 200, 'text/html; charset=utf-8', html);
     });
     return;
