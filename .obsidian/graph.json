@@ -1,6 +1,6 @@
 {
   "collapse-filter": false,
-  "search": "",
+  "search": "-path:\"bus/\" -path:\"tasks/\" -path:\"roles/\"",
   "showTags": false,
   "showAttachments": false,
   "hideUnresolved": false,

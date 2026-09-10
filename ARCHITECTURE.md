@@ -1309,6 +1309,12 @@ confirm the specialist and status shown match the file's real `to:` and
 `status:` fields -- the same drift-prevention idiom
 `testAgentGraphFast()` uses.
 
+The round-3 `keyLearnings` from this pipeline's `_synthesis_r3_portfolio_v3`
+run are saved as a standalone durable doc, [[fleet_pilot_20260908_learnings]]
+(vault root), since findings about the pipeline's own methodology should
+survive past any individual task file -- see section 9 for how these
+now feed forward automatically into each new cycle's round-1 prompts.
+
 ## 3r. Crypto trading -- BTC/ETH/XRP (added 2026-09-08/09)
 
 Extends the same account, the same 3-round deliberation design, and the
