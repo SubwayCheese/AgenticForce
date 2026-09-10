@@ -1854,6 +1854,61 @@ end-to-end by `run-queue-daemon.js` (blocked on the FMP key), the
 idempotency guard against a real duplicate execution attempt, and the
 rate-limit requeue path against a real 429.
 
+**Conditional triggers -- "keep passively scanning" (added 2026-09-10):**
+direct user pushback on the first live run of this pilot: round-3's
+decision was binary (execute now at market, or reject and nothing happens
+today), and a day where every candidate rejects on genuine evidence-quality
+grounds still felt like "the system should keep watching, not just stop."
+The fix, and the real distinction that shapes it: a REJECT (round 2 found
+an unresolved logic/arithmetic error, an undefined metric, a material data
+gap) is a correct terminal outcome no price trigger can fix -- forcing a
+trade there would just hide bad evidence behind a limit order. What was
+actually missing was a genuine third outcome for a thesis that's sound but
+whose CURRENT price isn't the right entry.
+
+- Round-3's schema (`generateSynthesisTask()`) gained `conditionalCandidates[]`
+  alongside `approvedCandidates[]`/`rejectedCandidates[]`, each carrying a
+  machine-checkable `triggerPrice` (number) and `triggerType`
+  (`at_or_below` | `at_or_above`) -- the prompt explicitly forbids
+  defaulting rejections into this category just to avoid an empty list.
+- New `bus/scripts/conditional-triggers.js`: `armNewTriggers()` discovers
+  new conditional candidates from the latest round-3 (idempotent, keyed by
+  `sourceTask::symbol`); `checkTriggers()` fetches a LIVE quote via
+  `alpaca-client.js`'s new `getLatestQuote()` (Alpaca's own market-data API,
+  `data.alpaca.markets` -- not FMP, so this works even without
+  `FMP_API_KEY`, and it's the more honest source since Alpaca is the actual
+  execution venue) and compares it to the trigger; on a match it does
+  **NOT** execute -- it dispatches a brief rescan task and logs
+  `trigger-fired`.
+- **The user's explicit requirement, the core of this feature**: a trigger
+  firing never fills blind. `generateRescanTask()` asks Codex a narrow
+  question -- given the original thesis (injected via `dependsOnTaskId`)
+  and the one new fact (live price now past the trigger), does this still
+  hold up, reply `VERDICT: STILL VALID` or `VERDICT: NO LONGER VALID`.
+  Honest about a real constraint: Codex has no live FMP access, so this is
+  a reasoning re-check against already-known context plus its own hosted
+  web-search tool (confirmed real, works under `--sandbox read-only`), not
+  a fresh fundamentals pull.
+- `checkRescanResults()` only calls `execute-portfolio-setup.js`'s
+  `executeOne()` (now exported -- that file's `main()` was previously
+  unguarded and ran on require, fixed with a `require.main === module`
+  check) when the verdict is STILL VALID; NO LONGER VALID logs
+  `trigger-invalidated` and executes nothing; a missing/malformed verdict
+  line is left pending rather than assumed either way.
+- State lives in `bus/pending-triggers.jsonl` (append-only, latest event
+  per `sourceTask::symbol` is current state -- same discipline as
+  `paper-trades.jsonl`, committed the same way, not gitignored).
+- Wired into `pilot-supervisor.js`'s main loop (`checkConditionalTriggers()`,
+  runs every wake alongside cycle generation).
+- **Verified live, safely**: armed a synthetic guaranteed-to-fire trigger
+  on AAPL, confirmed `checkTriggers()` fetched a real live quote and
+  correctly dispatched a real rescan task; manually supplied a NO LONGER
+  VALID verdict and confirmed `checkRescanResults()` logged
+  `trigger-invalidated` and placed **zero** orders (`paper-trades.jsonl`
+  confirmed unchanged). The STILL-VALID-executes branch was verified by
+  code review, not a live test -- deliberately not exercising real order
+  placement as a "test."
+
 ## Related Notes
 
 - [[00 - Master Agent Index]] (hub)

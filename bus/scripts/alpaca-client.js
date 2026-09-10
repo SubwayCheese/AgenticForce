@@ -52,6 +52,43 @@ async function apiRequest(method, urlPath, body) {
   return parsed;
 }
 
+// Market-data API lives on a different host than the trading API
+// (data.alpaca.markets vs paper-api.alpaca.markets) but uses the SAME
+// key/secret -- added for conditional-triggers.js's price-trigger checking,
+// which needs a live quote independent of the FMP connector (FMP_API_KEY
+// isn't configured yet -- see fmp-client.js -- and Alpaca is the execution
+// venue anyway, the more honest source of truth for "would this order fill
+// near this price right now"). No new credential, no new paper-only guard
+// needed: this is a read-only quote lookup, not an order-placement path,
+// and the same paper-account key that already can't touch a live account.
+async function getLatestQuote(symbol) {
+  const { key, secret } = loadConfig();
+  const isCrypto = cryptoSymbols.isCryptoSymbol(symbol);
+  const url = isCrypto
+    ? `https://data.alpaca.markets/v1beta3/crypto/us/latest/quotes?symbols=${encodeURIComponent(cryptoSymbols.toAlpacaSymbol(symbol))}`
+    : `https://data.alpaca.markets/v2/stocks/quotes/latest?symbols=${encodeURIComponent(symbol)}`;
+  const res = await fetch(url, {
+    headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret },
+  });
+  const text = await res.text();
+  let parsed;
+  try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = text; }
+  if (!res.ok) {
+    const msg = parsed && parsed.message ? parsed.message : text;
+    throw new Error(`Alpaca market-data GET ${url} -> ${res.status}: ${msg}`);
+  }
+  const quotesKey = isCrypto ? 'quotes' : 'quotes';
+  const bucket = isCrypto ? parsed.quotes : parsed.quotes;
+  const key2 = isCrypto ? cryptoSymbols.toAlpacaSymbol(symbol) : symbol;
+  const quote = bucket && bucket[key2];
+  if (!quote) throw new Error(`No live quote returned for ${symbol} (${url})`);
+  // Midpoint of bid/ask -- a real, checkable proxy for "current price," not
+  // last-trade (which can be stale during low-volume moments).
+  const bid = Number(quote.bp), ask = Number(quote.ap);
+  const mid = (bid && ask) ? (bid + ask) / 2 : (ask || bid);
+  return { symbol, bid, ask, mid, raw: quote };
+}
+
 function getAccount() {
   return apiRequest('GET', '/account');
 }
@@ -140,7 +177,7 @@ function cancelOrder(orderId) {
   return apiRequest('DELETE', `/orders/${encodeURIComponent(orderId)}`);
 }
 
-module.exports = { loadConfig, apiRequest, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry };
+module.exports = { loadConfig, apiRequest, getLatestQuote, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry };
 
 // CLI: node alpaca-client.js account|positions|orders
 if (require.main === module) {

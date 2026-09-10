@@ -8,11 +8,15 @@
 // What it does NOT do: dispatch tasks itself. generate-pilot-tasks.js
 // authors status:pending .md files; run-queue-daemon.js (already real,
 // already working, unchanged by this file) picks them up and handles the
-// entire dependency-chain fan-out/fan-in. This script's only two jobs
-// are (1) deciding once a day per pilot whether a new cycle is due, and
-// (2) calling the two already-schedule-ready scripts that close a cycle
-// out: execute-portfolio-setup.js --auto and monitor-paper-trades.js
-// --execute.
+// entire dependency-chain fan-out/fan-in. This script's jobs are
+// (1) deciding once a day per pilot whether a new cycle is due,
+// (2) checking conditional-triggers.js's watched price triggers and
+// resolving any completed rescans (added 2026-09-10 -- round-3 can now
+// output a genuinely conditional candidate instead of only approve/reject;
+// this is what turns "the price hasn't confirmed yet" into "keep watching,
+// re-verify, then act" rather than a dead end), and (3) calling the two
+// already-schedule-ready scripts that close a cycle out:
+// execute-portfolio-setup.js --auto and monitor-paper-trades.js --execute.
 //
 // PAPER-ONLY by construction, transitively: everything this script calls
 // eventually goes through alpaca-client.js's loadConfig(), which throws
@@ -27,6 +31,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const gen = require('./generate-pilot-tasks.js');
 const alpaca = require('./alpaca-client.js');
+const triggers = require('./conditional-triggers.js');
 
 const SCRIPTS_DIR = __dirname;
 const VAULT_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -127,9 +132,24 @@ function runMonitorExecute() {
   }
 }
 
+async function checkConditionalTriggers() {
+  try {
+    triggers.armNewTriggers('fleet');
+    triggers.armNewTriggers('crypto');
+    const fired = await triggers.checkTriggers();
+    const resolved = await triggers.checkRescanResults();
+    if (fired.length || resolved.length) {
+      log(`conditional-triggers: ${fired.length} newly fired, ${resolved.length} rescan(s) resolved.`);
+    }
+  } catch (err) {
+    log(`conditional-triggers FAILED: ${err.message}`);
+  }
+}
+
 async function main() {
   await maybeGenerateCycle('fleet');
   await maybeGenerateCycle('crypto');
+  await checkConditionalTriggers();
   runExecuteAuto('fleet');
   runExecuteAuto('crypto');
   runMonitorExecute();
@@ -139,4 +159,4 @@ if (require.main === module) {
   main().catch((err) => { log(`FAILED: ${err.message}`); process.exit(1); });
 }
 
-module.exports = { log, getMarketClock, isCycleDue, todayCycleExists, maybeGenerateCycle, runExecuteAuto, runMonitorExecute, main };
+module.exports = { log, getMarketClock, isCycleDue, todayCycleExists, maybeGenerateCycle, checkConditionalTriggers, runExecuteAuto, runMonitorExecute, main };

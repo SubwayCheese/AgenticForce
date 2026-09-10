@@ -272,7 +272,15 @@ async function main() {
   console.log('\nDone.');
 }
 
-main().catch((err) => {
-  console.error('FAILED:', err.message);
-  process.exit(1);
-});
+// Guarded so this file can be require()'d as a library (conditional-triggers.js
+// reuses executeOne()/alreadyExecuted() for the confirm-then-fire path) without
+// its own CLI main() running unsolicited -- previously main() ran unconditionally
+// on require, a real blocker the first time this was attempted.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('FAILED:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, AUTO_EQUITY_QTY_PER_LEG, AUTO_CRYPTO_NOTIONAL_PER_LEG };

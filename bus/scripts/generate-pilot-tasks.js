@@ -187,15 +187,23 @@ function generateSynthesisTask(pilot, datePrefix, symbols, r1Ids, r2Ids, priorLe
   const payload = [
     `ROUND-3 PORTFOLIO SYNTHESIS for the ${pilot} pilot (${symbols.join(', ')}). You are receiving the COMPLETE ledger: every round-1 thesis and round-2 challenge for this cycle, auto-injected below via multi-parent dependency.`,
     '',
-    'Independently approve or reject EACH candidate on its own merits, not a forced single winner. Entries must be actionable TODAY at current price (no future-dated gates).',
+    'Independently sort EACH candidate into exactly one of THREE outcomes -- not a forced single winner, and not a forced binary:',
+    '',
+    '1. **approvedCandidates** -- actionable TODAY at current price, no future-dated gates. Use when the evidence genuinely supports acting right now.',
+    '2. **conditionalCandidates** -- the thesis itself is sound and the evidence quality clears the bar, but the CURRENT price is not the right entry -- a specific, checkable price level would confirm it (a pullback to support, a breakout above resistance, a rebound off a stated level). This is a real third outcome, not a consolation prize: only use it when round 2 did NOT find unresolved evidence-quality problems (a real logic/arithmetic error, an undefined/non-comparable metric, a data gap material enough to undermine the conclusion) -- if round 2 found problems like that, the candidate is REJECTED, not conditional, because a price trigger cannot fix bad evidence.',
+    '3. **rejectedCandidates** -- round 2 found unresolved substantive issues, or there is no real edge at any price.',
+    '',
+    'Do NOT default everything into conditionalCandidates just to avoid an empty approvedCandidates/rejectedCandidates list -- sort honestly. A day where every candidate genuinely belongs in rejectedCandidates is a correct, real outcome, not a failure to fix.',
     '',
     isCrypto
-      ? 'All symbols here are confirmed spot/long-only -- any approved conditionalSetup.direction MUST be "long". Time-based exit must be phrased in HOURS, not trading sessions -- crypto trades 24/7. Use the Alpaca order-format symbol with a slash (e.g. BTC/USD) in conditionalSetup.symbol.'
+      ? 'All symbols here are confirmed spot/long-only -- any approved or conditional conditionalSetup.direction MUST be "long". Time-based exit must be phrased in HOURS, not trading sessions -- crypto trades 24/7. Use the Alpaca order-format symbol with a slash (e.g. BTC/USD) in conditionalSetup.symbol.'
       : 'Time-based exit must be phrased as "...or exit after N trading sessions if not triggered," or "exit at today\'s close"/"exit at the close" for an explicit same-day exit.',
     '',
-    'Deterministic decision rule: (1) reject any candidate where round 2 found unresolved substantive issues; (2) among survivors, assess genuine conviction, not just "survived challenge"; (3) approve however many genuinely clear the bar; (4) for each approved candidate produce a conditionalSetup (symbol, direction, entryCondition, invalidationCondition, timeHorizon); (5) preserve material dissent per-symbol.',
+    'Deterministic decision rule: (1) reject any candidate where round 2 found unresolved substantive issues; (2) among survivors, assess genuine conviction; (3) if current price already supports entry, approve; (4) if the thesis is sound but needs a specific price confirmation first, mark conditional with an exact triggerPrice; (5) for each approved OR conditional candidate produce a conditionalSetup (symbol, direction, entryCondition, invalidationCondition, timeHorizon); (6) preserve material dissent per-symbol.',
     '',
-    'Output MUST include a single fenced json code block containing: runTimestamp, frozenDataTimestamp, approvedCandidates[] (symbol/stance/conditionalSetup/bullCase/bearCase/oneLineRationale), rejectedCandidates[] (symbol/reason), materialDissent{}, evidenceLedgerSummary{}, riskWarnings[], keyLearnings[], comparisonToPriorRuns, disclaimer.',
+    'conditionalCandidates entries need TWO fields the other categories do not: **triggerPrice** (a single number, the exact price that confirms entry) and **triggerType** (`"at_or_below"` if you are waiting for a pullback/breakdown-confirmed entry, `"at_or_above"` if you are waiting for a breakout/strength-confirmed entry). These are checked automatically against live price, so they must be exact numbers, not a range or a prose description. When triggerType fires, an automated re-verification (a brief rescan, not full re-research) checks whether the thesis still holds before anything is executed -- so state the ORIGINAL reasoning clearly enough that a future check against it makes sense.',
+    '',
+    'Output MUST include a single fenced json code block containing: runTimestamp, frozenDataTimestamp, approvedCandidates[] (symbol/stance/conditionalSetup/bullCase/bearCase/oneLineRationale), conditionalCandidates[] (symbol/stance/triggerPrice/triggerType/conditionalSetup/bullCase/bearCase/oneLineRationale), rejectedCandidates[] (symbol/reason), materialDissent{}, evidenceLedgerSummary{}, riskWarnings[], keyLearnings[], comparisonToPriorRuns, disclaimer.',
     '',
     priorLearningsSection,
   ].join('\n');
@@ -205,6 +213,38 @@ function generateSynthesisTask(pilot, datePrefix, symbols, r1Ids, r2Ids, priorLe
     type: 'request',
     payload,
     dependsOnTaskIds: [...r1Ids, ...r2Ids],
+  });
+}
+
+// ---------- Rescan (conditional-trigger confirmation) ----------
+
+// Fired by conditional-triggers.js the moment a conditionalCandidate's
+// triggerPrice is actually touched -- NOT a full re-run of rounds 1-2, a
+// brief re-verification against the original thesis plus the one new fact
+// (live price now at/through the trigger). Codex has no live FMP access,
+// so this is a reasoning re-check against already-injected context, not a
+// fresh data pull -- honest about that constraint, not pretending
+// otherwise. Codex's own hosted web-search tool IS real and available
+// (confirmed working under --sandbox read-only) if a quick current-events
+// check would change the verdict.
+function generateRescanTask(pilot, symbol, datePrefix, sourceSynthesisTaskId, livePrice, triggerPrice, triggerType) {
+  const prefix = pilotPrefix(pilot);
+  const taskId = `${prefix}${datePrefix}_rescan_${symbol.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now()}`;
+  const payload = [
+    `RESCAN for ${symbol}: this candidate's conditional trigger has just fired. Original conditional thesis (with its bull/bear case and triggerPrice/triggerType) is auto-injected below via dependency.`,
+    '',
+    `Live price is now $${livePrice}, which has crossed the stated trigger ($${triggerPrice}, ${triggerType}).`,
+    '',
+    'Do a BRIEF re-verification, not a full re-research pass: does the original thesis still hold up given this price action, or does the move itself look like it undermines the thesis (e.g. a "buy the pullback" thesis where the pullback kept accelerating past support, or unexplained volume/news you can check via your own hosted web-search tool if available)? You do not have live fundamental/valuation data access -- reason from the injected thesis plus this one new price fact, and a quick web-search check if it would change your answer.',
+    '',
+    'Reply with a single clear verdict line, exactly one of: "VERDICT: STILL VALID" or "VERDICT: NO LONGER VALID", followed by one short paragraph of reasoning.',
+  ].join('\n');
+  return writeTaskFile(taskId, {
+    from: 'claude',
+    to: 'codex',
+    type: 'request',
+    payload,
+    dependsOnTaskId: sourceSynthesisTaskId,
   });
 }
 
@@ -346,6 +386,7 @@ module.exports = {
   generateThesisTask,
   generateChallengeTask,
   generateSynthesisTask,
+  generateRescanTask,
   computeScreenScore,
   generateFleetDataSnapshot,
   generateCryptoDataSnapshot,
