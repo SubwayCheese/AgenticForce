@@ -180,10 +180,14 @@ function generateChallengeTask(pilot, symbol, datePrefix, thesisTaskId) {
 
 // ---------- Round 3 template ----------
 
-function generateSynthesisTask(pilot, datePrefix, symbols, r1Ids, r2Ids, priorLearningsSection) {
+function generateSynthesisTask(pilot, datePrefix, symbols, r1Ids, r2Ids, priorLearningsSection, versionSuffix) {
   const prefix = pilotPrefix(pilot);
   const isCrypto = pilot === 'crypto';
-  const taskId = `${prefix}${datePrefix}_synthesis_r3_portfolio`;
+  // versionSuffix (e.g. "v2") lets round-3 be re-run against the SAME
+  // already-completed round-1/round-2 ledger without re-dispatching it --
+  // e.g. after a decision-rule bug fix, matching the established
+  // _v2/_v3 re-run convention from fleet_pilot_20260908's history.
+  const taskId = `${prefix}${datePrefix}_synthesis_r3_portfolio${versionSuffix ? '_' + versionSuffix : ''}`;
   const payload = [
     `ROUND-3 PORTFOLIO SYNTHESIS for the ${pilot} pilot (${symbols.join(', ')}). You are receiving the COMPLETE ledger: every round-1 thesis and round-2 challenge for this cycle, auto-injected below via multi-parent dependency.`,
     '',
@@ -191,15 +195,17 @@ function generateSynthesisTask(pilot, datePrefix, symbols, r1Ids, r2Ids, priorLe
     '',
     '1. **approvedCandidates** -- actionable TODAY at current price, no future-dated gates. Use when the evidence genuinely supports acting right now.',
     '2. **conditionalCandidates** -- the thesis itself is sound and the evidence quality clears the bar, but the CURRENT price is not the right entry -- a specific, checkable price level would confirm it (a pullback to support, a breakout above resistance, a rebound off a stated level). This is a real third outcome, not a consolation prize: only use it when round 2 did NOT find unresolved evidence-quality problems (a real logic/arithmetic error, an undefined/non-comparable metric, a data gap material enough to undermine the conclusion) -- if round 2 found problems like that, the candidate is REJECTED, not conditional, because a price trigger cannot fix bad evidence.',
-    '3. **rejectedCandidates** -- round 2 found unresolved substantive issues, or there is no real edge at any price.',
+    '3. **rejectedCandidates** -- round 2 found a genuine, CANDIDATE-SPECIFIC disqualifying issue, or there is no real edge at any price for this name specifically.',
     '',
-    'Do NOT default everything into conditionalCandidates just to avoid an empty approvedCandidates/rejectedCandidates list -- sort honestly. A day where every candidate genuinely belongs in rejectedCandidates is a correct, real outcome, not a failure to fix.',
+    '**Critical distinction, read this before sorting anyone -- this is the single most common mistake in this decision**: round 2 was instructed to challenge EVERY thesis hard, so it will almost always surface something. Before treating a round-2 finding as grounds to reject, ask: does this finding apply ONLY to this candidate, or does the SAME limitation appear in round 2\'s critique of most/all of the other candidates too (e.g. "no forward growth estimates," "no peer-relative benchmarking," an undefined valuation-metric label, "cannot independently verify the raw daily series")? If it\'s a limitation of the INJECTED DATASET ITSELF -- true equally for every symbol in this batch because they were all built from the same enrichment pass -- it is NOT valid grounds to reject one candidate and not another. Rejecting every candidate for the same generic data-completeness caveat is not 15 independent judgments, it is one structural bias wearing 15 different names -- catch this actively, do not let it happen by default. A real disqualifier is something that differentiates THIS candidate from the others: an unexplained price event specific to this symbol, an actual arithmetic/logic error in THIS thesis, a fact this specific stance contradicts. Reserve rejectedCandidates for that.',
+    '',
+    'Do NOT default everything into conditionalCandidates just to avoid an empty approvedCandidates/rejectedCandidates list -- sort honestly. A day where every candidate genuinely belongs in rejectedCandidates for real, candidate-specific reasons is a correct outcome. A day where every candidate gets the same generic-data-limitation reasoning is very likely the bias above, not a real finding -- if you notice that pattern forming, stop and re-sort using the distinction above before finalizing.',
     '',
     isCrypto
       ? 'All symbols here are confirmed spot/long-only -- any approved or conditional conditionalSetup.direction MUST be "long". Time-based exit must be phrased in HOURS, not trading sessions -- crypto trades 24/7. Use the Alpaca order-format symbol with a slash (e.g. BTC/USD) in conditionalSetup.symbol.'
       : 'Time-based exit must be phrased as "...or exit after N trading sessions if not triggered," or "exit at today\'s close"/"exit at the close" for an explicit same-day exit.',
     '',
-    'Deterministic decision rule: (1) reject any candidate where round 2 found unresolved substantive issues; (2) among survivors, assess genuine conviction; (3) if current price already supports entry, approve; (4) if the thesis is sound but needs a specific price confirmation first, mark conditional with an exact triggerPrice; (5) for each approved OR conditional candidate produce a conditionalSetup (symbol, direction, entryCondition, invalidationCondition, timeHorizon); (6) preserve material dissent per-symbol.',
+    'Deterministic decision rule: (1) reject a candidate ONLY where round 2 found a genuine candidate-specific disqualifying issue (see the distinction above -- not a generic data-completeness caveat shared across the batch); (2) among survivors, assess genuine conviction; (3) if current price already supports entry, approve; (4) if the thesis is sound but needs a specific price confirmation first, mark conditional with an exact triggerPrice; (5) for each approved OR conditional candidate produce a conditionalSetup (symbol, direction, entryCondition, invalidationCondition, timeHorizon); (6) preserve material dissent per-symbol.',
     '',
     'conditionalCandidates entries need TWO fields the other categories do not: **triggerPrice** (a single number, the exact price that confirms entry) and **triggerType** (`"at_or_below"` if you are waiting for a pullback/breakdown-confirmed entry, `"at_or_above"` if you are waiting for a breakout/strength-confirmed entry). These are checked automatically against live price, so they must be exact numbers, not a range or a prose description. When triggerType fires, an automated re-verification (a brief rescan, not full re-research) checks whether the thesis still holds before anything is executed -- so state the ORIGINAL reasoning clearly enough that a future check against it makes sense.',
     '',
