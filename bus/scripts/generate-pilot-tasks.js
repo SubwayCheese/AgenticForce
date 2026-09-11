@@ -422,18 +422,34 @@ async function generateFleetDataSnapshot(datePrefix) {
   const shortlist = ranked.slice(0, SHORTLIST_SIZE);
 
   const taskId = `fleet_pilot_${datePrefix}_universe50_consolidation`;
+  // BUG FOUND LIVE 2026-09-11: price/priceAvg50/priceAvg200 were computed
+  // on every candidate above but never actually made it into the table --
+  // every equity thesis this cycle was built with NO current price and NO
+  // trend data at all, only Chg%/AvgVolume/MarketCap/screenScore. Round-3
+  // correctly flagged this itself ("No current absolute prices for most
+  // names") and had to reuse a stale, non-derived trigger price for VZ
+  // instead of a real one. Crypto's table never had this gap. Added price
+  // + a shortlist-detail block (50/200-day averages) for the top 15,
+  // matching the pattern already used for crypto.
   const table = ranked
-    .map((c, i) => `| ${i + 1} | ${c.symbol} | ${c.chgPct.toFixed(2)}% | ${Math.round(c.avgVolume).toLocaleString()} | ${c.marketCap ? '$' + (c.marketCap / 1e9).toFixed(1) + 'B' : 'n/a'} | ${c.screenScore.toFixed(1)} |`)
+    .map((c, i) => `| ${i + 1} | ${c.symbol} | $${c.price.toFixed(2)} | ${c.chgPct.toFixed(2)}% | ${Math.round(c.avgVolume).toLocaleString()} | ${c.marketCap ? '$' + (c.marketCap / 1e9).toFixed(1) + 'B' : 'n/a'} | ${c.screenScore.toFixed(1)} |`)
     .join('\n');
+  const shortlistDetail = shortlist.map((c) => [
+    `### ${c.symbol}`,
+    `- Live quote: $${c.price.toFixed(2)}, change ${c.chgPct.toFixed(2)}%, 50-day avg $${c.priceAvg50 ? c.priceAvg50.toFixed(2) : 'n/a'}, 200-day avg $${c.priceAvg200 ? c.priceAvg200.toFixed(2) : 'n/a'}, market cap ${c.marketCap ? '$' + (c.marketCap / 1e9).toFixed(1) + 'B' : 'n/a'}.`,
+  ].join('\n')).join('\n\n');
   const capNote = finnhubAvailable
     ? ''
     : '\n\nFINNHUB_API_KEY not configured -- market cap is n/a for every symbol this cycle, and screenScore is effectively 50 x norm(Chg%) + 30 x norm(AvgVolume) only (the 20% cap weight contributes nothing when every value is equal). Add FINNHUB_API_KEY to bus/secrets.local.json (free tier, finnhub.io) to restore it.';
   const payload = [
     `Unattended screen, ${universe.length}-symbol fixed universe (bus/scripts/fleet-universe.json), price/volume from Alpaca's free market-data API (batched daily bars, same paper-account key already configured -- no new credential), market cap from Finnhub's free tier. Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized. Top ${SHORTLIST_SIZE} become this cycle's shortlist.${capNote}`,
     '',
-    '| Rank | Symbol | Chg% | Avg Volume (20d) | Market Cap | screenScore |',
-    '|---|---|---|---|---|---|',
+    '| Rank | Symbol | Price | Chg% | Avg Volume (20d) | Market Cap | screenScore |',
+    '|---|---|---|---|---|---|---|',
     table,
+    '',
+    '## Shortlist detail',
+    shortlistDetail,
   ].join('\n');
 
   writeTaskFile(taskId, { from: 'claude', to: 'claude', type: 'response', payload: '(orchestrator-sourced, unattended -- see generate-pilot-tasks.js)' });
