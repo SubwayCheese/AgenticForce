@@ -2,5 +2,9 @@
   "legacyEditor": false,
   "livePreview": true,
   "showLineNumber": true,
-  "userIgnoreFilters": ["bus/", "tasks/", "roles/"]
+  "userIgnoreFilters": [
+    "bus/",
+    "tasks/",
+    "roles/"
+  ]
 }
