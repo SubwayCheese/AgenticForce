@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 // crypto-status.js -- the live snapshot for bus/crypto.html, the crypto pilot's own dashboard
 // (added 2026-09-09, the deferred follow-up noted in ARCHITECTURE.md 3r). Mirrors
-// fleet-status.js's shape but simpler: no universe-scan/shortlist funnel (only 3 fixed
-// symbols -- BTC/ETH/XRP), reuses fleet-status.js's parseRound3Output() directly rather than
+// fleet-status.js's shape, reuses fleet-status.js's parseRound3Output() directly rather than
 // duplicating the dual-format (JSON/prose) parser.
+//
+// UPDATED 2026-09-11: the crypto universe expanded from a fixed 3-coin
+// table to 32 real tradable coins with a genuine screen -> shortlist
+// funnel (see generate-pilot-tasks.js/crypto-universe.json) -- the
+// symbol grid below used to hardcode ['btc','eth','xrp'] and would have
+// silently shown the wrong (or empty) grid the first day the shortlist
+// picked different coins. Now discovers the real shortlist dynamically
+// from tasks/ filenames, same pattern as fleet-status.js's
+// discoverShortlist().
 
 const fs = require('fs');
 const path = require('path');
@@ -15,17 +23,22 @@ const { parseRound3Output, getTradeLog } = require('./fleet-status.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
-const COINS = ['btc', 'eth', 'xrp'];
 
 function listTaskFilenames() {
   if (!fs.existsSync(TASKS_DIR)) return [];
   return fs.readdirSync(TASKS_DIR).filter((f) => f.endsWith('.md'));
 }
 
+// Same real bug/fix as fleet-status.js's findLatestPipelineDate() -- a
+// crypto rescan firing on a later date than its cycle would otherwise
+// masquerade as a newer (empty) cycle. Not yet triggered for crypto (only
+// fleet's KO/VZ fired overnight), but the same collision is latent here
+// the first time a crypto trigger fires on a different day than its cycle.
 function findLatestCryptoPipelineDate(filenames) {
   const files = filenames || listTaskFilenames();
   const dates = new Set();
   for (const f of files) {
+    if (/_rescan_/.test(f)) continue;
     const m = /^crypto_pilot_(\d{8})_/.exec(f);
     if (m) dates.add(m[1]);
   }
@@ -46,9 +59,44 @@ function discoverRound3Versions(datePrefix, filenames) {
   return found;
 }
 
-function buildSymbolGrid(datePrefix, round3Parsed) {
-  const approved = new Map((round3Parsed ? round3Parsed.approvedCandidates : []).map((c) => [c.symbol, c]));
-  const rejected = new Map((round3Parsed ? round3Parsed.rejectedCandidates : []).map((c) => [c.symbol, c]));
+// Real coins for this date's cycle, discovered from actual task filenames
+// -- NOT the old hardcoded ['btc','eth','xrp']. Matches fleet-status.js's
+// discoverShortlist() pattern: an unsuffixed file is version 1, keep only
+// the highest version per coin. Falls back to the legacy fixed 3-coin
+// list if no thesis files are found at all for this date (e.g. an old,
+// pre-expansion run), so historical dates still render correctly.
+function discoverCryptoShortlist(datePrefix, filenames) {
+  const files = filenames || listTaskFilenames();
+  const bySymbol = new Map();
+  const re = new RegExp(`^crypto_pilot_${datePrefix}_thesis_r1(?:v(\\d+))?_([a-z0-9]+)\\.md$`);
+  for (const f of files) {
+    const m = re.exec(f);
+    if (!m) continue;
+    const version = m[1] ? Number(m[1]) : 1;
+    const symbol = m[2].toUpperCase();
+    const current = bySymbol.get(symbol);
+    if (!current || version > current) bySymbol.set(symbol, version);
+  }
+  if (bySymbol.size === 0) return ['BTC', 'ETH', 'XRP']; // legacy fallback for pre-expansion dates
+  return Array.from(bySymbol.keys()).sort();
+}
+
+// Pre-existing bug, found and fixed 2026-09-11 while verifying the
+// universe expansion (unrelated to it, same mismatch existed with the
+// old hardcoded 3-coin list too): round-3 candidates key by the Alpaca
+// order symbol ("ETH/USD"), but the grid keys by the bare coin ticker
+// ("ETH") -- they never matched, so verdict silently showed "pending"
+// for every crypto candidate regardless of the real outcome. Normalize
+// both to the bare coin ticker before building the lookup maps.
+function bareCoin(symbol) {
+  return String(symbol || '').split('/')[0].toUpperCase();
+}
+
+function buildSymbolGrid(datePrefix, round3Parsed, filenames) {
+  const approved = new Map((round3Parsed ? round3Parsed.approvedCandidates : []).map((c) => [bareCoin(c.symbol), c]));
+  const rejected = new Map((round3Parsed ? round3Parsed.rejectedCandidates : []).map((c) => [bareCoin(c.symbol), c]));
+  // conditionalCandidates, same fix as fleet-status.js -- see its own comment.
+  const conditional = new Map((round3Parsed && round3Parsed.conditionalCandidates || []).map((c) => [bareCoin(c.symbol), c]));
   const agentCache = new Map();
   function displayNameFor(agentId) {
     if (!agentId) return null;
@@ -65,13 +113,16 @@ function buildSymbolGrid(datePrefix, round3Parsed) {
     return { taskId, status: task.status || '(unknown)', agentId: task.to || null, agent: displayNameFor(task.to) };
   }
 
-  return COINS.map((coin) => {
-    const symbol = coin.toUpperCase();
+  const coins = discoverCryptoShortlist(datePrefix, filenames);
+  return coins.map((symbol) => {
+    const coin = symbol.toLowerCase();
     const r1 = roundInfo(`crypto_pilot_${datePrefix}_thesis_r1_${coin}`);
     const r2 = roundInfo(`crypto_pilot_${datePrefix}_challenge_r2_${coin}`);
     const approvedCandidate = approved.get(symbol) || null;
+    const conditionalCandidate = conditional.get(symbol) || null;
     let verdict = 'pending';
     if (approvedCandidate) verdict = 'approved';
+    else if (conditionalCandidate) verdict = 'conditional';
     else if (rejected.has(symbol)) verdict = 'rejected';
     return {
       symbol,
@@ -79,6 +130,8 @@ function buildSymbolGrid(datePrefix, round3Parsed) {
       round2: r2,
       sameSpecialistBothRounds: !!(r1 && r2 && r1.agentId && r1.agentId === r2.agentId),
       verdict,
+      triggerPrice: conditionalCandidate ? conditionalCandidate.triggerPrice : null,
+      triggerType: conditionalCandidate ? conditionalCandidate.triggerType : null,
       rejectionReason: rejected.has(symbol) ? rejected.get(symbol).reason : null,
     };
   });
@@ -137,12 +190,12 @@ async function buildCryptoSnapshot() {
     generatedAt: new Date().toISOString(),
     pipelineDate,
     empty: false,
-    symbolGrid: buildSymbolGrid(pipelineDate, round3Parsed),
+    symbolGrid: buildSymbolGrid(pipelineDate, round3Parsed, filenames),
     round3: activeRound3 ? {
       taskId: activeRound3.taskId,
       version: activeRound3.version,
       status: round3Task ? round3Task.status : null,
-      ...(round3Parsed || { format: 'raw', approvedCandidates: [], rejectedCandidates: [], riskWarnings: [], keyLearnings: [] }),
+      ...(round3Parsed || { format: 'raw', approvedCandidates: [], conditionalCandidates: [], rejectedCandidates: [], riskWarnings: [], keyLearnings: [] }),
     } : null,
     priorRound3Versions: round3Versions.map((v) => ({ taskId: v.taskId, version: v.version })),
     positions,
@@ -150,7 +203,7 @@ async function buildCryptoSnapshot() {
   };
 }
 
-module.exports = { buildCryptoSnapshot, findLatestCryptoPipelineDate, discoverRound3Versions, buildSymbolGrid };
+module.exports = { buildCryptoSnapshot, findLatestCryptoPipelineDate, discoverRound3Versions, buildSymbolGrid, discoverCryptoShortlist };
 
 if (require.main === module) {
   buildCryptoSnapshot().then((s) => console.log(JSON.stringify(s, null, 2))).catch((err) => { console.error('FAILED:', err.message); process.exit(1); });

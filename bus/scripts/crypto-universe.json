@@ -1,0 +1,9 @@
+{
+  "_comment": "Real, tradable-on-Alpaca USD-quoted crypto coins, refreshed 2026-09-11 via refresh-crypto-universe.js against Alpaca's live /assets?asset_class=crypto&status=active endpoint. Alpaca supported 73 total crypto pairs at that check, deduplicated to 36 unique coins tradable against USD, minus 4 excluded pegged/stablecoin instruments (USDC, USDT, USDG, PAXG -- near-zero volatility by design, not real research candidates for a momentum/trend pipeline). Re-run refresh-crypto-universe.js periodically -- crypto listings change faster than equities', unlike fleet-universe.json's more stable list.",
+  "coins": [
+    "AAVE", "ADA", "ARB", "AVAX", "BAT", "BCH", "BONK", "BTC", "CRV", "DOGE",
+    "DOT", "ETH", "FIL", "GRT", "HYPE", "LDO", "LINK", "LTC", "ONDO", "PEPE",
+    "POL", "RENDER", "SHIB", "SKY", "SOL", "SUSHI", "TRUMP", "UNI", "WIF", "XRP",
+    "XTZ", "YFI"
+  ]
+}

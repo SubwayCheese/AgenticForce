@@ -50,8 +50,12 @@ async function apiRequest(urlPath, params) {
   return parsed;
 }
 
-// Real-time quote for one or more equity symbols (comma-separated), or one
-// crypto pair in FMP's no-slash format (e.g. BTCUSD).
+// Real-time quote for one or more equity symbols (comma-separated). Stock
+// endpoint only -- crypto uses the dedicated getCryptoQuote() below, a
+// real, separate FMP endpoint family (confirmed live via the FMP MCP
+// connector's own tool 2026-09-10/11: cryptocurrency-quote is distinct
+// from the equity /quote endpoint, not a shared one this function's old
+// comment assumed without ever having tested it).
 function getQuote(symbols) {
   return apiRequest('/quote', { symbol: symbols });
 }
@@ -69,4 +73,20 @@ function getProfile(symbol) {
   return apiRequest('/profile', { symbol });
 }
 
-module.exports = { loadConfig, hasCredentials, apiRequest, getQuote, getHistoricalPriceEod, getProfile };
+// Crypto quote -- FMP's no-slash format (e.g. "BTCUSD", via
+// crypto-symbols.js's toFmpSymbol()). A real, separate endpoint from
+// equity's /quote, confirmed via the MCP connector's cryptocurrency-quote
+// tool this session -- not exercised against fmp-client.js's own REST
+// path yet (same not-yet-live-tested caveat as the rest of this file
+// until FMP_API_KEY exists).
+function getCryptoQuote(symbol) {
+  return apiRequest('/cryptocurrency-quote', { symbol });
+}
+
+// Crypto daily close history -- same shape/purpose as getHistoricalPriceEod(),
+// separate endpoint (cryptocurrency-historical-price-eod-light).
+function getCryptoHistoricalPriceEod(symbol, from, to) {
+  return apiRequest('/cryptocurrency-historical-price-eod-light', { symbol, from, to });
+}
+
+module.exports = { loadConfig, hasCredentials, apiRequest, getQuote, getHistoricalPriceEod, getProfile, getCryptoQuote, getCryptoHistoricalPriceEod };

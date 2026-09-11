@@ -82,7 +82,7 @@
   <header>
     <div>
       <h1>bus / crypto pilot</h1>
-      <div class="subtitle" id="subtitle">BTC / ETH / XRP -- price &amp; trend research, no fundamentals exist for this asset class</div>
+      <div class="subtitle" id="subtitle">loading -- price &amp; trend research, no fundamentals exist for this asset class</div>
     </div>
     <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
       <a class="navlink" href="/" target="_blank">console &rarr;</a>
@@ -112,7 +112,7 @@
     <div class="section-label">not approved this round</div>
     <div id="rejectedWrap"></div>
 
-    <div class="section-label">BTC / ETH / XRP -- round by round</div>
+    <div class="section-label">round by round</div>
     <div class="panel" id="gridWrap"></div>
   </div>
 
@@ -285,7 +285,8 @@ async function poll(){
     }
 
     const dt = d.pipelineDate;
-    $("subtitle").textContent = `run ${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)} -- BTC/ETH/XRP, price & trend research only, no fundamentals exist for crypto`;
+    const coinList = (d.symbolGrid || []).map(g => g.symbol).join('/') || 'crypto';
+    $("subtitle").textContent = `run ${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)} -- ${coinList}, price & trend research only, no fundamentals exist for crypto`;
 
     renderApproved(d.round3, d.tradeLog && d.tradeLog.executedApprovedSymbols);
     renderRejected(d.round3);

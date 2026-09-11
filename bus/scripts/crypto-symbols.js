@@ -1,17 +1,27 @@
 // crypto-symbols.js -- the single place that knows both symbol
-// conventions in play for the 3 crypto assets this pipeline trades
-// (BTC/ETH/XRP only -- a flat hardcoded table, not a general
-// asset-class registry, matching the deliberately narrow scope).
-// Alpaca's order-placement format is slash-delimited ("BTC/USD");
-// FMP's crypto research/quote format is not ("BTCUSD"). Every other
-// file should call through here rather than re-deriving the format
-// inline, so the mismatch stays a one-place fact.
+// conventions for every coin this pipeline can trade. Expanded 2026-09-11
+// from a fixed 3-coin table (BTC/ETH/XRP) to the full real, currently-
+// tradable-on-Alpaca universe (see crypto-universe.json,
+// refresh-crypto-universe.js) -- direct user request to scan a much wider
+// crypto market while staying within what's actually tradable, not a
+// general asset-class registry.
+//
+// Alpaca's order-placement format is slash-delimited ("BTC/USD"); FMP's
+// crypto research/quote format is not ("BTCUSD"). Confirmed live against
+// all 36 of Alpaca's real tradable USD crypto pairs 2026-09-11: this
+// "<COIN>/USD" / "<COIN>USD" pattern holds for every one of them, so the
+// original 3-entry hardcoded table generalizes to the full universe
+// mechanically, not by adding entries one at a time. Every other file
+// should call through here rather than re-deriving the format inline, so
+// the mismatch stays a one-place fact.
 
-const CRYPTO_ASSETS = [
-  { coin: 'BTC', alpacaSymbol: 'BTC/USD', fmpSymbol: 'BTCUSD' },
-  { coin: 'ETH', alpacaSymbol: 'ETH/USD', fmpSymbol: 'ETHUSD' },
-  { coin: 'XRP', alpacaSymbol: 'XRP/USD', fmpSymbol: 'XRPUSD' },
-];
+const fs = require('fs');
+const path = require('path');
+
+const UNIVERSE_PATH = path.join(__dirname, 'crypto-universe.json');
+const COINS = JSON.parse(fs.readFileSync(UNIVERSE_PATH, 'utf8')).coins;
+
+const CRYPTO_ASSETS = COINS.map((coin) => ({ coin, alpacaSymbol: `${coin}/USD`, fmpSymbol: `${coin}USD` }));
 
 function normalize(s) {
   return String(s || '').toUpperCase().replace(/[\/\s]/g, '');

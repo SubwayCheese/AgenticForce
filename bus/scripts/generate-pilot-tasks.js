@@ -402,30 +402,71 @@ async function generateFleetDataSnapshot(datePrefix) {
   return { taskId, symbols: shortlist.map((c) => c.symbol) };
 }
 
-async function generateCryptoDataSnapshot(datePrefix) {
-  const fmpSymbols = cryptoSymbols.CRYPTO_ASSETS.map((a) => a.fmpSymbol);
-  const quotes = await fmp.getQuote(fmpSymbols.join(','));
-  const taskId = `crypto_pilot_${datePrefix}_data_snapshot`;
+// Crypto universe expanded 2026-09-11, direct user request ("expand the
+// crypto market exponentially but still have the huge number of
+// currencies scanned"): from a fixed 3-coin table to the full real,
+// tradable-on-Alpaca universe (32 coins, see crypto-universe.json), with
+// the SAME screen -> shortlist funnel already proven for equity
+// (computeScreenScore(), reused verbatim -- crypto's chgPct/volume/
+// marketCap fields map onto the identical formula). Matches
+// generateFleetDataSnapshot()'s current automation DEPTH deliberately --
+// a single-day screen, not the deep 20-day-trend/valuation enrichment
+// that's only ever been done by hand so far for either pilot (a real,
+// separate, not-yet-automated gap for both pilots equally, not something
+// this change tries to also solve).
+const CRYPTO_SHORTLIST_SIZE = 10;
 
-  const sections = (Array.isArray(quotes) ? quotes : []).map((q) => {
-    const asset = cryptoSymbols.CRYPTO_ASSETS.find((a) => a.fmpSymbol === q.symbol);
-    return [
-      `### ${asset ? asset.coin : q.symbol} (${q.symbol}; Alpaca order symbol: ${asset ? asset.alpacaSymbol : 'unknown'})`,
-      `- Live quote: $${q.price}, change ${q.changePercentage ?? q.changesPercentage}%, market cap $${q.marketCap}, 50-day avg $${q.priceAvg50}, 200-day avg $${q.priceAvg200}.`,
-      '- No earnings, no valuation multiples, no analyst targets exist for this asset.',
-    ].join('\n');
-  });
+async function generateCryptoDataSnapshot(datePrefix) {
+  const allAssets = cryptoSymbols.CRYPTO_ASSETS; // full 32-coin universe
+  const quotes = await Promise.all(allAssets.map(async (a) => {
+    try {
+      const q = await fmp.getCryptoQuote(a.fmpSymbol);
+      const row = Array.isArray(q) ? q[0] : q;
+      if (!row) return null;
+      return {
+        symbol: a.coin,
+        alpacaSymbol: a.alpacaSymbol,
+        price: Number(row.price ?? 0),
+        chgPct: Number(row.changePercentage ?? row.changesPercentage ?? 0),
+        avgVolume: Number(row.volume ?? 0),
+        marketCap: Number(row.marketCap ?? 0),
+        priceAvg50: row.priceAvg50 ?? null,
+        priceAvg200: row.priceAvg200 ?? null,
+      };
+    } catch (err) {
+      console.log(`[generate-pilot-tasks] crypto quote failed for ${a.coin}: ${err.message}`);
+      return null;
+    }
+  }));
+  const valid = quotes.filter(Boolean);
+  const ranked = computeScreenScore(valid);
+  const shortlist = ranked.slice(0, CRYPTO_SHORTLIST_SIZE);
+
+  const taskId = `crypto_pilot_${datePrefix}_universe_consolidation`;
+  const table = ranked
+    .map((c, i) => `| ${i + 1} | ${c.symbol} | $${c.price} | ${c.chgPct.toFixed(2)}% | ${c.avgVolume.toLocaleString()} | $${(c.marketCap / 1e9).toFixed(2)}B | ${c.screenScore.toFixed(1)} |`)
+    .join('\n');
+  const shortlistDetail = shortlist.map((c) => [
+    `### ${c.symbol} (${c.alpacaSymbol})`,
+    `- Live quote: $${c.price}, change ${c.chgPct.toFixed(2)}%, market cap $${(c.marketCap / 1e9).toFixed(2)}B, 50-day avg $${c.priceAvg50}, 200-day avg $${c.priceAvg200}.`,
+    '- No earnings, no valuation multiples, no analyst targets exist for this asset -- structural, not a data gap.',
+  ].join('\n')).join('\n\n');
 
   const payload = [
-    'Unattended crypto snapshot (BTC/ETH/XRP, fixed universe), fetched via FMP REST API. Price/volume/market-cap data ONLY -- crypto has no fundamentals-equivalent, structurally, not a today-gap.',
+    `Unattended screen, ${allAssets.length}-coin real tradable-on-Alpaca universe (bus/scripts/crypto-universe.json). Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized -- identical formula to the equity screen. Top ${CRYPTO_SHORTLIST_SIZE} become this cycle's shortlist.`,
     '',
-    ...sections,
-  ].join('\n\n');
+    '| Rank | Coin | Price | Chg% | Volume | Market Cap | screenScore |',
+    '|---|---|---|---|---|---|---|',
+    table,
+    '',
+    '## Shortlist detail',
+    shortlistDetail,
+  ].join('\n');
 
   writeTaskFile(taskId, { from: 'claude', to: 'claude', type: 'response', payload: '(orchestrator-sourced, unattended -- see generate-pilot-tasks.js)' });
   landAsDone(taskId, 'SOURCE: verified live (FMP REST API, fetched by generate-pilot-tasks.js -- unattended, not the MCP connector)', payload);
 
-  return { taskId, symbols: cryptoSymbols.CRYPTO_ASSETS.map((a) => a.coin) };
+  return { taskId, symbols: shortlist.map((c) => c.symbol) };
 }
 
 // Returns null (and sends an ntfy alert) if FMP_API_KEY isn't configured --

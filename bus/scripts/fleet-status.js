@@ -35,10 +35,21 @@ function listTaskFilenames() {
 
 // The largest fleet_pilot_<YYYYMMDD>_ prefix present in tasks/.
 // YYYYMMDD sorts correctly as a plain string, so no date parsing needed.
+// Real bug, found and fixed 2026-09-11: conditional-triggers.js's rescan
+// tasks are named `fleet_pilot_<TODAY>_rescan_<symbol>_<ts>.md` -- TODAY's
+// date, not the ORIGINAL cycle's date, since a trigger can fire days after
+// its cycle ran. That collided with this function's simple prefix match:
+// a rescan firing on 2026-09-11 for a 2026-09-10 cycle made this return
+// "20260911" (no real cycle exists there), which made discoverShortlist()
+// correctly find nothing and silently emptied the ENTIRE dashboard for a
+// day that actually had real, live candidates. Rescan/reflection files
+// are follow-up actions on an existing cycle, not a new cycle themselves
+// -- excluded here explicitly.
 function findLatestPipelineDate(filenames) {
   const files = filenames || listTaskFilenames();
   const dates = new Set();
   for (const f of files) {
+    if (/_rescan_/.test(f)) continue;
     const m = /^fleet_pilot_(\d{8})_/.exec(f);
     if (m) dates.add(m[1]);
   }
@@ -116,6 +127,7 @@ function parseRound3Output(outputText) {
   const empty = {
     format: 'raw',
     approvedCandidates: [],
+    conditionalCandidates: [],
     rejectedCandidates: [],
     materialDissent: null,
     riskWarnings: [],
@@ -151,6 +163,15 @@ function tryParseJsonFormat(text) {
     return {
       format: 'json',
       approvedCandidates: parsed.approvedCandidates.map(normalizeJsonCandidate).filter(Boolean),
+      // conditionalCandidates (added 2026-09-10, round-3's third outcome)
+      // was missing here entirely until 2026-09-11 -- silently dropped by
+      // every dashboard even though it was really in the JSON. Reuses
+      // normalizeJsonCandidate() for the shared fields, adds the two
+      // conditional-only ones (triggerPrice/triggerType) on top.
+      conditionalCandidates: (parsed.conditionalCandidates || []).map((c) => {
+        const base = normalizeJsonCandidate(c);
+        return base ? { ...base, triggerPrice: c.triggerPrice != null ? Number(c.triggerPrice) : null, triggerType: c.triggerType || null } : null;
+      }).filter(Boolean),
       rejectedCandidates: (parsed.rejectedCandidates || []).map((r) => ({
         symbol: r.symbol || null,
         reason: r.reason || null,
@@ -304,6 +325,12 @@ function extractDisclaimer(text) {
 function buildSymbolGrid(shortlist, round3Parsed) {
   const approved = new Map((round3Parsed ? round3Parsed.approvedCandidates : []).map((c) => [c.symbol, c]));
   const rejected = new Map((round3Parsed ? round3Parsed.rejectedCandidates : []).map((c) => [c.symbol, c]));
+  // conditionalCandidates added 2026-09-10 (round-3's third outcome, see
+  // ARCHITECTURE.md section 9's conditional-trigger design) -- this map
+  // was missing until 2026-09-11, so every conditional candidate silently
+  // showed as "pending" (implying round-3 hadn't run) instead of the real
+  // "watching for a price trigger" state.
+  const conditional = new Map((round3Parsed && round3Parsed.conditionalCandidates || []).map((c) => [c.symbol, c]));
   const agentCache = new Map();
   function displayNameFor(agentId) {
     if (!agentId) return null;
@@ -330,9 +357,12 @@ function buildSymbolGrid(shortlist, round3Parsed) {
     const r1 = roundInfo(entry.round1);
     const r2 = roundInfo(entry.round2);
     const approvedCandidate = approved.get(entry.symbol) || null;
+    const conditionalCandidate = conditional.get(entry.symbol) || null;
     let verdict = 'pending';
     if (approvedCandidate) verdict = 'approved';
+    else if (conditionalCandidate) verdict = 'conditional';
     else if (rejected.has(entry.symbol)) verdict = 'rejected';
+    const activeCandidate = approvedCandidate || conditionalCandidate;
     return {
       symbol: entry.symbol,
       round1: r1,
@@ -342,8 +372,10 @@ function buildSymbolGrid(shortlist, round3Parsed) {
       // Codex twice on 2026-09-08). Surfaced, not smoothed over.
       sameSpecialistBothRounds: !!(r1 && r2 && r1.agentId && r1.agentId === r2.agentId),
       verdict,
-      holdType: approvedCandidate ? approvedCandidate.holdType : null,
-      direction: approvedCandidate ? approvedCandidate.direction : null,
+      holdType: activeCandidate ? activeCandidate.holdType : null,
+      direction: activeCandidate ? activeCandidate.direction : null,
+      triggerPrice: conditionalCandidate ? conditionalCandidate.triggerPrice : null,
+      triggerType: conditionalCandidate ? conditionalCandidate.triggerType : null,
       rejectionReason: rejected.has(entry.symbol) ? rejected.get(entry.symbol).reason : null,
     };
   });
@@ -492,7 +524,7 @@ async function buildFleetSnapshot() {
       taskId: activeRound3.taskId,
       version: activeRound3.version,
       status: round3Task ? round3Task.status : null,
-      ...(round3Parsed || { format: 'raw', approvedCandidates: [], rejectedCandidates: [], riskWarnings: [], keyLearnings: [] }),
+      ...(round3Parsed || { format: 'raw', approvedCandidates: [], conditionalCandidates: [], rejectedCandidates: [], riskWarnings: [], keyLearnings: [] }),
     } : null,
     priorRound3Versions: round3Versions.map((v) => ({ taskId: v.taskId, version: v.version })),
     positions: await getLivePositionsAndAccount(),
