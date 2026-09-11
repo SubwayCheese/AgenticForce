@@ -19,7 +19,8 @@ const runTask = require('./run-task.js');
 const fleetStatus = require('./fleet-status.js');
 const cryptoStatus = require('./crypto-status.js');
 const cryptoSymbols = require('./crypto-symbols.js');
-const fmp = require('./fmp-client.js');
+const alpaca = require('./alpaca-client.js');
+const finnhub = require('./finnhub-client.js');
 const ntfy = require('./ntfy.js');
 const journal = require('./trading-journal.js');
 
@@ -342,7 +343,28 @@ function computeScreenScore(candidates) {
     .sort((a, b) => b.screenScore - a.screenScore);
 }
 
-// ---------- Data snapshot (the one real gap -- see fmp-client.js) ----------
+// ---------- Data snapshot ----------
+//
+// UPDATED 2026-09-11: switched off FMP (paid to cover this call volume)
+// after the user pushed back ("There has to be a free alternative" --
+// see project memory feedback_explore_alternatives). Price/volume now
+// comes from alpaca-client.js's getDailyBars() -- free with the existing
+// paper account, already keyed, batched (one call per universe instead of
+// one per symbol, which is also just strictly better than the old
+// per-symbol FMP loop). Equity market cap comes from finnhub-client.js's
+// free tier (optional -- degrades to 0/no-cap-weight if FINNHUB_API_KEY
+// isn't configured, same graceful-skip posture FMP had). Crypto market
+// cap has no free, ID-unambiguous source wired up yet -- documented
+// honestly below, not silently fabricated.
+
+// avg50/avg200 close, computed locally from the fetched bar window --
+// null if fewer bars than that window exist yet (e.g. a recently-listed
+// asset), same "don't fabricate" posture as everything else here.
+function priceAverages(bars) {
+  const closes = bars.map((b) => b.c);
+  const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+  return { priceAvg50: avg(closes.slice(-50)), priceAvg200: avg(closes.slice(-200)) };
+}
 
 // Landed directly as status:done, source-tagged and self-resolved -- same
 // trust tier as a hand-typed orchestrator-sourced task, just script-authored.
@@ -367,37 +389,49 @@ function landAsDone(taskId, sourceLine, payload) {
 
 async function generateFleetDataSnapshot(datePrefix) {
   const universe = JSON.parse(fs.readFileSync(FLEET_UNIVERSE_PATH, 'utf8')).symbols;
-  const symbolList = universe.join(',');
-  const quotes = await fmp.getQuote(symbolList);
-  const profiles = await fmp.getProfile(symbolList);
-  const profileBySymbol = new Map((Array.isArray(profiles) ? profiles : []).map((p) => [p.symbol, p]));
+  const barsBySymbol = await alpaca.getDailyBars(universe, { limit: 210 });
+  const finnhubAvailable = finnhub.hasCredentials();
+  const profiles = finnhubAvailable
+    ? await Promise.all(universe.map(async (s) => {
+        try { return [s, await finnhub.getProfile2(s)]; } catch (err) {
+          console.log(`[generate-pilot-tasks] finnhub profile failed for ${s}: ${err.message}`);
+          return [s, null];
+        }
+      }))
+    : [];
+  const profileBySymbol = new Map(profiles);
 
-  const candidates = (Array.isArray(quotes) ? quotes : []).map((q) => {
-    const profile = profileBySymbol.get(q.symbol) || {};
-    return {
-      symbol: q.symbol,
-      chgPct: Number(q.changePercentage ?? q.changesPercentage ?? 0),
-      avgVolume: Number(q.avgVolume ?? q.volume ?? 0),
-      marketCap: Number(q.marketCap ?? profile.mktCap ?? 0),
-    };
-  });
+  const candidates = universe
+    .map((symbol) => {
+      const entry = barsBySymbol[symbol];
+      if (!entry) return null;
+      const profile = profileBySymbol.get(symbol);
+      // Finnhub's marketCapitalization is in MILLIONS of USD -- see finnhub-client.js.
+      const marketCap = profile && profile.marketCapitalization ? profile.marketCapitalization * 1e6 : 0;
+      const { priceAvg50, priceAvg200 } = priceAverages(entry.bars);
+      return { symbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap, priceAvg50, priceAvg200 };
+    })
+    .filter(Boolean);
   const ranked = computeScreenScore(candidates);
   const shortlist = ranked.slice(0, SHORTLIST_SIZE);
 
   const taskId = `fleet_pilot_${datePrefix}_universe50_consolidation`;
   const table = ranked
-    .map((c, i) => `| ${i + 1} | ${c.symbol} | ${c.chgPct.toFixed(2)}% | ${c.avgVolume.toLocaleString()} | $${(c.marketCap / 1e9).toFixed(1)}B | ${c.screenScore.toFixed(1)} |`)
+    .map((c, i) => `| ${i + 1} | ${c.symbol} | ${c.chgPct.toFixed(2)}% | ${Math.round(c.avgVolume).toLocaleString()} | ${c.marketCap ? '$' + (c.marketCap / 1e9).toFixed(1) + 'B' : 'n/a'} | ${c.screenScore.toFixed(1)} |`)
     .join('\n');
+  const capNote = finnhubAvailable
+    ? ''
+    : '\n\nFINNHUB_API_KEY not configured -- market cap is n/a for every symbol this cycle, and screenScore is effectively 50 x norm(Chg%) + 30 x norm(AvgVolume) only (the 20% cap weight contributes nothing when every value is equal). Add FINNHUB_API_KEY to bus/secrets.local.json (free tier, finnhub.io) to restore it.';
   const payload = [
-    `Unattended screen, ${universe.length}-symbol fixed universe (bus/scripts/fleet-universe.json), fetched via FMP REST API. Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized. Top ${SHORTLIST_SIZE} become this cycle's shortlist.`,
+    `Unattended screen, ${universe.length}-symbol fixed universe (bus/scripts/fleet-universe.json), price/volume from Alpaca's free market-data API (batched daily bars, same paper-account key already configured -- no new credential), market cap from Finnhub's free tier. Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized. Top ${SHORTLIST_SIZE} become this cycle's shortlist.${capNote}`,
     '',
-    '| Rank | Symbol | Chg% | Avg Volume | Market Cap | screenScore |',
+    '| Rank | Symbol | Chg% | Avg Volume (20d) | Market Cap | screenScore |',
     '|---|---|---|---|---|---|',
     table,
   ].join('\n');
 
   writeTaskFile(taskId, { from: 'claude', to: 'claude', type: 'response', payload: '(orchestrator-sourced, unattended -- see generate-pilot-tasks.js)' });
-  landAsDone(taskId, 'SOURCE: verified live (FMP REST API, fetched by generate-pilot-tasks.js -- unattended, not the MCP connector)', payload);
+  landAsDone(taskId, 'SOURCE: verified live (Alpaca market-data API + Finnhub free tier, fetched by generate-pilot-tasks.js -- unattended)', payload);
 
   return { taskId, symbols: shortlist.map((c) => c.symbol) };
 }
@@ -418,45 +452,41 @@ const CRYPTO_SHORTLIST_SIZE = 10;
 
 async function generateCryptoDataSnapshot(datePrefix) {
   const allAssets = cryptoSymbols.CRYPTO_ASSETS; // full 32-coin universe
-  const quotes = await Promise.all(allAssets.map(async (a) => {
-    try {
-      const q = await fmp.getCryptoQuote(a.fmpSymbol);
-      const row = Array.isArray(q) ? q[0] : q;
-      if (!row) return null;
-      return {
-        symbol: a.coin,
-        alpacaSymbol: a.alpacaSymbol,
-        price: Number(row.price ?? 0),
-        chgPct: Number(row.changePercentage ?? row.changesPercentage ?? 0),
-        avgVolume: Number(row.volume ?? 0),
-        marketCap: Number(row.marketCap ?? 0),
-        priceAvg50: row.priceAvg50 ?? null,
-        priceAvg200: row.priceAvg200 ?? null,
-      };
-    } catch (err) {
-      console.log(`[generate-pilot-tasks] crypto quote failed for ${a.coin}: ${err.message}`);
-      return null;
-    }
-  }));
-  const valid = quotes.filter(Boolean);
-  const ranked = computeScreenScore(valid);
+  const coinList = allAssets.map((a) => a.coin);
+  const barsByCoin = await alpaca.getDailyBars(coinList, { limit: 210 });
+
+  const candidates = allAssets
+    .map((a) => {
+      const entry = barsByCoin[a.coin];
+      if (!entry) return null;
+      const { priceAvg50, priceAvg200 } = priceAverages(entry.bars);
+      // No free, ID-unambiguous crypto market-cap source is wired up yet
+      // (see finnhub-client.js header -- Finnhub's free tier is equity-
+      // only). marketCap: 0 for every coin makes norm() return 0 for that
+      // field (max === min), so screenScore degrades to Chg%/Volume only
+      // rather than fabricating a number -- an honest, documented gap,
+      // not a silent one.
+      return { symbol: a.coin, alpacaSymbol: a.alpacaSymbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap: 0, priceAvg50, priceAvg200 };
+    })
+    .filter(Boolean);
+  const ranked = computeScreenScore(candidates);
   const shortlist = ranked.slice(0, CRYPTO_SHORTLIST_SIZE);
 
   const taskId = `crypto_pilot_${datePrefix}_universe_consolidation`;
   const table = ranked
-    .map((c, i) => `| ${i + 1} | ${c.symbol} | $${c.price} | ${c.chgPct.toFixed(2)}% | ${c.avgVolume.toLocaleString()} | $${(c.marketCap / 1e9).toFixed(2)}B | ${c.screenScore.toFixed(1)} |`)
+    .map((c, i) => `| ${i + 1} | ${c.symbol} | $${c.price} | ${c.chgPct.toFixed(2)}% | ${Math.round(c.avgVolume).toLocaleString()} | ${c.screenScore.toFixed(1)} |`)
     .join('\n');
   const shortlistDetail = shortlist.map((c) => [
     `### ${c.symbol} (${c.alpacaSymbol})`,
-    `- Live quote: $${c.price}, change ${c.chgPct.toFixed(2)}%, market cap $${(c.marketCap / 1e9).toFixed(2)}B, 50-day avg $${c.priceAvg50}, 200-day avg $${c.priceAvg200}.`,
-    '- No earnings, no valuation multiples, no analyst targets exist for this asset -- structural, not a data gap.',
+    `- Live quote: $${c.price}, change ${c.chgPct.toFixed(2)}%, 50-day avg $${c.priceAvg50 ? c.priceAvg50.toFixed(2) : 'n/a'}, 200-day avg $${c.priceAvg200 ? c.priceAvg200.toFixed(2) : 'n/a'}.`,
+    '- No earnings, no valuation multiples, no analyst targets, and no free market-cap source exist for this asset -- structural, not a data gap.',
   ].join('\n')).join('\n\n');
 
   const payload = [
-    `Unattended screen, ${allAssets.length}-coin real tradable-on-Alpaca universe (bus/scripts/crypto-universe.json). Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized -- identical formula to the equity screen. Top ${CRYPTO_SHORTLIST_SIZE} become this cycle's shortlist.`,
+    `Unattended screen, ${allAssets.length}-coin real tradable-on-Alpaca universe (bus/scripts/crypto-universe.json), price/volume from Alpaca's free market-data API (batched daily bars, same paper-account key already configured -- no new credential). Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) (market-cap term omitted -- no free crypto market-cap source wired up, see generate-pilot-tasks.js). Top ${CRYPTO_SHORTLIST_SIZE} become this cycle's shortlist.`,
     '',
-    '| Rank | Coin | Price | Chg% | Volume | Market Cap | screenScore |',
-    '|---|---|---|---|---|---|---|',
+    '| Rank | Coin | Price | Chg% | Volume (20d avg) | screenScore |',
+    '|---|---|---|---|---|---|',
     table,
     '',
     '## Shortlist detail',
@@ -464,24 +494,29 @@ async function generateCryptoDataSnapshot(datePrefix) {
   ].join('\n');
 
   writeTaskFile(taskId, { from: 'claude', to: 'claude', type: 'response', payload: '(orchestrator-sourced, unattended -- see generate-pilot-tasks.js)' });
-  landAsDone(taskId, 'SOURCE: verified live (FMP REST API, fetched by generate-pilot-tasks.js -- unattended, not the MCP connector)', payload);
+  landAsDone(taskId, 'SOURCE: verified live (Alpaca market-data API, fetched by generate-pilot-tasks.js -- unattended)', payload);
 
   return { taskId, symbols: shortlist.map((c) => c.symbol) };
 }
 
-// Returns null (and sends an ntfy alert) if FMP_API_KEY isn't configured --
-// see fmp-client.js's header. Never fabricates data to fill the gap.
+// Returns null (and sends an ntfy alert) only if the underlying data
+// source actually fails -- unlike the old FMP-gated version, this no
+// longer needs a "credentials missing" pre-check: Alpaca's market-data
+// API uses the same key/secret every other Alpaca call already requires,
+// so there's no separate credential to be missing. Finnhub is optional
+// and degrades gracefully inside generateFleetDataSnapshot() itself.
 async function generateDataSnapshotTasks(pilot, datePrefix) {
-  if (!fmp.hasCredentials()) {
+  try {
+    return pilot === 'crypto' ? await generateCryptoDataSnapshot(datePrefix) : await generateFleetDataSnapshot(datePrefix);
+  } catch (err) {
     await ntfy.sendNtfy({
-      title: `${pilot} pilot: data snapshot skipped`,
-      message: `FMP_API_KEY not configured -- ${pilot}_pilot_${datePrefix} cycle cannot generate a data snapshot unattended. Add FMP_API_KEY to bus/secrets.local.json, or fetch this one manually.`,
+      title: `${pilot} pilot: data snapshot failed`,
+      message: `${pilot}_pilot_${datePrefix} cycle's unattended data snapshot failed: ${err.message}`,
       priority: 4,
     }).catch(() => {});
-    console.log(`[generate-pilot-tasks] FMP_API_KEY missing -- skipping ${pilot} data snapshot for ${datePrefix}.`);
+    console.log(`[generate-pilot-tasks] ${pilot} data snapshot failed for ${datePrefix}: ${err.message}`);
     return null;
   }
-  return pilot === 'crypto' ? generateCryptoDataSnapshot(datePrefix) : generateFleetDataSnapshot(datePrefix);
 }
 
 module.exports = {

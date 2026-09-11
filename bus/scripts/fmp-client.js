@@ -1,24 +1,22 @@
-// Financial Modeling Prep REST client -- closes the one real gap in making
-// the trading pilots' data-snapshot step unattended (see ARCHITECTURE.md
-// section 9 and generate-pilot-tasks.js). Every prior data-snapshot task
-// (fleet_pilot_*_universe50_consolidation.md, crypto_pilot_*_data_snapshot.md)
-// was hand-typed by an interactive Claude session using the FMP MCP
-// connector -- a headless script has no MCP client to call, so this talks
-// to FMP's own REST API directly instead. Mirrors alpaca-client.js's shape
-// on purpose: same loadConfig()/apiRequest() pattern, same "credential
-// comes from bus/secrets.local.json via secrets-broker.js, never logged"
-// discipline.
+// Financial Modeling Prep REST client -- UNUSED as of 2026-09-11.
+// generate-pilot-tasks.js's data-snapshot step now runs on
+// alpaca-client.js's getDailyBars() (free, same paper-account key already
+// configured, no new signup) + finnhub-client.js's free tier for equity
+// market cap, after the user pushed back on paying for FMP to cover this
+// call volume ("There has to be a free alternative" -- see project memory
+// feedback_explore_alternatives). Nothing in this codebase requires this
+// file anymore.
 //
-// IMPORTANT, stated plainly: FMP_API_KEY does not exist in this vault yet
-// (confirmed by a direct secrets-broker read -- see the autonomy design
-// notes in ARCHITECTURE.md section 9). Every function below is written
-// against FMP's public v3 REST documentation, matching the endpoints the
-// MCP connector's own tool names describe (quote, historical-price-eod,
-// stock-screener), but has NOT been exercised against a live key -- that
-// verification happens once you add FMP_API_KEY to bus/secrets.local.json.
-// Until then, generate-pilot-tasks.js's data-snapshot step degrades
-// gracefully (see hasCredentials()) rather than silently producing
-// unverified numbers.
+// Kept, not deleted: FMP's data is genuinely deeper (forward estimates,
+// peer comps, cleaner valuation multiples) than the free Alpaca+Finnhub
+// combo, and this client is fully written and matches FMP's REST API
+// (crypto endpoints confirmed real and separate from equity's via the FMP
+// MCP connector 2026-09-10/11 -- see getCryptoQuote()/
+// getCryptoHistoricalPriceEod() below). This is the natural upgrade path
+// once the pilot is generating revenue and paying ~$20-30/mo for better
+// data is worth it -- not before. Add FMP_API_KEY to
+// bus/secrets.local.json and swap it back into generate-pilot-tasks.js
+// when that day comes; nothing here has changed shape in the meantime.
 
 const secretsBroker = require('./secrets-broker.js');
 

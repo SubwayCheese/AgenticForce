@@ -89,6 +89,83 @@ async function getLatestQuote(symbol) {
   return { symbol, bid, ask, mid, raw: quote };
 }
 
+// Historical daily bars, batched (one call for the whole universe, not one
+// per symbol) -- the free substitute for FMP's historical-price-eod. Same
+// data.alpaca.markets host/auth as getLatestQuote(), same paper-account
+// key, no new credential. Added 2026-09-11 after the user pushed back on
+// paying for FMP ("There has to be a free alternative") -- Alpaca's market
+// data API is free with the existing paper account and was already half-
+// wired via getLatestQuote(), so this closes the historical-data gap
+// without any new signup. `feed: 'iex'` is required for equities on
+// Alpaca's free data plan (the SIP feed needs a paid subscription; IEX is
+// free and sufficient for daily bars, which aren't time-sensitive the way
+// a live quote is). Crypto has no feed restriction.
+// Returns { [symbol]: { bars, lastClose, chgPct, avgVolume } | null },
+// keyed by the ORIGINAL symbols passed in (not the Alpaca-format string),
+// so equity tickers and crypto coin names both round-trip unchanged.
+async function getDailyBars(symbols, { limit = 25 } = {}) {
+  if (!symbols || !symbols.length) return {};
+  const { key, secret } = loadConfig();
+  const isCrypto = cryptoSymbols.isCryptoSymbol(symbols[0]);
+  const alpacaSymbols = isCrypto ? symbols.map((s) => cryptoSymbols.toAlpacaSymbol(s)) : symbols;
+  const base = isCrypto
+    ? 'https://data.alpaca.markets/v1beta3/crypto/us/bars'
+    : 'https://data.alpaca.markets/v2/stocks/bars';
+  // `start` is NOT optional in practice: confirmed live 2026-09-11 that
+  // omitting it makes the endpoint default to "today only" (empty result
+  // before today's bar has formed) rather than "the last `limit` bars" --
+  // so compute one explicitly. Factor of 1.6 calendar days per trading
+  // day comfortably covers weekends/holidays for both asset classes (the
+  // extra bars beyond `limit` for crypto, which trades every day, are
+  // harmless -- the response is still sliced to what's actually needed
+  // by the caller).
+  const startDate = new Date(Date.now() - Math.ceil(limit * 1.6) * 24 * 60 * 60 * 1000);
+  const baseParams = { symbols: alpacaSymbols.join(','), timeframe: '1Day', start: startDate.toISOString().slice(0, 10), limit: String(Math.max(limit, 1000)), sort: 'asc' };
+  if (!isCrypto) baseParams.feed = 'iex';
+
+  // This endpoint paginates by total bars across ALL requested symbols,
+  // not per-symbol -- confirmed live 2026-09-11: a 50-symbol/210-day
+  // request came back with only 5 symbols and a next_page_token on page
+  // 1, silently dropping the other 45 when that token wasn't followed.
+  // Page through until exhausted rather than trusting one page to cover
+  // the whole universe.
+  const bucket = {};
+  let pageToken = null;
+  do {
+    const params = new URLSearchParams(baseParams);
+    if (pageToken) params.set('page_token', pageToken);
+    const url = `${base}?${params.toString()}`;
+    const res = await fetch(url, { headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret } });
+    const text = await res.text();
+    let parsed;
+    try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = text; }
+    if (!res.ok) {
+      const msg = parsed && parsed.message ? parsed.message : text;
+      throw new Error(`Alpaca market-data GET ${url} -> ${res.status}: ${msg}`);
+    }
+    for (const [sym, bars] of Object.entries((parsed && parsed.bars) || {})) {
+      bucket[sym] = (bucket[sym] || []).concat(bars);
+    }
+    pageToken = parsed && parsed.next_page_token;
+  } while (pageToken);
+  const out = {};
+  for (let i = 0; i < symbols.length; i++) {
+    const bars = bucket[alpacaSymbols[i]] || [];
+    if (!bars.length) { out[symbols[i]] = null; continue; }
+    const last = bars[bars.length - 1];
+    const prev = bars.length > 1 ? bars[bars.length - 2] : last;
+    const chgPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : 0;
+    // Always a ~20-trading-day window regardless of how many bars were
+    // requested -- callers fetching a longer window (e.g. for 50/200-day
+    // price averages) shouldn't silently dilute this into a multi-month
+    // average.
+    const recent = bars.slice(-20);
+    const avgVolume = recent.reduce((s, b) => s + (b.v || 0), 0) / recent.length;
+    out[symbols[i]] = { bars, lastClose: last.c, chgPct, avgVolume };
+  }
+  return out;
+}
+
 function getAccount() {
   return apiRequest('GET', '/account');
 }
@@ -177,7 +254,7 @@ function cancelOrder(orderId) {
   return apiRequest('DELETE', `/orders/${encodeURIComponent(orderId)}`);
 }
 
-module.exports = { loadConfig, apiRequest, getLatestQuote, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry };
+module.exports = { loadConfig, apiRequest, getLatestQuote, getDailyBars, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry };
 
 // CLI: node alpaca-client.js account|positions|orders
 if (require.main === module) {
