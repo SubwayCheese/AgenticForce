@@ -21,6 +21,7 @@ const cryptoStatus = require('./crypto-status.js');
 const cryptoSymbols = require('./crypto-symbols.js');
 const fmp = require('./fmp-client.js');
 const ntfy = require('./ntfy.js');
+const journal = require('./trading-journal.js');
 
 const TASKS_DIR = runTask.TASKS_DIR;
 const FLEET_UNIVERSE_PATH = path.join(__dirname, 'fleet-universe.json');
@@ -139,10 +140,29 @@ function getPriorLearningsSection(pilot, datePrefix) {
 
 // ---------- Round 1 / round 2 templates ----------
 
+// "The stock is the teacher" (added 2026-09-10): a symbol's own real
+// trading history -- not pipeline-methodology critique, actual thesis-vs-
+// outcome lessons from trading-journal.js -- injected directly into its
+// next thesis. Distinct from priorLearningsSection (which is cycle-wide
+// keyLearnings); this is per-symbol and only appears once that symbol has
+// actually been traded and closed at least once.
+function formatSymbolHistorySection(symbol) {
+  const history = journal.getSymbolHistory(symbol, 3);
+  if (!history.length) return '';
+  const rows = history.map((h) => `- ${h.exitTs.slice(0, 10)}: ${h.direction} @ $${h.entryPrice} -> $${h.exitPrice} (${h.outcome}${h.pnlPct !== null ? `, ${h.pnlPct.toFixed(2)}%` : ''}). Lesson: ${h.lesson}`).join('\n');
+  return [
+    `## Real trading history for ${symbol} (${history.length} closed trade(s), most recent first)`,
+    rows,
+    '',
+    'This is actual past performance on this exact symbol, not general market commentary -- weigh it accordingly, but a past loss does not automatically mean reject; a past win does not automatically mean approve. Judge THIS thesis on today\'s evidence, informed by what actually happened before.',
+  ].join('\n');
+}
+
 function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, dataSnapshotTaskId) {
   const prefix = pilotPrefix(pilot);
   const taskId = `${prefix}${datePrefix}_thesis_r1_${symbol.toLowerCase()}`;
   const isCrypto = pilot === 'crypto';
+  const symbolHistorySection = formatSymbolHistorySection(symbol);
   const payloadLines = [
     `ROUND-1 INDEPENDENT THESIS for ${symbol}, generated unattended by generate-pilot-tasks.js for the ${datePrefix} ${pilot} cycle (see ${dataSnapshotTaskId}, auto-injected below, for the full data).`,
     '',
@@ -151,6 +171,7 @@ function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, da
       : 'Build a fresh, independent thesis using the full injected dataset -- price/volume/momentum data plus fundamentals where available. Tag every claim FACT (cite the specific field) or INTERPRETATION.',
     '',
     priorLearningsSection,
+    ...(symbolHistorySection ? ['', symbolHistorySection] : []),
   ];
   return writeTaskFile(taskId, {
     from: 'claude',
@@ -251,6 +272,47 @@ function generateRescanTask(pilot, symbol, datePrefix, sourceSynthesisTaskId, li
     type: 'request',
     payload,
     dependsOnTaskId: sourceSynthesisTaskId,
+  });
+}
+
+// ---------- Trading-journal reflection ("the stock is the teacher") ----------
+
+// Dispatched by trading-journal.js once enough newly-closed trades have
+// accumulated -- a real agent reflection pass over ACTUAL outcomes (thesis
+// vs. what really happened), not the round-3 keyLearnings field (which is
+// pipeline-methodology critique, not per-symbol trading experience). The
+// whole batch is injected directly in the payload as raw JSON -- these are
+// journal rows, not other task files, so there's no dependsOnTaskId chain
+// here.
+function generateReflectionTask(datePrefix, batch) {
+  const taskId = `trading_journal_reflection_${datePrefix}_${Date.now()}`;
+  const batchText = batch.map((entry, i) => {
+    const t = entry.entryThesis;
+    return [
+      `### Trade ${i + 1}: ${entry.symbol} (${entry.direction}, ${entry.assetClass})`,
+      `- Original stance: ${t ? t.stance : 'unknown'}`,
+      `- Bull case: ${t ? t.bullCase : 'not recorded'}`,
+      `- Bear case: ${t ? t.bearCase : 'not recorded'}`,
+      `- Rationale: ${t ? t.oneLineRationale : 'not recorded'}`,
+      `- ACTUAL OUTCOME: ${entry.outcome.toUpperCase()}, ${entry.pnlPct === null ? 'P&L unknown' : entry.pnlPct.toFixed(2) + '%'} (entry $${entry.entryPrice}, exit $${entry.exitPrice}, reason: ${entry.exitReason})`,
+    ].join('\n');
+  }).join('\n\n');
+
+  const payload = [
+    `TRADING JOURNAL REFLECTION: ${batch.length} real, closed micro-trade(s), each with its original thesis and its ACTUAL outcome. Write a genuine lesson for EACH trade -- what the thesis got right or wrong given what actually happened -- and note any pattern that spans more than one trade in this batch.`,
+    '',
+    batchText,
+    '',
+    'For EACH trade, write 1-3 sentences: did the stated bull/bear reasoning predict the real outcome, and specifically why or why not (cite the actual entry/exit prices, not just win/loss)? This is a real trading record, not a hypothetical -- be concrete, not generic ("the market is unpredictable" is not a lesson).',
+    '',
+    'Output a fenced ```json``` block: `{ "lessons": [ { "symbol": "...", "lesson": "..." }, ... ], "crossTradePattern": "... or null if none" }`. One lessons[] entry per trade, in the same order given above.',
+  ].join('\n');
+
+  return writeTaskFile(taskId, {
+    from: 'claude',
+    to: 'codex',
+    type: 'request',
+    payload,
   });
 }
 
@@ -393,6 +455,7 @@ module.exports = {
   generateChallengeTask,
   generateSynthesisTask,
   generateRescanTask,
+  generateReflectionTask,
   computeScreenScore,
   generateFleetDataSnapshot,
   generateCryptoDataSnapshot,

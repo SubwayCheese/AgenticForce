@@ -206,10 +206,11 @@ async function checkRescanResults() {
       continue;
     }
 
-    // STILL VALID -- execute for real.
+    // STILL VALID -- execute for real, same micro sizing as every other
+    // --auto execution (execute-portfolio-setup.js's computeMicroSizing()).
     const setup = record.candidate.conditionalSetup;
     const isCrypto = cryptoSymbols.isCryptoSymbol(setup.symbol);
-    const sizing = isCrypto ? { notional: executor.AUTO_CRYPTO_NOTIONAL_PER_LEG } : { qty: executor.AUTO_EQUITY_QTY_PER_LEG };
+    const sizing = await executor.computeMicroSizing(setup.symbol, setup.direction, isCrypto);
     try {
       await executor.executeOne(record.candidate, record.sourceTask, sizing);
       appendEvent({

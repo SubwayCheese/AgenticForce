@@ -36,13 +36,15 @@ const VAULT_ROOT = path.join(__dirname, '..', '..');
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
 
 // Sizing used ONLY on the --auto path (pilot-supervisor.js's unattended
-// runs). Proposed, matching today's existing scale -- see ARCHITECTURE.md
-// section 9: these numbers need your one-time confirmation before --auto
-// is ever registered on a schedule. The manual <taskId> path below is
-// completely unaffected and keeps its existing fail-loud/10-share-default
-// behavior.
-const AUTO_EQUITY_QTY_PER_LEG = 10; // shares/leg, matches today's silent default
-const AUTO_CRYPTO_NOTIONAL_PER_LEG = 50; // dollars/leg, matches the 2026-09-08 mechanism-test scale
+// runs). Revised 2026-09-10 per direct user instruction: "micro trades,"
+// not the earlier 10-share/$50 scale -- the whole point is many small,
+// frequent, low-stakes learning trades (see trading-journal.js), not a
+// few large convictions. $15/leg across every asset class/price range
+// (see computeMicroSizing() below for how this becomes qty for the one
+// case notional orders don't work -- short equity). The manual <taskId>
+// path below is completely unaffected and keeps its existing fail-loud/
+// 10-share-default behavior.
+const AUTO_MICRO_NOTIONAL_PER_LEG = 15; // dollars/leg -- true micro sizing
 
 function appendLog(record) {
   fs.appendFileSync(LOG_PATH, JSON.stringify(record) + '\n');
@@ -214,6 +216,32 @@ async function executeOne(candidate, sourceTask, sizing) {
   });
 }
 
+// --auto-only path: true "micro trade" sizing, direct user request
+// ("agents always running... making micro trades and documenting their
+// learnings"). A single flat dollar target across every asset class/price
+// range, not the old flat-10-shares/flat-$50 constants (10 shares of LLY
+// was never micro). Alpaca supports fractional/notional orders for long
+// equity and all crypto, but NOT for short equity (a real, documented
+// Alpaca limit) -- so a short computes a whole-share qty approximating
+// the same dollar target from a live quote instead.
+async function computeMicroSizing(symbol, direction, isCrypto) {
+  if (isCrypto || direction === 'long') return { notional: AUTO_MICRO_NOTIONAL_PER_LEG };
+  const quote = await alpaca.getLatestQuote(symbol);
+  const qty = Math.max(1, Math.floor(AUTO_MICRO_NOTIONAL_PER_LEG / quote.mid));
+  return { qty };
+}
+
+async function runForTaskMicro(taskId) {
+  const candidates = extractApprovedCandidates(taskId);
+  console.log(`[--auto] Found ${candidates.length} approved candidate(s) in ${taskId}, sizing each as a ~$${AUTO_MICRO_NOTIONAL_PER_LEG} micro trade.`);
+  for (const candidate of candidates) {
+    const setup = candidate.conditionalSetup;
+    const isCrypto = cryptoSymbols.isCryptoSymbol(setup.symbol);
+    const sizing = await computeMicroSizing(setup.symbol, setup.direction, isCrypto);
+    await executeOne(candidate, taskId, sizing);
+  }
+}
+
 async function runForTask(taskId, notionalPerLeg, qtyPerLeg) {
   const candidates = extractApprovedCandidates(taskId);
   console.log(`Found ${candidates.length} approved candidate(s) in ${taskId}.`);
@@ -225,8 +253,8 @@ async function runForTask(taskId, notionalPerLeg, qtyPerLeg) {
       // No default dollar amount is invented for crypto on the MANUAL
       // path -- position sizing is explicitly the human operator's call,
       // and a wrong guess here is real money-shaped, even in paper: fail
-      // loudly rather than silently pick a number. (--auto uses the
-      // AUTO_CRYPTO_NOTIONAL_PER_LEG constant instead -- see main().)
+      // loudly rather than silently pick a number. (--auto uses
+      // computeMicroSizing() instead -- see runForTaskMicro().)
       if (!notionalPerLeg) {
         console.error(`FAILED: ${symbol} is a crypto candidate but no --notionalPerLeg=<dollars> was supplied. Crypto positions size by dollar notional, not share qty -- pass e.g. --notionalPerLeg=50.`);
         process.exit(1);
@@ -254,8 +282,8 @@ async function main() {
       console.log(`[--auto] No unexecuted status:done round-3 task found for ${pilot} -- nothing to do.`);
       return;
     }
-    console.log(`[--auto] Executing ${taskId} (${pilot}) with AUTO_${pilot === 'crypto' ? 'CRYPTO_NOTIONAL' : 'EQUITY_QTY'}_PER_LEG.`);
-    await runForTask(taskId, AUTO_CRYPTO_NOTIONAL_PER_LEG, AUTO_EQUITY_QTY_PER_LEG);
+    console.log(`[--auto] Executing ${taskId} (${pilot}), micro sizing ($${AUTO_MICRO_NOTIONAL_PER_LEG}/leg).`);
+    await runForTaskMicro(taskId);
     console.log('\nDone.');
     return;
   }
@@ -283,4 +311,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, AUTO_EQUITY_QTY_PER_LEG, AUTO_CRYPTO_NOTIONAL_PER_LEG };
+module.exports = { executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, runForTaskMicro, computeMicroSizing, AUTO_MICRO_NOTIONAL_PER_LEG };

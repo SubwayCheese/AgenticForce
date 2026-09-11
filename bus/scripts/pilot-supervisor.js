@@ -32,6 +32,8 @@ const { execFileSync } = require('child_process');
 const gen = require('./generate-pilot-tasks.js');
 const alpaca = require('./alpaca-client.js');
 const triggers = require('./conditional-triggers.js');
+const journal = require('./trading-journal.js');
+const runTask = require('./run-task.js');
 
 const SCRIPTS_DIR = __dirname;
 const VAULT_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -146,6 +148,21 @@ async function checkConditionalTriggers() {
   }
 }
 
+// "The stock is the teacher" (added 2026-09-10, direct user request):
+// journal every newly-closed trade (cheap, mechanical, every wake), and
+// periodically dispatch a real reflection pass once enough close-outs
+// accumulate (batched -- see trading-journal.js for why this is NOT one
+// agent call per micro-trade).
+function checkTradingJournal() {
+  try {
+    journal.journalClosedTrades();
+    journal.maybeDispatchReflection(gen);
+    journal.checkReflectionResults(runTask);
+  } catch (err) {
+    log(`trading-journal FAILED: ${err.message}`);
+  }
+}
+
 async function main() {
   await maybeGenerateCycle('fleet');
   await maybeGenerateCycle('crypto');
@@ -153,10 +170,11 @@ async function main() {
   runExecuteAuto('fleet');
   runExecuteAuto('crypto');
   runMonitorExecute();
+  checkTradingJournal();
 }
 
 if (require.main === module) {
   main().catch((err) => { log(`FAILED: ${err.message}`); process.exit(1); });
 }
 
-module.exports = { log, getMarketClock, isCycleDue, todayCycleExists, maybeGenerateCycle, checkConditionalTriggers, runExecuteAuto, runMonitorExecute, main };
+module.exports = { log, getMarketClock, isCycleDue, todayCycleExists, maybeGenerateCycle, checkConditionalTriggers, checkTradingJournal, runExecuteAuto, runMonitorExecute, main };
