@@ -4,6 +4,7 @@ bus/research-crew-state.json
 bus/inbox-check-state.json
 bus/continuous-run.log
 bus/queue-daemon.log
+bus/pilot-supervisor.log
 # bus/memory.jsonl is deliberately NOT ignored -- it's the durable fact
 # store (Phase 3 piece 3), a meaningful record closer in character to
 # bus/log.md than to the disposable operational logs above.

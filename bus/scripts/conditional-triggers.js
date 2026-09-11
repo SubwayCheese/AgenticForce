@@ -212,7 +212,19 @@ async function checkRescanResults() {
     const isCrypto = cryptoSymbols.isCryptoSymbol(setup.symbol);
     const sizing = await executor.computeMicroSizing(setup.symbol, setup.direction, isCrypto);
     try {
-      await executor.executeOne(record.candidate, record.sourceTask, sizing);
+      const outcome = await executor.executeOne(record.candidate, record.sourceTask, sizing);
+      // Real incident, 2026-09-10/11: executeOne() used to have no way to
+      // say "I didn't actually do anything" (e.g. equity market closed) --
+      // this got logged as trigger-confirmed anyway, which both lied about
+      // what happened and meant nothing would ever retry it. `.skipped`
+      // fixes both: leave this trigger in "trigger-fired" state (the
+      // STILL VALID verdict stays on record, no need to re-dispatch a
+      // rescan) so the NEXT wake retries executeOne() directly.
+      if (outcome && outcome.skipped) {
+        console.log(`[conditional-triggers] ${record.symbol}: rescan confirmed still valid, but execution was skipped (${outcome.reason}) -- leaving fired, will retry next wake.`);
+        results.push({ symbol: record.symbol, verdict, skipped: true, reason: outcome.reason });
+        continue;
+      }
       appendEvent({
         type: 'trigger-confirmed',
         sourceTask: record.sourceTask,
@@ -220,11 +232,12 @@ async function checkRescanResults() {
         symbol: record.symbol,
         rescanTaskId: record.rescanTaskId,
         sizing,
+        stopPlaced: outcome ? outcome.stopPlaced : null,
       });
       console.log(`[conditional-triggers] CONFIRMED + EXECUTED ${record.symbol}: rescan said still valid.`);
       await ntfy.sendNtfy({
         title: `${record.symbol}: conditional trigger confirmed and executed`,
-        message: `${record.symbol} hit its trigger ($${record.triggerPrice}), rescan confirmed the thesis still holds, and the entry was placed (paper).`,
+        message: `${record.symbol} hit its trigger ($${record.triggerPrice}), rescan confirmed the thesis still holds, and the entry was placed (paper).${outcome && !outcome.stopPlaced ? ' WARNING: no protective stop was placed -- see execute-portfolio-setup.js log.' : ''}`,
         priority: 4,
       }).catch(() => {});
     } catch (err) {

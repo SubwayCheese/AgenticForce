@@ -58465,3 +58465,625 @@ status -> done
 **2026-09-11T00:03:52.008Z -- run-task-generic.js**
 Dependency resolution FAILED: dependency task_id "y" not found (no file at tasks/y.md)
 Task NOT dispatched. status -> blocked.
+
+## fleet_pilot_20260911_rescan_ko_1789101774994 (run-task-generic.js -- agent: Codex, mode: read-only)
+
+**2026-09-11T04:42:56.222Z -- run-task-generic.js**
+dependsOnTaskId: fleet_pilot_20260910_synthesis_r3_portfolio_v2
+Dependency resolved OK. Injecting value from "fleet_pilot_20260910_synthesis_r3_portfolio_v2" verbatim.
+Sent (exact):
+"""
+RESCAN for KO: this candidate's conditional trigger has just fired. Original conditional thesis (with its bull/bear case and triggerPrice/triggerType) is auto-injected below via dependency.
+
+Live price is now $83.66, which has crossed the stated trigger ($87.42, at_or_below).
+
+Do a BRIEF re-verification, not a full re-research pass: does the original thesis still hold up given this price action, or does the move itself look like it undermines the thesis (e.g. a "buy the pullback" thesis where the pullback kept accelerating past support, or unexplained volume/news you can check via your own hosted web-search tool if available)? You do not have live fundamental/valuation data access -- reason from the injected thesis plus this one new price fact, and a quick web-search check if it would change your answer.
+
+Reply with a single clear verdict line, exactly one of: "VERDICT: STILL VALID" or "VERDICT: NO LONGER VALID", followed by one short paragraph of reasoning.
+
+A prior step in this pipeline (task_id: fleet_pilot_20260910_synthesis_r3_portfolio_v2) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| As of: 2026-09-10; prices and 20-close trends cover 2026-08-13 to 2026-09-10; valuations are most-recent-fiscal-year snapshots.
+| 
+| ```json
+| {
+|   "runTimestamp": "2026-09-10",
+|   "frozenDataTimestamp": "2026-09-10",
+|   "approvedCandidates": [],
+|   "conditionalCandidates": [
+|     {
+|       "symbol": "AAPL",
+|       "stance": "long",
+|       "triggerPrice": 305.26,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "AAPL",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $305.26 or lower, subject to re-verification that the recent advance has not broken on new company-specific information.",
+|         "invalidationCondition": "Exit below $293.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "A 6.15% 20-close advance with limited reported drawdown can support a constructive pullback entry.",
+|       "bearCase": "Current valuation and cash-return figures do not independently establish a margin of safety.",
+|       "oneLineRationale": "Wait for the prior-window starting level rather than chase at $324.03."
+|     },
+|     {
+|       "symbol": "NVDA",
+|       "stance": "long",
+|       "triggerPrice": 225.3,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "NVDA",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reclaims $225.30 or higher, confirming recovery above the 20-window starting price.",
+|         "invalidationCondition": "Exit below $210.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "All supplied analyst targets sit above spot and consensus implies substantial upside.",
+|       "bearCase": "The short window was weak and the packet cannot determine whether high reported valuation is justified.",
+|       "oneLineRationale": "A recovery through $225.30 is preferable to buying into an unconfirmed decline."
+|     },
+|     {
+|       "symbol": "MSFT",
+|       "stance": "long",
+|       "triggerPrice": 496.88,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "MSFT",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a move to $496.88 or higher, reversing the modest 20-window decline.",
+|         "invalidationCondition": "Exit below $480.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Reported P/E and EV multiple are lower than several growth names in the supplied set, with 12.2% consensus upside.",
+|       "bearCase": "The reported low FCF yield versus earnings yield is unresolved and current price action is neutral.",
+|       "oneLineRationale": "Require a reclaim of the prior price level before acting on the moderate-multiple case."
+|     },
+|     {
+|       "symbol": "GOOGL",
+|       "stance": "long",
+|       "triggerPrice": 346.36,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "GOOGL",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reaches $346.36 or higher, recovering the full 20-window decline.",
+|         "invalidationCondition": "Exit below $315.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Consensus is materially above spot and a full price recovery would demonstrate that recent weakness has been absorbed.",
+|       "bearCase": "The supplied valuation snapshot and target gap cannot establish that future growth supports the multiple.",
+|       "oneLineRationale": "Use a confirmed recovery, not the opaque target gap, as the entry evidence."
+|     },
+|     {
+|       "symbol": "AMZN",
+|       "stance": "long",
+|       "triggerPrice": 265.13,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "AMZN",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reclaims $265.13 or higher, reversing the reported 20-day weakness.",
+|         "invalidationCondition": "Exit below $240.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Every stated analyst target exceeds spot, and low current FCF yield may reflect productive investment rather than weak economics.",
+|       "bearCase": "The packet provides no capex-return or cash-conversion evidence to validate that interpretation.",
+|       "oneLineRationale": "The thesis survives challenge, but needs price recovery before entry."
+|     },
+|     {
+|       "symbol": "KO",
+|       "stance": "long",
+|       "triggerPrice": 87.42,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "KO",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $87.42 or lower, preserving an income-oriented entry rather than buying a near-flat advance.",
+|         "invalidationCondition": "Exit below $84.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Reported lower short-window volatility, a positive endpoint return, and a 2.92% dividend support a defensive-income setup.",
+|       "bearCase": "The KO-versus-PEP valuation comparison is too incomplete to prove a relative advantage.",
+|       "oneLineRationale": "A lower entry is required because current evidence supports stability, not upside urgency."
+|     },
+|     {
+|       "symbol": "TSLA",
+|       "stance": "long",
+|       "triggerPrice": 339.96,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "TSLA",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $339.96 or lower, subject to re-verification that the high-volatility advance remains intact.",
+|         "invalidationCondition": "Exit below $320.00, or exit after 10 trading sessions if not triggered.",
+|         "timeHorizon": "10 trading sessions"
+|       },
+|       "bullCase": "The stock gained 7.77% over the window and consensus remains about 19% above spot.",
+|       "bearCase": "Reported valuation is exceptionally high and the short-window path offers no proof that expectations are sustainable.",
+|       "oneLineRationale": "A materially lower entry is required to compensate for valuation and volatility risk."
+|     },
+|     {
+|       "symbol": "XOM",
+|       "stance": "long",
+|       "triggerPrice": 158.61,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "XOM",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $158.61 or lower, where the value-and-income case has a better entry margin.",
+|         "invalidationCondition": "Exit below $153.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Reported P/E, EV multiple, and dividend yield provide the strongest available value-and-income profile in the set.",
+|       "bearCase": "Commodity sensitivity is unobserved and the 3.31% FCF yield does not clearly cover the 3.33% dividend.",
+|       "oneLineRationale": "Do not approve after the advance; require a pullback that improves compensation for cyclical and coverage risk."
+|     },
+|     {
+|       "symbol": "NFLX",
+|       "stance": "long",
+|       "triggerPrice": 78.24,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "NFLX",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reclaims $78.24 or higher, reversing the reported 20-window loss.",
+|         "invalidationCondition": "Exit below $72.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "A recovery would pair price confirmation with the reported 20.6% consensus-target gap.",
+|       "bearCase": "A 36.3 P/E and 2.94% FCF yield offer no demonstrated downside cushion without growth evidence.",
+|       "oneLineRationale": "Require a recovery signal before treating the pullback as an opportunity."
+|     },
+|     {
+|       "symbol": "VZ",
+|       "stance": "long",
+|       "triggerPrice": 48.22,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "VZ",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $48.22 or lower, subject to re-verification that the income thesis remains intact.",
+|         "invalidationCondition": "Exit below $46.50, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "The supplied screen shows the lowest P/E, high stated FCF yield, high dividend yield, and the calmest recent path.",
+|       "bearCase": "Debt, capex, coverage, and competitive data are absent, while price already exceeds consensus.",
+|       "oneLineRationale": "The cautious income thesis holds, but $50.015 is not an attractive fresh entry."
+|     },
+|     {
+|       "symbol": "PEP",
+|       "stance": "long",
+|       "triggerPrice": 134,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "PEP",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $134.00 or lower, near the supplied low analyst target, after re-verifying dividend and cash-flow support.",
+|         "invalidationCondition": "Exit below $130.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "PEP has higher reported FCF and dividend yields than KO and 13.4% consensus upside.",
+|       "bearCase": "The stated FCF yield exceeds the dividend yield by only 0.20 percentage points and does not establish coverage.",
+|       "oneLineRationale": "Only a lower price compensates for the thin visible cash-flow margin."
+|     }
+|   ],
+|   "rejectedCandidates": [
+|     {
+|       "symbol": "WMT",
+|       "reason": "Candidate-specific unexplained -9.15% one-session repricing and -11.31% drawdown leave a material event-risk gap that a price trigger cannot cure."
+|     },
+|     {
+|       "symbol": "DIS",
+|       "reason": "Round 1 made a candidate-specific logic error: it said the $111-$164 target range did not uniformly imply upside even though every stated target exceeded $105.15. That error affects the conditional-buy framing."
+|     },
+|     {
+|       "symbol": "META",
+|       "reason": "Round 1 materially understated concentration: the +6.55% session was about 69% of the stated +9.49% window gain, not nearly half. The momentum thesis therefore rests on misstated evidence."
+|     },
+|     {
+|       "symbol": "ABBV",
+|       "reason": "The reported negative equity per share and P/B do not reconcile ($252.36 divided by -$1.84 is about -137, not -124), leaving a candidate-specific accounting/metric inconsistency unresolved."
+|     }
+|   ],
+|   "materialDissent": {
+|     "AAPL": "The same 6.15% gain and 3.92% drawdown can be read as favorable rather than fragile.",
+|     "NVDA": "The all-above-spot target range is constructive, but its recency and valuation implications are unknown.",
+|     "MSFT": "The P/E/FCF-yield tension may reflect valid business economics rather than an error.",
+|     "GOOGL": "The decline may be temporary, but no supplied forward evidence establishes that.",
+|     "AMZN": "Low FCF yield may be investment-driven, but capex productivity is unverified.",
+|     "KO": "KO may deserve its premium to PEP; the two-company comparison cannot resolve that.",
+|     "TSLA": "Positive price asymmetry could be genuine demand, yet valuation justification is unmeasured.",
+|     "XOM": "Low multiples may be value or cyclical normalization; commodity and coverage evidence is missing.",
+|     "NFLX": "The pullback may be noise or an early repricing of elevated expectations.",
+|     "WMT": "The selloff could be an opportunity, but the unexplained candidate-specific shock prevents a usable setup.",
+|     "VZ": "High yield may be attractive income or compensation for unobserved financial and operating risk.",
+|     "DIS": "Correcting the target-range error is constructive, but it cannot repair the evidence-quality failure in this cycle.",
+|     "META": "The strong endpoint may reflect durable repricing, but the misstated concentration prevents reliance on it.",
+|     "ABBV": "Cash-oriented measures are constructive, but the specific metric inconsistency blocks a decision-quality thesis.",
+|     "PEP": "Higher reported yield than KO is real, but it does not demonstrate dividend durability."
+|   },
+|   "evidenceLedgerSummary": {
+|     "survivorRule": "Generic dataset limitations—including undefined EV-based metrics, missing forward estimates, missing daily series, and undated targets—were not used as symbol-specific rejections.",
+|     "candidateSpecificRejections": "WMT's unexplained shock, DIS's target-range logic error, META's arithmetic understatement of gain concentration, and ABBV's P/B-versus-equity mismatch are differentiated issues.",
+|     "portfolioPosture": "No name has sufficient current-price evidence for immediate approval. Surviving ideas are price-disciplined conditional setups."
+|   },
+|   "riskWarnings": [
+|     "All triggers require the specified automated re-verification before execution.",
+|     "Analyst targets are secondary context only; no target-date, revision, coverage, or dispersion methodology was supplied.",
+|     "Reported valuation and FCF-yield metrics have incomplete definitions and should not be treated as standalone intrinsic-value conclusions.",
+|     "These are risk-defined portfolio-screen outcomes, not predictions or personalized investment advice."
+|   ],
+|   "keyLearnings": [
+|     "Do not convert shared packet limitations into fifteen independent rejections.",
+|     "Use only arithmetic and logic errors that are specific to a symbol as evidence-quality disqualifiers.",
+|     "A lower price can improve entry compensation, but cannot repair an unresolved symbol-specific evidence error.",
+|     "Short-window endpoints should be used as explicit price triggers rather than as causal claims about earnings or investor behavior."
+|   ],
+|   "comparisonToPriorRuns": "Compared with the 2026-09-08 synthesis, this cycle applies the prior discipline more strictly: it separates generic data gaps from candidate-specific failures, avoids treating analyst-target gaps as primary evidence, and rejects only the names with actual symbol-level logic, arithmetic, or event-risk disqualifiers.",
+|   "disclaimer": "For research workflow use only. This synthesis uses only the supplied frozen ledger and exact supplied values; it is not investment, legal, or tax advice."
+| }
+| ```
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+4 lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault or reaching the live internet to
+check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for
+anything you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command
+like cat/Get-Content -- you retain that access, scoped to this
+vault directory, even in this read-only dispatch. Name the exact
+file path(s) you read on the next line.)
+
+SOURCE: web search performed live in this pipeline, not independently verified
+(use this if you actually invoked a real web-search/fetch tool in
+this dispatch. Web search results are noisy and can contain
+AI-summarized or outright wrong content -- state exactly what you
+searched for and what came back, and flag anything in the results
+that looks unconfirmed or implausible instead of repeating it as
+settled fact.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, the file(s) you
+actually read, or what you searched for -- not just "current"). If
+anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines
+instead of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message {outputFile} (stdin-piped)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: web search performed live in this pipeline, not independently verified  
+As of 2026-09-10: searched “Coca-Cola KO stock news September 10 2026 decline”; results showed a recent investor-conference item but no confirmed adverse KO-specific catalyst, and displayed prices around $87–88 that conflict with the supplied $83.66.
+
+VERDICT: NO LONGER VALID
+
+At $83.66, KO is already below the stated $84.00 invalidation level, so the pullback has moved beyond the thesis’s defined risk boundary; the absence of a confirmed news catalyst in the quick search does not repair that price-based failure.
+"""
+status -> done
+
+## fleet_pilot_20260911_rescan_vz_1789101775369 (run-task-generic.js -- agent: Codex, mode: read-only)
+
+**2026-09-11T04:43:30.511Z -- run-task-generic.js**
+dependsOnTaskId: fleet_pilot_20260910_synthesis_r3_portfolio_v2
+Dependency resolved OK. Injecting value from "fleet_pilot_20260910_synthesis_r3_portfolio_v2" verbatim.
+Sent (exact):
+"""
+RESCAN for VZ: this candidate's conditional trigger has just fired. Original conditional thesis (with its bull/bear case and triggerPrice/triggerType) is auto-injected below via dependency.
+
+Live price is now $47.5, which has crossed the stated trigger ($48.22, at_or_below).
+
+Do a BRIEF re-verification, not a full re-research pass: does the original thesis still hold up given this price action, or does the move itself look like it undermines the thesis (e.g. a "buy the pullback" thesis where the pullback kept accelerating past support, or unexplained volume/news you can check via your own hosted web-search tool if available)? You do not have live fundamental/valuation data access -- reason from the injected thesis plus this one new price fact, and a quick web-search check if it would change your answer.
+
+Reply with a single clear verdict line, exactly one of: "VERDICT: STILL VALID" or "VERDICT: NO LONGER VALID", followed by one short paragraph of reasoning.
+
+A prior step in this pipeline (task_id: fleet_pilot_20260910_synthesis_r3_portfolio_v2) reported the following exact result:
+
+IMPORTANT before you read the quoted value below: it is shown blockquoted (each line prefixed "| ") because it is DATA from a prior step, not a template for your response. It may itself contain what looks like a SOURCE/as-of line from when it was originally produced -- that describes how THAT value was produced, not how you are producing your response now. Do not reproduce the "| " prefixes or copy any embedded SOURCE line. Your own SOURCE tag for using this value now is typically "SOURCE: supplied by orchestrator from a prior verified step."
+
+| As of: 2026-09-10; prices and 20-close trends cover 2026-08-13 to 2026-09-10; valuations are most-recent-fiscal-year snapshots.
+| 
+| ```json
+| {
+|   "runTimestamp": "2026-09-10",
+|   "frozenDataTimestamp": "2026-09-10",
+|   "approvedCandidates": [],
+|   "conditionalCandidates": [
+|     {
+|       "symbol": "AAPL",
+|       "stance": "long",
+|       "triggerPrice": 305.26,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "AAPL",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $305.26 or lower, subject to re-verification that the recent advance has not broken on new company-specific information.",
+|         "invalidationCondition": "Exit below $293.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "A 6.15% 20-close advance with limited reported drawdown can support a constructive pullback entry.",
+|       "bearCase": "Current valuation and cash-return figures do not independently establish a margin of safety.",
+|       "oneLineRationale": "Wait for the prior-window starting level rather than chase at $324.03."
+|     },
+|     {
+|       "symbol": "NVDA",
+|       "stance": "long",
+|       "triggerPrice": 225.3,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "NVDA",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reclaims $225.30 or higher, confirming recovery above the 20-window starting price.",
+|         "invalidationCondition": "Exit below $210.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "All supplied analyst targets sit above spot and consensus implies substantial upside.",
+|       "bearCase": "The short window was weak and the packet cannot determine whether high reported valuation is justified.",
+|       "oneLineRationale": "A recovery through $225.30 is preferable to buying into an unconfirmed decline."
+|     },
+|     {
+|       "symbol": "MSFT",
+|       "stance": "long",
+|       "triggerPrice": 496.88,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "MSFT",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a move to $496.88 or higher, reversing the modest 20-window decline.",
+|         "invalidationCondition": "Exit below $480.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Reported P/E and EV multiple are lower than several growth names in the supplied set, with 12.2% consensus upside.",
+|       "bearCase": "The reported low FCF yield versus earnings yield is unresolved and current price action is neutral.",
+|       "oneLineRationale": "Require a reclaim of the prior price level before acting on the moderate-multiple case."
+|     },
+|     {
+|       "symbol": "GOOGL",
+|       "stance": "long",
+|       "triggerPrice": 346.36,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "GOOGL",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reaches $346.36 or higher, recovering the full 20-window decline.",
+|         "invalidationCondition": "Exit below $315.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Consensus is materially above spot and a full price recovery would demonstrate that recent weakness has been absorbed.",
+|       "bearCase": "The supplied valuation snapshot and target gap cannot establish that future growth supports the multiple.",
+|       "oneLineRationale": "Use a confirmed recovery, not the opaque target gap, as the entry evidence."
+|     },
+|     {
+|       "symbol": "AMZN",
+|       "stance": "long",
+|       "triggerPrice": 265.13,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "AMZN",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reclaims $265.13 or higher, reversing the reported 20-day weakness.",
+|         "invalidationCondition": "Exit below $240.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Every stated analyst target exceeds spot, and low current FCF yield may reflect productive investment rather than weak economics.",
+|       "bearCase": "The packet provides no capex-return or cash-conversion evidence to validate that interpretation.",
+|       "oneLineRationale": "The thesis survives challenge, but needs price recovery before entry."
+|     },
+|     {
+|       "symbol": "KO",
+|       "stance": "long",
+|       "triggerPrice": 87.42,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "KO",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $87.42 or lower, preserving an income-oriented entry rather than buying a near-flat advance.",
+|         "invalidationCondition": "Exit below $84.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Reported lower short-window volatility, a positive endpoint return, and a 2.92% dividend support a defensive-income setup.",
+|       "bearCase": "The KO-versus-PEP valuation comparison is too incomplete to prove a relative advantage.",
+|       "oneLineRationale": "A lower entry is required because current evidence supports stability, not upside urgency."
+|     },
+|     {
+|       "symbol": "TSLA",
+|       "stance": "long",
+|       "triggerPrice": 339.96,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "TSLA",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $339.96 or lower, subject to re-verification that the high-volatility advance remains intact.",
+|         "invalidationCondition": "Exit below $320.00, or exit after 10 trading sessions if not triggered.",
+|         "timeHorizon": "10 trading sessions"
+|       },
+|       "bullCase": "The stock gained 7.77% over the window and consensus remains about 19% above spot.",
+|       "bearCase": "Reported valuation is exceptionally high and the short-window path offers no proof that expectations are sustainable.",
+|       "oneLineRationale": "A materially lower entry is required to compensate for valuation and volatility risk."
+|     },
+|     {
+|       "symbol": "XOM",
+|       "stance": "long",
+|       "triggerPrice": 158.61,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "XOM",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $158.61 or lower, where the value-and-income case has a better entry margin.",
+|         "invalidationCondition": "Exit below $153.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "Reported P/E, EV multiple, and dividend yield provide the strongest available value-and-income profile in the set.",
+|       "bearCase": "Commodity sensitivity is unobserved and the 3.31% FCF yield does not clearly cover the 3.33% dividend.",
+|       "oneLineRationale": "Do not approve after the advance; require a pullback that improves compensation for cyclical and coverage risk."
+|     },
+|     {
+|       "symbol": "NFLX",
+|       "stance": "long",
+|       "triggerPrice": 78.24,
+|       "triggerType": "at_or_above",
+|       "conditionalSetup": {
+|         "symbol": "NFLX",
+|         "direction": "long",
+|         "entryCondition": "Enter only if price reclaims $78.24 or higher, reversing the reported 20-window loss.",
+|         "invalidationCondition": "Exit below $72.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "A recovery would pair price confirmation with the reported 20.6% consensus-target gap.",
+|       "bearCase": "A 36.3 P/E and 2.94% FCF yield offer no demonstrated downside cushion without growth evidence.",
+|       "oneLineRationale": "Require a recovery signal before treating the pullback as an opportunity."
+|     },
+|     {
+|       "symbol": "VZ",
+|       "stance": "long",
+|       "triggerPrice": 48.22,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "VZ",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $48.22 or lower, subject to re-verification that the income thesis remains intact.",
+|         "invalidationCondition": "Exit below $46.50, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "The supplied screen shows the lowest P/E, high stated FCF yield, high dividend yield, and the calmest recent path.",
+|       "bearCase": "Debt, capex, coverage, and competitive data are absent, while price already exceeds consensus.",
+|       "oneLineRationale": "The cautious income thesis holds, but $50.015 is not an attractive fresh entry."
+|     },
+|     {
+|       "symbol": "PEP",
+|       "stance": "long",
+|       "triggerPrice": 134,
+|       "triggerType": "at_or_below",
+|       "conditionalSetup": {
+|         "symbol": "PEP",
+|         "direction": "long",
+|         "entryCondition": "Enter only on a pullback to $134.00 or lower, near the supplied low analyst target, after re-verifying dividend and cash-flow support.",
+|         "invalidationCondition": "Exit below $130.00, or exit after 15 trading sessions if not triggered.",
+|         "timeHorizon": "15 trading sessions"
+|       },
+|       "bullCase": "PEP has higher reported FCF and dividend yields than KO and 13.4% consensus upside.",
+|       "bearCase": "The stated FCF yield exceeds the dividend yield by only 0.20 percentage points and does not establish coverage.",
+|       "oneLineRationale": "Only a lower price compensates for the thin visible cash-flow margin."
+|     }
+|   ],
+|   "rejectedCandidates": [
+|     {
+|       "symbol": "WMT",
+|       "reason": "Candidate-specific unexplained -9.15% one-session repricing and -11.31% drawdown leave a material event-risk gap that a price trigger cannot cure."
+|     },
+|     {
+|       "symbol": "DIS",
+|       "reason": "Round 1 made a candidate-specific logic error: it said the $111-$164 target range did not uniformly imply upside even though every stated target exceeded $105.15. That error affects the conditional-buy framing."
+|     },
+|     {
+|       "symbol": "META",
+|       "reason": "Round 1 materially understated concentration: the +6.55% session was about 69% of the stated +9.49% window gain, not nearly half. The momentum thesis therefore rests on misstated evidence."
+|     },
+|     {
+|       "symbol": "ABBV",
+|       "reason": "The reported negative equity per share and P/B do not reconcile ($252.36 divided by -$1.84 is about -137, not -124), leaving a candidate-specific accounting/metric inconsistency unresolved."
+|     }
+|   ],
+|   "materialDissent": {
+|     "AAPL": "The same 6.15% gain and 3.92% drawdown can be read as favorable rather than fragile.",
+|     "NVDA": "The all-above-spot target range is constructive, but its recency and valuation implications are unknown.",
+|     "MSFT": "The P/E/FCF-yield tension may reflect valid business economics rather than an error.",
+|     "GOOGL": "The decline may be temporary, but no supplied forward evidence establishes that.",
+|     "AMZN": "Low FCF yield may be investment-driven, but capex productivity is unverified.",
+|     "KO": "KO may deserve its premium to PEP; the two-company comparison cannot resolve that.",
+|     "TSLA": "Positive price asymmetry could be genuine demand, yet valuation justification is unmeasured.",
+|     "XOM": "Low multiples may be value or cyclical normalization; commodity and coverage evidence is missing.",
+|     "NFLX": "The pullback may be noise or an early repricing of elevated expectations.",
+|     "WMT": "The selloff could be an opportunity, but the unexplained candidate-specific shock prevents a usable setup.",
+|     "VZ": "High yield may be attractive income or compensation for unobserved financial and operating risk.",
+|     "DIS": "Correcting the target-range error is constructive, but it cannot repair the evidence-quality failure in this cycle.",
+|     "META": "The strong endpoint may reflect durable repricing, but the misstated concentration prevents reliance on it.",
+|     "ABBV": "Cash-oriented measures are constructive, but the specific metric inconsistency blocks a decision-quality thesis.",
+|     "PEP": "Higher reported yield than KO is real, but it does not demonstrate dividend durability."
+|   },
+|   "evidenceLedgerSummary": {
+|     "survivorRule": "Generic dataset limitations—including undefined EV-based metrics, missing forward estimates, missing daily series, and undated targets—were not used as symbol-specific rejections.",
+|     "candidateSpecificRejections": "WMT's unexplained shock, DIS's target-range logic error, META's arithmetic understatement of gain concentration, and ABBV's P/B-versus-equity mismatch are differentiated issues.",
+|     "portfolioPosture": "No name has sufficient current-price evidence for immediate approval. Surviving ideas are price-disciplined conditional setups."
+|   },
+|   "riskWarnings": [
+|     "All triggers require the specified automated re-verification before execution.",
+|     "Analyst targets are secondary context only; no target-date, revision, coverage, or dispersion methodology was supplied.",
+|     "Reported valuation and FCF-yield metrics have incomplete definitions and should not be treated as standalone intrinsic-value conclusions.",
+|     "These are risk-defined portfolio-screen outcomes, not predictions or personalized investment advice."
+|   ],
+|   "keyLearnings": [
+|     "Do not convert shared packet limitations into fifteen independent rejections.",
+|     "Use only arithmetic and logic errors that are specific to a symbol as evidence-quality disqualifiers.",
+|     "A lower price can improve entry compensation, but cannot repair an unresolved symbol-specific evidence error.",
+|     "Short-window endpoints should be used as explicit price triggers rather than as causal claims about earnings or investor behavior."
+|   ],
+|   "comparisonToPriorRuns": "Compared with the 2026-09-08 synthesis, this cycle applies the prior discipline more strictly: it separates generic data gaps from candidate-specific failures, avoids treating analyst-target gaps as primary evidence, and rejects only the names with actual symbol-level logic, arithmetic, or event-risk disqualifiers.",
+|   "disclaimer": "For research workflow use only. This synthesis uses only the supplied frozen ledger and exact supplied values; it is not investment, legal, or tax advice."
+| }
+| ```
+
+Use that exact figure -- do not substitute a different number from your own knowledge, even if it differs from what you would otherwise recall.
+Before answering, your response MUST start with exactly one of these
+4 lines -- pick whichever is actually true for how you produced
+this specific answer. Do not default to the first one out of habit:
+
+SOURCE: training-data recall, not verified live
+(use this only if you answered from what you already know, without
+opening any file in this vault or reaching the live internet to
+check)
+
+SOURCE: supplied by orchestrator from a prior verified step
+(use this only if a verified figure was explicitly supplied to you
+earlier in this prompt from a prior pipeline step -- not for
+anything you looked up yourself)
+
+SOURCE: verified live via direct file read in this pipeline
+(use this if you actually opened a file in this vault to answer --
+whether via a native file-reading tool or a real shell command
+like cat/Get-Content -- you retain that access, scoped to this
+vault directory, even in this read-only dispatch. Name the exact
+file path(s) you read on the next line.)
+
+SOURCE: web search performed live in this pipeline, not independently verified
+(use this if you actually invoked a real web-search/fetch tool in
+this dispatch. Web search results are noisy and can contain
+AI-summarized or outright wrong content -- state exactly what you
+searched for and what came back, and flag anything in the results
+that looks unconfirmed or implausible instead of repeating it as
+settled fact.)
+
+On the line after your SOURCE tag, state the as-of date/period your
+answer is anchored to (your training cutoff, the file(s) you
+actually read, or what you searched for -- not just "current"). If
+anything about this request's premise looks wrong, outdated, or
+unanswerable, say so plainly right after the SOURCE/as-of lines
+instead of answering around it.
+"""
+Command: codex exec --ephemeral --sandbox read-only --skip-git-repo-check --output-last-message {outputFile} (stdin-piped)
+Exit code: 0
+Received (exact):
+"""
+SOURCE: supplied by orchestrator from a prior verified step  
+As of: 2026-09-10, anchored to the supplied VZ thesis and live price of $47.50.
+
+VERDICT: STILL VALID
+
+The $47.50 price is below the $48.22 entry trigger but remains above the stated $46.50 invalidation; without new company-specific information, this modest further pullback improves the intended income-entry compensation rather than undermining the thesis.
+"""
+status -> done
