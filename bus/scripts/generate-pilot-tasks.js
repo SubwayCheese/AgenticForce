@@ -81,11 +81,17 @@ function pilotPrefix(pilot) {
 
 // Latest <prefix><YYYYMMDD>_ date strictly before `beforeDatePrefix`, or
 // null if there isn't one (first-ever automated cycle for this pilot).
+// Excludes rescan files -- same rescan-date-collision class of bug fixed
+// in pilot-supervisor.js's todayCycleExists() and fleet-status.js/
+// crypto-status.js's findLatestPipelineDate(): a rescan is named with the
+// date it FIRES on, not its original cycle's date, so it can register a
+// date here that never had a real cycle (and thus no real keyLearnings).
 function findPriorDate(pilot, beforeDatePrefix, filenames) {
   const files = filenames || listTaskFilenames();
   const re = new RegExp(`^${pilotPrefix(pilot)}(\\d{8})_`);
   const dates = new Set();
   for (const f of files) {
+    if (f.includes('_rescan_')) continue;
     const m = re.exec(f);
     if (m && m[1] < beforeDatePrefix) dates.add(m[1]);
   }

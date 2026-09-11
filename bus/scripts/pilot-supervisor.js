@@ -82,9 +82,21 @@ async function isCycleDue(pilot) {
 // Today's cycle already has a file on disk -- generation is a once-a-day
 // action, safe to call maybeGenerateCycle() every 30-min wake because of
 // this check, not because generation itself is cheap.
+//
+// BUG FOUND LIVE 2026-09-11: a conditional-trigger rescan is named with
+// the date it FIRES on, not the date its original cycle ran (see
+// generate-pilot-tasks.js's generateRescanTask() and the identical
+// rescan-date-collision bug fixed in fleet-status.js/crypto-status.js
+// last night) -- so `fleet_pilot_20260911_rescan_vz_....md` matches this
+// prefix check just as well as a real universe50_consolidation/thesis/
+// synthesis file would. That silently convinced this function "today's
+// fleet cycle already exists" the entire trading day, even though no
+// real cycle had run -- confirmed live: market open since 9:30am ET,
+// zero fleet_pilot_20260911_thesis/challenge/synthesis files on disk,
+// only the two rescans. Exclude rescans from this check, same fix.
 function todayCycleExists(pilot, datePrefix) {
   const prefix = pilot === 'crypto' ? 'crypto_pilot_' : 'fleet_pilot_';
-  return gen.listTaskFilenames().some((f) => f.startsWith(`${prefix}${datePrefix}_`));
+  return gen.listTaskFilenames().some((f) => f.startsWith(`${prefix}${datePrefix}_`) && !f.includes('_rescan_'));
 }
 
 async function maybeGenerateCycle(pilot) {
