@@ -218,16 +218,39 @@ async function executeOne(candidate, sourceTask, sizing) {
     note: 'Placed via execute-portfolio-setup.js -- stop order placed immediately after, same run, no manual gap.',
   });
 
-  const stopPrice = parseStopPrice(setup.invalidationCondition);
+  const result = await placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition: setup.invalidationCondition, isCrypto, sourceTask });
+  return { skipped: false, executed: true, ...result, actualFillPrice };
+}
+
+// Factored out 2026-09-11 -- REAL BUG FOUND LIVE (multi-agent self-review,
+// risk-manager lens): the stop-placement submitOrder() call below had NO
+// try/catch. Alpaca rejects GTC stop/stop_limit orders on a FRACTIONAL
+// equity qty (confirmed live: 422 "stop/stop_limit fractional GTC orders
+// are not enabled") -- every micro-sized equity long (qty always fractional
+// at $15 notional, e.g. VZ 0.593044035) hit this and threw, which propagated
+// straight past alertUnprotectedPosition() (only wired to the two explicit
+// early-return checks above, not to this call) and out to the caller's own
+// catch, which logs to console only -- no ntfy alert. Confirmed live: VZ (x2
+// fills) and MSFT were open on the real paper account with NO stop order at
+// all and no alert had ever fired. Fixed two ways: (1) wrapped in try/catch
+// so ANY failure reaches alertUnprotectedPosition() now, not just the two
+// pre-checks; (2) added a 'day' time-in-force retry specifically for the
+// fractional-GTC case, since Alpaca does accept fractional stops under 'day'
+// -- a real stop is better than none, even though a day order needs
+// re-arming each session (monitor-paper-trades.js's new safety-net check,
+// see below, is what actually re-arms it going forward, so this isn't a
+// one-time patch that quietly stops working).
+async function placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition, isCrypto, sourceTask }) {
+  const stopPrice = parseStopPrice(invalidationCondition);
   if (stopPrice === null) {
-    console.log(`  WARNING: could not parse a stop price out of invalidationCondition ("${setup.invalidationCondition}") -- NO STOP PLACED. Handle manually.`);
+    console.log(`  WARNING: could not parse a stop price out of invalidationCondition ("${invalidationCondition}") -- NO STOP PLACED. Handle manually.`);
     await alertUnprotectedPosition(symbol, sourceTask, 'no parseable stop price in invalidationCondition');
-    return { skipped: false, executed: true, stopPlaced: false, reason: 'unparseable-stop-price' };
+    return { stopPlaced: false, reason: 'unparseable-stop-price' };
   }
   if (!filledQty) {
     console.log(`  WARNING: no filled quantity available to size the protective stop -- NO STOP PLACED. Handle manually.`);
     await alertUnprotectedPosition(symbol, sourceTask, 'no filled quantity available to size the stop');
-    return { skipped: false, executed: true, stopPlaced: false, reason: 'no-filled-qty' };
+    return { stopPlaced: false, reason: 'no-filled-qty' };
   }
   // A stop that CLOSES a short is a buy-stop (direction "long" in
   // submitOrder's convention); a stop that closes a long is a sell-stop.
@@ -243,9 +266,25 @@ async function executeOne(candidate, sourceTask, sizing) {
   const stopLimitPrice = isCrypto
     ? (stopDirection === 'short' ? stopPrice * 0.99 : stopPrice * 1.01)
     : undefined;
+
+  const attempt = async (timeInForce) => alpaca.submitOrder({ symbol, direction: stopDirection, qty: filledQty, orderType: stopOrderType, stopPrice, limitPrice: stopLimitPrice, timeInForce, intent: 'close' });
+
+  let stopOrder, timeInForceUsed = 'gtc';
   console.log(`Placing protective GTC ${stopOrderType}: ${stopDirection} ${filledQty} @ stop $${stopPrice}${stopLimitPrice ? ` / limit $${stopLimitPrice.toFixed(8)}` : ''}...`);
-  const stopOrder = await alpaca.submitOrder({ symbol, direction: stopDirection, qty: filledQty, orderType: stopOrderType, stopPrice, limitPrice: stopLimitPrice, timeInForce: 'gtc', intent: 'close' });
-  console.log(`  Stop order id ${stopOrder.id}, status ${stopOrder.status}`);
+  try {
+    stopOrder = await attempt('gtc');
+  } catch (gtcErr) {
+    console.log(`  GTC stop rejected (${gtcErr.message.split('\n')[0]}) -- retrying as a 'day' stop (Alpaca allows fractional qty under 'day', not 'gtc').`);
+    try {
+      stopOrder = await attempt('day');
+      timeInForceUsed = 'day';
+    } catch (dayErr) {
+      console.log(`  WARNING: 'day' stop retry also failed (${dayErr.message.split('\n')[0]}) -- NO STOP PLACED. Handle manually.`);
+      await alertUnprotectedPosition(symbol, sourceTask, `stop order rejected under both gtc and day: ${dayErr.message.split('\n')[0]}`);
+      return { stopPlaced: false, reason: 'stop-order-rejected' };
+    }
+  }
+  console.log(`  Stop order id ${stopOrder.id}, status ${stopOrder.status}, time_in_force ${timeInForceUsed}`);
 
   appendLog({
     ts: new Date().toISOString(),
@@ -257,9 +296,12 @@ async function executeOne(candidate, sourceTask, sizing) {
     stopPrice,
     orderId: stopOrder.id,
     orderStatus: stopOrder.status,
-    note: 'GTC stop placed immediately after entry fill in the same run (execute-portfolio-setup.js) -- no manual gap between entry and protection.',
+    timeInForce: timeInForceUsed,
+    note: timeInForceUsed === 'gtc'
+      ? 'GTC stop placed immediately after entry fill in the same run (execute-portfolio-setup.js) -- no manual gap between entry and protection.'
+      : "GTC rejected (fractional qty) -- placed as a 'day' stop instead. Expires at today's close; monitor-paper-trades.js's safety-net check re-arms it on the next --execute run if still open.",
   });
-  return { skipped: false, executed: true, stopPlaced: true, actualFillPrice };
+  return { stopPlaced: true, timeInForce: timeInForceUsed };
 }
 
 // --auto-only path: true "micro trade" sizing, direct user request
@@ -357,4 +399,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, runForTaskMicro, computeMicroSizing, AUTO_MICRO_NOTIONAL_PER_LEG };
+module.exports = { executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, runForTaskMicro, computeMicroSizing, AUTO_MICRO_NOTIONAL_PER_LEG, placeProtectiveStop, parseStopPrice };

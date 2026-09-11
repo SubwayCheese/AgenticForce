@@ -47,6 +47,7 @@ const fs = require('fs');
 const path = require('path');
 const alpaca = require('./alpaca-client.js');
 const cryptoSymbols = require('./crypto-symbols.js');
+const { placeProtectiveStop } = require('./execute-portfolio-setup.js');
 
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
 
@@ -219,6 +220,28 @@ async function main() {
       console.log(`${entry.symbol}: OPEN (same-day exit). Entry day ${etDateString(new Date(entry.ts))}, today ${etDateString(new Date())}, market ${marketClock.available ? (marketClock.isOpen ? 'open' : 'closed') : 'unknown'}. Current price $${currentPrice}, unrealized P&L $${unrealizedPl.toFixed(2)}.`);
     } else {
       console.log(`${entry.symbol}: OPEN. ${unit[0].toUpperCase()}${unit.slice(1)} elapsed: ${elapsedDisplay}${deadline ? ` / ${deadline}` : ' (no deadline parsed)'}. Current price $${currentPrice}, unrealized P&L $${unrealizedPl.toFixed(2)}.`);
+    }
+
+    // SAFETY NET, added 2026-09-11 after a real live incident (multi-agent
+    // self-review, risk-manager lens): confirmed VZ and MSFT open on the real
+    // paper account with NO protective stop order at all and no alert ever
+    // fired -- execute-portfolio-setup.js's stop placement threw on a
+    // fractional-qty GTC rejection with no try/catch around it. That call
+    // site is fixed now (placeProtectiveStop() retries as 'day', always
+    // alerts on total failure), but a 'day' stop still expires every close,
+    // so this check re-verifies EVERY still-open position has a live stop on
+    // every --execute pass, not just once at entry time -- the durable fix,
+    // not a one-time patch.
+    const hasLiveStop = openOrders.some((o) => o.symbol === entry.symbol && (o.type === 'stop' || o.type === 'stop_limit') && o.status !== 'canceled');
+    if (!hasLiveStop) {
+      console.log(`  WARNING: ${entry.symbol} is open with NO live stop order -- attempting to re-arm now.`);
+      if (execute) {
+        const filledQty = Math.abs(Number(live.qty));
+        const result = await placeProtectiveStop({ symbol: entry.symbol, direction: entry.direction, filledQty, invalidationCondition: entry.invalidationCondition, isCrypto, sourceTask: entry.sourceTask });
+        console.log(`  Re-arm result: stopPlaced=${result.stopPlaced}${result.timeInForce ? `, timeInForce=${result.timeInForce}` : ''}${result.reason ? `, reason=${result.reason}` : ''}`);
+      } else {
+        console.log(`  (dry run -- would attempt to re-arm a protective stop; re-run with --execute)`);
+      }
     }
 
     if (timeHit || sameDayHit) {
