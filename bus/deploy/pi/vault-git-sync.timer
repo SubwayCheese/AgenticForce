@@ -1,0 +1,15 @@
+# Fires vault-git-sync.service every 15 min -- more frequent than the
+# 30-min trading-pilot-supervisor.timer since this is just a cheap git
+# status check most runs (no-op if nothing changed), and more frequent
+# sync means less to reconcile if the Windows/Obsidian side edits
+# something around the same time.
+[Unit]
+Description=Run vault-git-sync.service every 15 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=15min
+Unit=vault-git-sync.service
+
+[Install]
+WantedBy=timers.target

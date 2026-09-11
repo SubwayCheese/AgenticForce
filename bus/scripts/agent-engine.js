@@ -109,7 +109,11 @@ function dispatch(agentConfig, prompt, { mode, cwd, envOverlay }) {
     input: prompt,
     stdio: ['pipe', 'pipe', 'pipe'],
   };
-  if (agentConfig.isWindowsCmdWrapper) {
+  // isWindowsCmdWrapper is a static per-config flag (codex.json's .cmd
+  // wrapper needs it on Windows) -- gated on the real platform too, so a
+  // Linux/Pi run doesn't carry an unneeded shell layer for a Windows-only
+  // resolution quirk (see bus/deploy/pi/).
+  if (agentConfig.isWindowsCmdWrapper && process.platform === 'win32') {
     execOptions.shell = true;
   }
   // envOverlay (the credential broker, Phase 3 piece 4, added

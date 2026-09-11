@@ -821,7 +821,11 @@ function runCodex(prompt, { envOverlay } = {}) {
   );
   let exitCode = 0;
   try {
-    const execOptions = { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, shell: true, stdio: ['pipe', 'pipe', 'pipe'] };
+    // shell:true is a Windows-only need (see comment above -- codex.exe's
+    // .cmd wrapper resolution) -- gated on process.platform so a Linux/Pi
+    // run (bus/deploy/pi/) doesn't carry an unnecessary shell layer for a
+    // problem that doesn't exist there.
+    const execOptions = { cwd: VAULT_ROOT, encoding: 'utf8', input: prompt, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] };
     // envOverlay (the credential broker, Phase 3 piece 4): merged into
     // the subprocess's own env, never the prompt -- process.env must be
     // spread explicitly here because setting `env` at all replaces the

@@ -1,0 +1,19 @@
+# Companion timer for trading-pilot-supervisor.service -- fires the
+# supervisor every 30 min, matching the Windows Task Scheduler plan's
+# interval (ARCHITECTURE.md section 9's reasoning for 30 min applies
+# identically here: cheap no-op most wakes, catches same-day equity
+# exits well within the close, nowhere near Alpaca's rate limits).
+#
+# Enable the TIMER, not the .service directly -- systemctl enable --now
+# trading-pilot-supervisor.timer (see trading-pilot-supervisor.service's
+# own header for the install commands).
+[Unit]
+Description=Run trading-pilot-supervisor.service every 30 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+Unit=trading-pilot-supervisor.service
+
+[Install]
+WantedBy=timers.target

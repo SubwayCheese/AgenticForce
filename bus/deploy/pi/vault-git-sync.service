@@ -1,0 +1,23 @@
+# vault-git-sync.service -- companion to the .timer of the same name.
+# Runs git-sync.js: commits + pushes whatever changed (trading pilot
+# output, or anything else), pulls first via --rebase to absorb any
+# change made from the Windows/Obsidian side in between. General vault
+# sync, not trading-pilot-specific -- a separate cadence from
+# trading-pilot-supervisor.timer on purpose.
+#
+# Install:
+#   sudo cp vault-git-sync.service vault-git-sync.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now vault-git-sync.timer
+#
+# EDIT User=/WorkingDirectory=/ExecStart= to match the real Pi setup.
+[Unit]
+Description=AgentVault autonomous git sync (git-sync.js), one run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/AgentVault
+ExecStart=/usr/bin/node bus/scripts/git-sync.js

@@ -1,0 +1,25 @@
+# trading-pilot-supervisor.service -- oneshot unit triggered by the
+# companion .timer file every 30 min. Linux equivalent of the Windows
+# "TradingPilotSupervisor" Task Scheduler entry (ARCHITECTURE.md section
+# 9) -- runs pilot-supervisor.js itself, unchanged: cycle generation,
+# conditional-trigger checks, --auto execution, monitor --execute, and
+# the trading-journal reflection pass, all in one run that then exits
+# (the .timer, not this .service, provides the repetition).
+#
+# Install (as root, or with sudo) -- install BOTH this file and the
+# .timer file, then enable the TIMER (not this service directly):
+#   sudo cp trading-pilot-supervisor.service trading-pilot-supervisor.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now trading-pilot-supervisor.timer
+#
+# EDIT User=/WorkingDirectory=/ExecStart= to match the real Pi setup.
+[Unit]
+Description=AgentVault trading-pilot supervisor (pilot-supervisor.js), one run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/AgentVault
+ExecStart=/usr/bin/node bus/scripts/pilot-supervisor.js

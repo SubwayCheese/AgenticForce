@@ -1,0 +1,33 @@
+# trading-pilot-queue-daemon.service -- Linux/Raspberry Pi equivalent of
+# the Windows "TradingPilotQueueDaemon" Task Scheduler entry documented in
+# ARCHITECTURE.md section 9. Long-lived, watches tasks/ via fs.watch and
+# dispatches any status:pending file -- this is run-queue-daemon.js
+# itself, unchanged; only the host mechanism differs from Windows.
+#
+# Install (as root, or with sudo):
+#   sudo cp trading-pilot-queue-daemon.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now trading-pilot-queue-daemon.service
+#
+# EDIT THESE TWO LINES before installing -- they assume the repo is
+# cloned to /home/pi/AgentVault and Node is on the default PATH for that
+# user. Adjust User=/WorkingDirectory=/ExecStart= to match the real setup
+# once the Pi is in hand.
+[Unit]
+Description=AgentVault trading-pilot queue daemon (run-queue-daemon.js)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/AgentVault
+ExecStart=/usr/bin/node bus/scripts/run-queue-daemon.js
+Restart=on-failure
+RestartSec=30
+# Standing safety note, unchanged from Windows: alpaca-client.js's own
+# loadConfig() throws unless ALPACA_ENDPOINT is Alpaca's paper host --
+# nothing about running this as a systemd service changes that guard.
+
+[Install]
+WantedBy=multi-user.target
