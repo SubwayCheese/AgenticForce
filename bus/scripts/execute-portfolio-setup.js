@@ -18,6 +18,25 @@
 // exit rule -- that's monitor-paper-trades.js's job, run separately (see
 // that file's header for why a stop order can't express a time-based exit).
 //
+// 2026-09-11, post multi-agent self-review -- three pre-trade gates now run
+// before any order is submitted, in this order (see each section below for
+// the real incident it closes):
+//   1. DATA INTEGRITY -- refuse a candidate whose own text says its levels
+//      are inherited/not-derived/stale (the real VZ trigger that Codex
+//      itself flagged as "not analytically derived" and still got filled).
+//   2. POSITION IDENTITY -- refuse a second position in a symbol already
+//      held, checked against BOTH this ledger and the live Alpaca account
+//      (the real VZ double-entry: two fills ~2h apart, two different
+//      round-3 cycles, because the old idempotency key was (sourceTask,
+//      symbol) and nothing ever asked "do we already hold this").
+//   3. BROKER IDEMPOTENCY -- a deterministic client_order_id on the entry so
+//      a duplicate dispatch of the SAME candidate can't double-fill even if
+//      both gates above were somehow bypassed.
+// Every entry also mints an immutable lot id that travels with the position
+// through its stop and its exit, and records a real modeledEntry again
+// (see deriveModeledEntry()) so performance-scorecard.js can measure
+// slippage.
+//
 // Usage: node execute-portfolio-setup.js <taskId>
 //   Reads tasks/<taskId>.md, extracts the ```json ... ``` block containing
 //   approvedCandidates, and for each candidate: places the entry (market),
@@ -26,6 +45,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const alpaca = require('./alpaca-client.js');
 const cryptoSymbols = require('./crypto-symbols.js');
 const fleetStatus = require('./fleet-status.js');
@@ -63,9 +83,301 @@ function readTradeLog() {
 // order, so re-running this script twice against the same round-3 task
 // would double-enter positions. Applies to BOTH the manual and --auto
 // paths.
+//
+// NOTE (2026-09-11, multi-agent self-review): this check is keyed on
+// (sourceTask, symbol) and that is EXACTLY the root cause of the real VZ
+// double-entry incident -- paper-trades.jsonl lines 16/17 are two VZ longs
+// ~2h apart from two DIFFERENT round-3 cycles
+// (fleet_pilot_20260910_synthesis_r3_portfolio_v2 and
+// fleet_pilot_20260911_synthesis_r3_portfolio), so this returned false both
+// times and both orders filled. It is kept as-is (same-candidate replay
+// guard, still useful and still cheap) but it is NO LONGER the only guard:
+// assertNoExistingPosition() below is the position-identity check that
+// actually closes that hole, and it is keyed on the SYMBOL/position, not on
+// which task happened to propose it.
 function alreadyExecuted(sourceTask, symbol) {
   const entries = readTradeLog();
   return entries.some((r) => r.type === 'research-driven-entry' && r.sourceTask === sourceTask && r.symbol === symbol);
+}
+
+// ---------------------------------------------------------------------------
+// POSITION / LOT IDENTITY (roadmap item 1)
+// ---------------------------------------------------------------------------
+// The review's root-cause finding: this pipeline tracked by SYMBOL, never by
+// individual position. Every entry now mints an immutable lot id that travels
+// with that position across every record it will ever produce (entry ->
+// stop-order-placed -> research-driven-exit -> trading-journal row), so a
+// position has an identity independent of its symbol and of whichever task
+// proposed it.
+//
+// Backward compatibility is mandatory here: every historical record predates
+// lot ids and will have `lotId: undefined`. Every reader below treats a
+// missing lot id as "unknown, fall back to symbol matching" and must never
+// crash on one.
+function newLotId() {
+  return crypto.randomUUID();
+}
+
+// Alpaca's /v2/positions returns crypto WITHOUT the slash ("BTCUSD") while
+// everything this pipeline logs uses the order format ("BTC/USD") -- the same
+// real asymmetry monitor-paper-trades.js already normalizes for. One place,
+// so a duplicate check can't silently miss an open crypto position.
+function positionKey(symbol) {
+  if (!symbol) return '';
+  try {
+    if (cryptoSymbols.isCryptoSymbol(symbol)) return cryptoSymbols.toAlpacaSymbol(symbol);
+  } catch (_) { /* not crypto, fall through */ }
+  return String(symbol).toUpperCase();
+}
+
+// Replays the append-only trade log into the set of lots that are still open.
+// Entry rows open a lot; exit rows close one. Matching rule, in order:
+//   1. exit.lotId === entry.lotId  (the new, unambiguous path)
+//   2. legacy fallback: oldest still-open lot for the same symbol -- which is
+//      exactly what trading-journal.js's existing symbol-based pairing does,
+//      so historical data keeps pairing the way it always has.
+function openLots(records) {
+  const rows = (records || readTradeLog())
+    .filter((r) => r && (r.type === 'research-driven-entry' || r.type === 'research-driven-exit'))
+    .slice()
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const open = [];
+  for (const r of rows) {
+    if (r.type === 'research-driven-entry') {
+      open.push(r);
+      continue;
+    }
+    const key = positionKey(r.symbol);
+    // An exit that NAMES a lot may only close that lot. Falling back to
+    // symbol matching when the named lot isn't open would close somebody
+    // else's position on paper -- with two concurrent VZ lots that is
+    // precisely the wrong one 50% of the time. Symbol matching is reserved
+    // for exits that carry no lot id at all, i.e. the historical rows.
+    const idx = r.lotId
+      ? open.findIndex((e) => e.lotId === r.lotId)
+      : open.findIndex((e) => positionKey(e.symbol) === key);
+    if (idx !== -1) open.splice(idx, 1);
+  }
+  return open;
+}
+
+function findOpenLotForSymbol(symbol, records) {
+  const key = positionKey(symbol);
+  return openLots(records).find((e) => positionKey(e.symbol) === key) || null;
+}
+
+// The actual pre-trade gate the risk-manager asked for: never open a second
+// position in a symbol this account already holds. Two independent sources,
+// because either one alone has a real failure mode:
+//   - the LEDGER catches a duplicate even when the broker call fails, and
+//     catches a position opened seconds ago whose fill hasn't settled;
+//   - the BROKER is the source of truth for anything this log doesn't know
+//     about (a manual fill, a partially-reconciled state).
+// Fails CLOSED: if the positions lookup itself errors we do NOT enter, we
+// skip and retry on the next wake. A blind entry is the expensive mistake
+// here; a delayed entry is not.
+//
+// A deliberate scale-in/pyramiding mechanism is explicitly OUT OF SCOPE --
+// this blocks duplicates outright. If scale-in is ever wanted it needs its
+// own opt-in flag plus aggregate-exposure sizing, not a relaxation here.
+async function assertNoExistingPosition(symbol) {
+  const ledgerLot = findOpenLotForSymbol(symbol);
+  if (ledgerLot) {
+    return {
+      blocked: true,
+      source: 'ledger',
+      detail: `paper-trades.jsonl already has an OPEN ${ledgerLot.symbol} lot (lotId ${ledgerLot.lotId || 'legacy/none'}, entered ${ledgerLot.ts} from ${ledgerLot.sourceTask}) with no matching exit record`,
+    };
+  }
+  let positions;
+  try {
+    positions = await alpaca.getPositions();
+  } catch (err) {
+    return { blocked: true, source: 'lookup-failed', detail: `could not verify current positions before entering (${err.message}) -- failing closed rather than entering blind`, transient: true };
+  }
+  const key = positionKey(symbol);
+  const held = (positions || []).find((p) => positionKey(p.symbol) === key);
+  if (held) {
+    return {
+      blocked: true,
+      source: 'broker',
+      detail: `Alpaca already reports an open ${held.symbol} position (qty ${held.qty}, avg entry $${held.avg_entry_price}) that this log does not show as open`,
+    };
+  }
+  return { blocked: false };
+}
+
+// ---------------------------------------------------------------------------
+// BROKER-LEVEL IDEMPOTENCY (roadmap item 2)
+// ---------------------------------------------------------------------------
+// Second layer, underneath assertNoExistingPosition(). The entry id is
+// DETERMINISTIC in (sourceTask, symbol): a genuine duplicate dispatch of the
+// same candidate -- two supervisor wakes racing, a retry after an ambiguous
+// timeout -- computes the same client_order_id, and Alpaca refuses the second
+// POST instead of filling it. It deliberately does NOT include the lot id,
+// which is freshly minted per call and would make every dispatch look new.
+//
+// Note what this layer can and cannot do, so it isn't over-trusted: it stops
+// the SAME candidate being dispatched twice. It cannot stop two different
+// round-3 cycles proposing the same symbol (the real VZ case) -- those are
+// different sourceTasks and therefore legitimately different order ids. That
+// case is assertNoExistingPosition()'s job. The two layers are complementary,
+// neither is a substitute for the other.
+function deriveEntryClientOrderId(sourceTask, symbol) {
+  return `av-entry-${sourceTask || 'unknown'}-${positionKey(symbol)}`;
+}
+
+// Stops are different on purpose: monitor-paper-trades.js legitimately
+// RE-ARMS a stop on a position it already stopped once (a fractional-qty
+// stop can only be placed 'day', which expires every close). Pinning a stop
+// to a fixed id would make that re-arm fail at the broker and leave a real
+// position unprotected -- the exact incident this whole file exists to
+// prevent. So the stop id is idempotent only within a single minute and a
+// single time-in-force attempt: enough to stop a tight retry loop from
+// double-stopping a lot, never enough to block tomorrow's re-arm.
+function deriveStopClientOrderId(lotId, symbol, timeInForce, when = new Date()) {
+  const minuteStamp = when.toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  return `av-stop-${lotId || positionKey(symbol)}-${minuteStamp}-${timeInForce}`;
+}
+
+// Closing a lot: deterministic per lot per DAY. Deterministic because a
+// duplicate close is genuinely dangerous (closing an already-flat long a
+// second time opens a short); per-day rather than forever because a close
+// that never filled must still be retryable on a later run instead of being
+// permanently refused by the broker.
+function deriveExitClientOrderId(lotKeyOrId, when = new Date()) {
+  const dayStamp = when.toISOString().slice(0, 10).replace(/-/g, '');
+  return `av-exit-${lotKeyOrId}-${dayStamp}`;
+}
+
+// ---------------------------------------------------------------------------
+// DATA-INTEGRITY GATE (roadmap item 3)
+// ---------------------------------------------------------------------------
+// Real incident this closes: tasks/fleet_pilot_20260911_synthesis_r3_portfolio.md
+// approved VZ as a conditional candidate whose own bullCase says "A defined
+// INHERITED price trigger and invalidation permit a limited tactical
+// confirmation setup", with a riskWarning stating outright that "VZ's
+// trigger/invalidation levels are inherited and not analytically derived in
+// this ledger" -- and that trigger still reached a real order. The synthesis
+// agent flagged its own output as non-derived and nothing downstream read
+// the flag.
+//
+// This is an honest BEST-EFFORT TEXT DEFENSE, not a structural fix. It scans
+// the candidate's own prose for the language a synthesis agent actually uses
+// when it is telling us the number isn't underwritten. It will miss novel
+// phrasings and it can false-positive on a bearCase that merely discusses
+// staleness -- both are acceptable in this direction (refusing a trade is
+// cheap, taking an unfounded one is not).
+//
+// FOLLOW-UP, genuinely out of scope here and left for whoever owns
+// generate-pilot-tasks.js next: the clean fix is a STRUCTURED field in the
+// round-3 output contract -- e.g. require every candidate to emit
+// `"levelsDerivedThisCycle": true|false` plus `"derivationSource"` -- and
+// have this gate read that boolean instead of grepping prose. The prompt
+// template owns that contract, this file does not. Until that exists, this
+// pattern list is the only thing standing between a self-flagged
+// non-derived level and a real fill.
+const NON_DERIVED_RED_FLAGS = [
+  { pattern: /\binherited\b/i, label: 'level described as inherited from a previous cycle rather than derived in this one' },
+  { pattern: /not\s+analytically\s+derived/i, label: 'explicitly stated as not analytically derived' },
+  { pattern: /not\s+derived\s+(?:from|in)\b/i, label: 'explicitly stated as not derived' },
+  { pattern: /lacks?\s+(?:supplied\s+)?derivation/i, label: 'level stated to lack any derivation' },
+  { pattern: /\bstale\b/i, label: 'underlying data described as stale' },
+  { pattern: /\bcarried\s+over\s+from\b/i, label: 'level carried over from an earlier run rather than recomputed' },
+];
+
+// Walks every string anywhere in the candidate payload -- bullCase, bearCase,
+// oneLineRationale, and conditionalSetup's entryCondition/invalidationCondition
+// are the fields that matter today, but a recursive walk means a new prose
+// field added to the round-3 contract later is covered automatically instead
+// of silently bypassing the gate.
+function collectCandidateText(value, pathParts = [], out = []) {
+  if (typeof value === 'string') {
+    out.push({ field: pathParts.join('.') || '(root)', text: value });
+  } else if (Array.isArray(value)) {
+    value.forEach((v, i) => collectCandidateText(v, pathParts.concat(String(i)), out));
+  } else if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) collectCandidateText(v, pathParts.concat(k), out);
+  }
+  return out;
+}
+
+function scanCandidateForRedFlags(candidate) {
+  const findings = [];
+  for (const { field, text } of collectCandidateText(candidate)) {
+    for (const flag of NON_DERIVED_RED_FLAGS) {
+      const m = flag.pattern.exec(text);
+      if (!m) continue;
+      const start = Math.max(0, m.index - 40);
+      findings.push({ field, label: flag.label, matched: m[0], excerpt: text.slice(start, m.index + m[0].length + 60).trim() });
+    }
+  }
+  return findings;
+}
+
+async function alertDataIntegrityBlock(symbol, sourceTask, findings) {
+  const summary = findings.map((f) => `${f.field}: "${f.matched}" (${f.label})`).join('; ');
+  console.log(`  BLOCKED (data integrity): ${symbol} from ${sourceTask} -- the candidate's own text flags its levels as not derived this cycle. ${summary}`);
+  for (const f of findings) console.log(`    ${f.field}: ...${f.excerpt}...`);
+  try {
+    await ntfy.sendNtfy({
+      title: `${symbol}: entry BLOCKED, non-derived levels`,
+      message: `${symbol} (from ${sourceTask}) was NOT entered: the candidate's own text flags its trigger/invalidation levels as not analytically derived this cycle. ${summary}. This is the VZ 2026-09-11 failure mode -- review the round-3 output before overriding.`,
+      priority: 4,
+    });
+  } catch (_) { /* best-effort -- the console output above is the fallback signal */ }
+}
+
+// ---------------------------------------------------------------------------
+// MODELED ENTRY (roadmap item 4's slippage input)
+// ---------------------------------------------------------------------------
+// Regression this fixes: the superseded scratch-execute-portfolio-r3v2.js
+// recorded a REAL modeledEntry per setup (TSLA 367.77, GOOGL 339.14, CSCO
+// 109.05 -- still visible in paper-trades.jsonl lines 2-4), and this
+// canonical script replaced it with a hardcoded `modeledEntry: null`. Every
+// entry since is unmeasurable for slippage, which is exactly the number the
+// new performance-scorecard.js needs. Threading a real value through again.
+//
+// Precedence, most to least structured:
+//   1. an explicit numeric field on the candidate or its conditionalSetup
+//      (triggerPrice is the real one in today's round-3 contract -- for a
+//      conditional candidate the trigger IS the intended entry level);
+//   2. the first dollar figure in entryCondition -- parsed with exactly the
+//      same pattern parseStopPrice() already uses on invalidationCondition,
+//      deliberately reusing that proven approach rather than inventing a
+//      second one;
+//   3. null, honestly, when the candidate says "enter at market" and no
+//      intended price exists to compare against.
+function parseFirstDollarAmount(text) {
+  const m = /\$([\d,]+\.?\d*)/.exec(text || '');
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function deriveModeledEntry(candidate) {
+  const setup = (candidate && candidate.conditionalSetup) || {};
+  const numericFields = [
+    ['candidate.modeledEntry', candidate && candidate.modeledEntry],
+    ['conditionalSetup.modeledEntry', setup.modeledEntry],
+    ['candidate.intendedEntry', candidate && candidate.intendedEntry],
+    ['conditionalSetup.entryPrice', setup.entryPrice],
+    ['candidate.triggerPrice', candidate && candidate.triggerPrice],
+    ['conditionalSetup.triggerPrice', setup.triggerPrice],
+  ];
+  for (const [source, value] of numericFields) {
+    if (typeof value === 'number' && Number.isFinite(value)) return { modeledEntry: value, modeledEntrySource: source };
+  }
+  const textFields = [
+    ['conditionalSetup.entryCondition', setup.entryCondition],
+    ['candidate.entryCondition', candidate && candidate.entryCondition],
+    ['candidate.triggerPrice', typeof (candidate && candidate.triggerPrice) === 'string' ? candidate.triggerPrice : null],
+  ];
+  for (const [source, text] of textFields) {
+    const parsed = parseFirstDollarAmount(text);
+    if (parsed !== null) return { modeledEntry: parsed, modeledEntrySource: `${source} (parsed)` };
+  }
+  return { modeledEntry: null, modeledEntrySource: null };
 }
 
 // Finds the latest status:done round-3 task for a pilot that hasn't been
@@ -108,9 +420,7 @@ function extractApprovedCandidates(taskId) {
 // Pulls the first dollar figure out of an invalidationCondition string, e.g.
 // "Invalidate if TSLA closes above $390.00, or exit..." -> 390.00
 function parseStopPrice(invalidationCondition) {
-  const m = /\$([\d,]+\.?\d*)/.exec(invalidationCondition || '');
-  if (!m) return null;
-  return Number(m[1].replace(/,/g, ''));
+  return parseFirstDollarAmount(invalidationCondition);
 }
 
 // Genuinely urgent, unlike the market-closed skip below (which self-heals
@@ -151,7 +461,48 @@ async function executeOne(candidate, sourceTask, sizing) {
 
   if (alreadyExecuted(sourceTask, symbol)) {
     console.log(`  SKIPPED: ${sourceTask}::${symbol} already has a research-driven-entry in paper-trades.jsonl -- not re-entering.`);
-    return { skipped: true, reason: 'already-executed' };
+    return { skipped: true, permanent: true, reason: 'already-executed' };
+  }
+
+  // ITEM 3 -- data-integrity gate. Runs BEFORE any position/market check so a
+  // candidate that should never trade doesn't even consume a positions call.
+  const redFlags = scanCandidateForRedFlags(candidate);
+  if (redFlags.length) {
+    await alertDataIntegrityBlock(symbol, sourceTask, redFlags);
+    appendLog({
+      ts: new Date().toISOString(),
+      type: 'entry-blocked',
+      blockReason: 'data-integrity',
+      sourceTask,
+      symbol,
+      assetClass: isCrypto ? 'crypto' : 'equity',
+      direction,
+      findings: redFlags,
+      note: "Candidate's own text flags its levels as inherited/not-derived/stale -- refused rather than executed. See NON_DERIVED_RED_FLAGS in execute-portfolio-setup.js.",
+    });
+    return { skipped: true, permanent: true, reason: 'data-integrity-block', findings: redFlags };
+  }
+
+  // ITEM 1 -- position identity. The check that would have refused the second
+  // real VZ entry on 2026-09-11.
+  const dup = await assertNoExistingPosition(symbol);
+  if (dup.blocked) {
+    console.log(`  SKIPPED: not entering a second ${symbol} position -- ${dup.detail}. (source: ${dup.source}; scale-in is deliberately not supported.)`);
+    if (!dup.transient) {
+      appendLog({
+        ts: new Date().toISOString(),
+        type: 'entry-blocked',
+        blockReason: 'duplicate-position',
+        detectedBy: dup.source,
+        sourceTask,
+        symbol,
+        assetClass: isCrypto ? 'crypto' : 'equity',
+        direction,
+        detail: dup.detail,
+        note: 'Position-identity check refused a duplicate entry. Closes the 2026-09-11 VZ double-entry failure mode (two entries, two different sourceTasks, ~2h apart).',
+      });
+    }
+    return { skipped: true, permanent: !dup.transient, reason: dup.source === 'lookup-failed' ? 'position-lookup-failed' : 'duplicate-position', detail: dup.detail };
   }
 
   if (!isCrypto) {
@@ -162,11 +513,19 @@ async function executeOne(candidate, sourceTask, sizing) {
     }
   }
 
-  console.log(`Submitting entry: ${direction} ${sizeLabel} market...`);
+  // Minted here, before the order goes out, so the lot has an identity even
+  // if everything after this point fails -- the id is what ties this entry,
+  // its stop, and its eventual exit together across three separate records.
+  const lotId = newLotId();
+  const { modeledEntry, modeledEntrySource } = deriveModeledEntry(candidate);
+  const entryClientOrderId = deriveEntryClientOrderId(sourceTask, symbol);
+
+  console.log(`Submitting entry: ${direction} ${sizeLabel} market... (lotId ${lotId}, client_order_id ${entryClientOrderId})`);
+  if (modeledEntry !== null) console.log(`  Modeled/intended entry: $${modeledEntry} (from ${modeledEntrySource})`);
   // Crypto rejects "day" (equity-only value, confirmed live: 422 "invalid
   // crypto time_in_force") -- crypto entries use "gtc" instead.
   const entryTimeInForce = isCrypto ? 'gtc' : 'day';
-  const entryOrder = await alpaca.submitOrder({ symbol, direction, ...sizing, orderType: 'market', timeInForce: entryTimeInForce });
+  const entryOrder = await alpaca.submitOrder({ symbol, direction, ...sizing, orderType: 'market', timeInForce: entryTimeInForce, clientOrderId: entryClientOrderId });
   let filledEntry = entryOrder;
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 1000));
@@ -203,6 +562,7 @@ async function executeOne(candidate, sourceTask, sizing) {
   appendLog({
     ts: new Date().toISOString(),
     type: 'research-driven-entry',
+    lotId,
     sourceTask,
     symbol,
     assetClass: isCrypto ? 'crypto' : 'equity',
@@ -210,16 +570,18 @@ async function executeOne(candidate, sourceTask, sizing) {
     qty: filledQty,
     notional: sizing.notional || null,
     orderId: entryOrder.id,
+    clientOrderId: entryClientOrderId,
     orderStatus: filledEntry.status,
-    modeledEntry: null,
+    modeledEntry,
+    modeledEntrySource,
     actualFillPrice,
     invalidationCondition: setup.invalidationCondition,
     timeHorizon: setup.timeHorizon,
     note: 'Placed via execute-portfolio-setup.js -- stop order placed immediately after, same run, no manual gap.',
   });
 
-  const result = await placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition: setup.invalidationCondition, isCrypto, sourceTask });
-  return { skipped: false, executed: true, ...result, actualFillPrice };
+  const result = await placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition: setup.invalidationCondition, isCrypto, sourceTask, lotId });
+  return { skipped: false, executed: true, lotId, modeledEntry, ...result, actualFillPrice };
 }
 
 // Factored out 2026-09-11 -- REAL BUG FOUND LIVE (multi-agent self-review,
@@ -240,7 +602,10 @@ async function executeOne(candidate, sourceTask, sizing) {
 // re-arming each session (monitor-paper-trades.js's new safety-net check,
 // see below, is what actually re-arms it going forward, so this isn't a
 // one-time patch that quietly stops working).
-async function placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition, isCrypto, sourceTask }) {
+// `lotId` is optional and may legitimately be absent: monitor-paper-trades.js
+// re-arms stops on positions entered before lot ids existed. Absent just means
+// the stop record is symbol-keyed the way it always was, never an error.
+async function placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition, isCrypto, sourceTask, lotId = null }) {
   const stopPrice = parseStopPrice(invalidationCondition);
   if (stopPrice === null) {
     console.log(`  WARNING: could not parse a stop price out of invalidationCondition ("${invalidationCondition}") -- NO STOP PLACED. Handle manually.`);
@@ -267,7 +632,7 @@ async function placeProtectiveStop({ symbol, direction, filledQty, invalidationC
     ? (stopDirection === 'short' ? stopPrice * 0.99 : stopPrice * 1.01)
     : undefined;
 
-  const attempt = async (timeInForce) => alpaca.submitOrder({ symbol, direction: stopDirection, qty: filledQty, orderType: stopOrderType, stopPrice, limitPrice: stopLimitPrice, timeInForce, intent: 'close' });
+  const attempt = async (timeInForce) => alpaca.submitOrder({ symbol, direction: stopDirection, qty: filledQty, orderType: stopOrderType, stopPrice, limitPrice: stopLimitPrice, timeInForce, intent: 'close', clientOrderId: deriveStopClientOrderId(lotId, symbol, timeInForce) });
 
   let stopOrder, timeInForceUsed = 'gtc';
   console.log(`Placing protective GTC ${stopOrderType}: ${stopDirection} ${filledQty} @ stop $${stopPrice}${stopLimitPrice ? ` / limit $${stopLimitPrice.toFixed(8)}` : ''}...`);
@@ -289,6 +654,7 @@ async function placeProtectiveStop({ symbol, direction, filledQty, invalidationC
   appendLog({
     ts: new Date().toISOString(),
     type: 'stop-order-placed',
+    lotId,
     sourceTask,
     symbol,
     assetClass: isCrypto ? 'crypto' : 'equity',
@@ -301,7 +667,7 @@ async function placeProtectiveStop({ symbol, direction, filledQty, invalidationC
       ? 'GTC stop placed immediately after entry fill in the same run (execute-portfolio-setup.js) -- no manual gap between entry and protection.'
       : "GTC rejected (fractional qty) -- placed as a 'day' stop instead. Expires at today's close; monitor-paper-trades.js's safety-net check re-arms it on the next --execute run if still open.",
   });
-  return { stopPlaced: true, timeInForce: timeInForceUsed };
+  return { stopPlaced: true, timeInForce: timeInForceUsed, stopOrderId: stopOrder.id, lotId };
 }
 
 // --auto-only path: true "micro trade" sizing, direct user request
@@ -399,4 +765,14 @@ if (require.main === module) {
   });
 }
 
-module.exports = { executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, runForTaskMicro, computeMicroSizing, AUTO_MICRO_NOTIONAL_PER_LEG, placeProtectiveStop, parseStopPrice };
+module.exports = {
+  executeOne, alreadyExecuted, extractApprovedCandidates, runForTask, runForTaskMicro,
+  computeMicroSizing, AUTO_MICRO_NOTIONAL_PER_LEG, placeProtectiveStop, parseStopPrice,
+  // Position/lot identity + the two new gates -- exported so they can be
+  // exercised directly (run-verification-suite.js style: real logic, zero
+  // network) and reused by readers that need the same open-lot pairing rules.
+  newLotId, positionKey, openLots, findOpenLotForSymbol, assertNoExistingPosition,
+  deriveEntryClientOrderId, deriveStopClientOrderId, deriveExitClientOrderId,
+  NON_DERIVED_RED_FLAGS, collectCandidateText, scanCandidateForRedFlags,
+  parseFirstDollarAmount, deriveModeledEntry, readTradeLog,
+};

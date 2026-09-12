@@ -199,9 +199,30 @@ function assertNotCryptoShortEntry({ symbol, side, intent }) {
   }
 }
 
+// Alpaca's client_order_id is the broker's OWN idempotency key: it must be
+// unique per account, and a second POST /orders carrying an id that already
+// exists is rejected (422) rather than filled a second time. Added
+// 2026-09-11 as the second layer under execute-portfolio-setup.js's
+// app-level duplicate-position check -- the real VZ incident (two entries
+// ~2h apart from two different round-3 cycles) got past the app layer
+// because nothing keyed on the position itself, and there was no broker
+// layer at all to stop it. Alpaca documents a 128-character limit and
+// accepts a plain ASCII string, so this normalizes to that: anything
+// outside [A-Za-z0-9._-] becomes '-', and an over-long id keeps its TAIL
+// rather than its head. Tail, because execute-portfolio-setup.js's derived
+// ids put the discriminating part last (the symbol on an entry id, the lot
+// uuid on a stop id) behind a long, low-entropy sourceTask prefix -- head
+// truncation is the direction that would manufacture collisions. Today's
+// real ids run ~60 chars, so this path is a guard, not a routine one.
+const CLIENT_ORDER_ID_MAX = 128;
+function normalizeClientOrderId(raw) {
+  const cleaned = String(raw).replace(/[^A-Za-z0-9._-]/g, '-');
+  return cleaned.length <= CLIENT_ORDER_ID_MAX ? cleaned : cleaned.slice(-CLIENT_ORDER_ID_MAX);
+}
+
 // setup: { symbol, direction: "long"|"short", qty?, notional?, orderType?:
 //          "market"|"limit"|"stop", limitPrice?, stopPrice?, timeInForce?: "day"|"gtc",
-//          intent?: "open"|"close" }
+//          intent?: "open"|"close", clientOrderId?: string }
 // Deliberately takes an explicit qty/notional -- this module has no
 // position-sizing logic of its own (that's a separate, later decision per
 // the approved plan; see ARCHITECTURE.md). Callers must supply exactly one
@@ -216,7 +237,7 @@ function assertNotCryptoShortEntry({ symbol, side, intent }) {
 // above; harmless no-op for equities, which have no such guard). direction:
 // "long" -> side "buy" (closes a short, or opens/adds a long). direction:
 // "short" -> side "sell" (closes a long, or opens/adds a short).
-function submitOrder({ symbol, direction, qty, notional, orderType = 'market', limitPrice, stopPrice, timeInForce = 'day', intent = 'open' }) {
+function submitOrder({ symbol, direction, qty, notional, orderType = 'market', limitPrice, stopPrice, timeInForce = 'day', intent = 'open', clientOrderId }) {
   if (!symbol || !direction) {
     throw new Error('submitOrder requires symbol and direction');
   }
@@ -232,6 +253,9 @@ function submitOrder({ symbol, direction, qty, notional, orderType = 'market', l
     type: orderType,
     time_in_force: timeInForce,
   };
+  // Optional and additive: every existing caller that doesn't pass one keeps
+  // its current behavior exactly (Alpaca generates its own id server-side).
+  if (clientOrderId) body.client_order_id = normalizeClientOrderId(clientOrderId);
   if (qty != null) body.qty = String(qty);
   if (notional != null) body.notional = String(notional);
   if (orderType === 'limit') {
@@ -254,7 +278,7 @@ function cancelOrder(orderId) {
   return apiRequest('DELETE', `/orders/${encodeURIComponent(orderId)}`);
 }
 
-module.exports = { loadConfig, apiRequest, getLatestQuote, getDailyBars, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry };
+module.exports = { loadConfig, apiRequest, getLatestQuote, getDailyBars, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry, normalizeClientOrderId, CLIENT_ORDER_ID_MAX };
 
 // CLI: node alpaca-client.js account|positions|orders
 if (require.main === module) {

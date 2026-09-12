@@ -47,7 +47,7 @@ const fs = require('fs');
 const path = require('path');
 const alpaca = require('./alpaca-client.js');
 const cryptoSymbols = require('./crypto-symbols.js');
-const { placeProtectiveStop } = require('./execute-portfolio-setup.js');
+const { placeProtectiveStop, openLots, deriveExitClientOrderId } = require('./execute-portfolio-setup.js');
 
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
 
@@ -142,6 +142,14 @@ function sameDayTriggered(entryTs, marketClock) {
   return !!(marketClock && marketClock.available && !marketClock.isOpen);
 }
 
+// Stable per-LOT key. New rows carry a real immutable lotId; historical rows
+// don't have one at all, so they fall back to the one thing that was already
+// unique per entry row (symbol + entry timestamp). Never throws on a legacy
+// record -- that backward compatibility is the whole point.
+function lotKey(record) {
+  return record.lotId || `${record.symbol}::${record.ts}`;
+}
+
 async function getMarketClock() {
   try {
     const clock = await alpaca.apiRequest('GET', '/clock');
@@ -155,7 +163,14 @@ async function main() {
   const execute = process.argv.includes('--execute');
   const log = readLog();
   const entries = log.filter((r) => r.type === 'research-driven-entry');
-  const exitedSymbols = new Set(log.filter((r) => r.type === 'research-driven-exit').map((r) => r.symbol));
+  // Was: a flat Set of exited SYMBOLS, which is the same symbol-not-position
+  // blind spot the 2026-09-11 VZ double-entry exposed -- one exit record for
+  // a symbol marked EVERY entry in that symbol as closed, so a second open
+  // lot would silently stop being monitored. openLots() replays the
+  // entry/exit log into actual open lots instead, pairing by lotId where
+  // present and falling back to oldest-open-for-that-symbol for the
+  // historical rows that predate lot ids.
+  const openLotKeys = new Set(openLots(log).map(lotKey));
   const marketClock = await getMarketClock();
 
   const livePositions = await alpaca.getPositions();
@@ -176,8 +191,8 @@ async function main() {
   console.log('');
 
   for (const entry of entries) {
-    if (exitedSymbols.has(entry.symbol)) {
-      console.log(`${entry.symbol}: already has a logged exit record, skipping.`);
+    if (!openLotKeys.has(lotKey(entry))) {
+      console.log(`${entry.symbol}: lot ${lotKey(entry)} already has a matching exit record, skipping.`);
       continue;
     }
 
@@ -198,6 +213,11 @@ async function main() {
         appendLog({
           ts: new Date().toISOString(),
           type: 'research-driven-exit',
+          // Carried from the entry so this exit closes THAT lot specifically
+          // rather than "whatever this symbol is". Null for legacy entries,
+          // which openLots() still pairs by symbol.
+          lotId: entry.lotId || null,
+          sourceTask: entry.sourceTask || null,
           symbol: entry.symbol,
           assetClass: entry.assetClass || 'equity',
           reason: 'reconciled: position no longer open on account (stop order or manual close), no matching exit record existed',
@@ -237,7 +257,7 @@ async function main() {
       console.log(`  WARNING: ${entry.symbol} is open with NO live stop order -- attempting to re-arm now.`);
       if (execute) {
         const filledQty = Math.abs(Number(live.qty));
-        const result = await placeProtectiveStop({ symbol: entry.symbol, direction: entry.direction, filledQty, invalidationCondition: entry.invalidationCondition, isCrypto, sourceTask: entry.sourceTask });
+        const result = await placeProtectiveStop({ symbol: entry.symbol, direction: entry.direction, filledQty, invalidationCondition: entry.invalidationCondition, isCrypto, sourceTask: entry.sourceTask, lotId: entry.lotId || null });
         console.log(`  Re-arm result: stopPlaced=${result.stopPlaced}${result.timeInForce ? `, timeInForce=${result.timeInForce}` : ''}${result.reason ? `, reason=${result.reason}` : ''}`);
       } else {
         console.log(`  (dry run -- would attempt to re-arm a protective stop; re-run with --execute)`);
@@ -268,7 +288,7 @@ async function main() {
         // "invalid crypto time_in_force") -- crypto closes use "gtc".
         const closeTimeInForce = isCrypto ? 'gtc' : 'day';
         console.log(`  Submitting market ${closingDirection} order to flatten ${qty} unit(s)...`);
-        const order = await alpaca.submitOrder({ symbol: entry.symbol, direction: closingDirection, qty, orderType: 'market', timeInForce: closeTimeInForce, intent: 'close' });
+        const order = await alpaca.submitOrder({ symbol: entry.symbol, direction: closingDirection, qty, orderType: 'market', timeInForce: closeTimeInForce, intent: 'close', clientOrderId: deriveExitClientOrderId(lotKey(entry)) });
         let filled = order;
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 1000));
@@ -278,6 +298,8 @@ async function main() {
         appendLog({
           ts: new Date().toISOString(),
           type: 'research-driven-exit',
+          lotId: entry.lotId || null,
+          sourceTask: entry.sourceTask || null,
           symbol: entry.symbol,
           assetClass: entry.assetClass || 'equity',
           reason: sameDayHit

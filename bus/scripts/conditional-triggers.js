@@ -7,7 +7,12 @@
 // fires -- never a blind fill.
 //
 // State machine per (sourceTask, symbol): armed -> fired (rescan
-// dispatched) -> confirmed (executed) | invalidated | expired. Tracked in
+// dispatched) -> confirmed (executed) | invalidated | expired. A candidate
+// can also go straight to `trigger-blocked` -- a TERMINAL state added
+// 2026-09-11 for the two things that must never be retried on a timer: a
+// candidate whose own text says its levels aren't derived this cycle (the
+// real VZ case), and an execution the position-identity check permanently
+// refused (we already hold the symbol). Tracked in
 // bus/pending-triggers.jsonl, append-only event log -- same discipline as
 // bus/paper-trades.jsonl, latest event per key wins for current state.
 //
@@ -33,6 +38,12 @@ const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'pending-triggers.jsonl');
 function nowIso() {
   return new Date().toISOString();
 }
+
+// Alert promises started from a synchronous code path (armNewTriggers), so a
+// short-lived `node conditional-triggers.js` run can't exit before an ntfy
+// POST it started has actually gone out. Drained by main(); harmless to
+// ignore in the long-running supervisor.
+const pendingAlerts = [];
 
 function appendEvent(record) {
   fs.appendFileSync(LOG_PATH, JSON.stringify({ ts: nowIso(), ...record }) + '\n', 'utf8');
@@ -86,6 +97,12 @@ function findLatestRound3(pilot) {
 // Arms any conditionalCandidate from the latest round-3 synthesis that
 // isn't already tracked (by sourceTask::symbol) -- safe to call every
 // supervisor wake, idempotent by construction (readEvents() check below).
+// Deliberately kept SYNCHRONOUS even though the new data-integrity gate
+// below sends an ntfy alert: pilot-supervisor.js calls this without await,
+// and turning it async there would turn a rejected alert into an unhandled
+// rejection in a long-running daemon. The alert promise is parked in
+// pendingAlerts instead and drained by main() (and by the supervisor's own
+// event loop, which outlives this call by design).
 function armNewTriggers(pilot) {
   const taskId = findLatestRound3(pilot);
   if (!taskId) return [];
@@ -103,6 +120,33 @@ function armNewTriggers(pilot) {
     if (known.has(key)) continue; // already armed (or further along) this cycle
     if (typeof c.triggerPrice !== 'number' || !['at_or_below', 'at_or_above'].includes(c.triggerType)) {
       console.log(`[conditional-triggers] SKIPPED ${symbol}: malformed triggerPrice/triggerType, not arming (got ${JSON.stringify({ triggerPrice: c.triggerPrice, triggerType: c.triggerType })})`);
+      continue;
+    }
+    // Data-integrity gate, applied at ARM time as well as at execution time
+    // (executor.executeOne() runs the same scan). Arming a candidate whose
+    // own text says its levels aren't derived would otherwise burn a real
+    // Codex rescan dispatch on something that can never legally execute --
+    // and the real VZ candidate on 2026-09-11 was exactly this shape: it
+    // armed, fired, rescanned, and filled, with "inherited" sitting in its
+    // own bullCase the whole time. Terminal state, deliberately: a blocked
+    // trigger is not retried, the round-3 output has to be fixed upstream.
+    const redFlags = executor.scanCandidateForRedFlags(c);
+    if (redFlags.length) {
+      appendEvent({
+        type: 'trigger-blocked',
+        sourceTask: taskId,
+        pilot,
+        symbol,
+        reason: 'data-integrity: candidate text flags its levels as inherited/not-derived/stale',
+        findings: redFlags,
+        candidate: c,
+      });
+      console.log(`[conditional-triggers] BLOCKED ${symbol}: not arming -- ${redFlags.map((f) => `${f.field}: "${f.matched}"`).join('; ')}`);
+      pendingAlerts.push(ntfy.sendNtfy({
+        title: `${symbol}: conditional trigger BLOCKED, non-derived levels`,
+        message: `${symbol} (from ${taskId}) was not armed as a price trigger: its own candidate text flags the trigger/invalidation levels as not derived this cycle (${redFlags.map((f) => f.matched).join(', ')}). This is the VZ 2026-09-11 failure mode.`,
+        priority: 4,
+      }).catch(() => {}));
       continue;
     }
     appendEvent({
@@ -221,6 +265,28 @@ async function checkRescanResults() {
       // STILL VALID verdict stays on record, no need to re-dispatch a
       // rescan) so the NEXT wake retries executeOne() directly.
       if (outcome && outcome.skipped) {
+        // Two genuinely different kinds of skip, and conflating them is a
+        // real bug: a TRANSIENT skip (market closed, positions lookup
+        // failed) must stay in "trigger-fired" so the next wake retries,
+        // but a PERMANENT one (we already hold this symbol, the candidate
+        // failed the data-integrity gate) would retry forever, re-running
+        // the same refused order every wake and re-alerting each time.
+        // Permanent skips get a terminal event instead.
+        if (outcome.permanent) {
+          appendEvent({
+            type: 'trigger-blocked',
+            sourceTask: record.sourceTask,
+            pilot: record.pilot,
+            symbol: record.symbol,
+            rescanTaskId: record.rescanTaskId,
+            reason: `execution refused permanently: ${outcome.reason}`,
+            detail: outcome.detail || null,
+            findings: outcome.findings || null,
+          });
+          console.log(`[conditional-triggers] BLOCKED ${record.symbol}: rescan confirmed still valid but execution was permanently refused (${outcome.reason}${outcome.detail ? ` -- ${outcome.detail}` : ''}). Not retrying.`);
+          results.push({ symbol: record.symbol, verdict, skipped: true, permanent: true, reason: outcome.reason });
+          continue;
+        }
         console.log(`[conditional-triggers] ${record.symbol}: rescan confirmed still valid, but execution was skipped (${outcome.reason}) -- leaving fired, will retry next wake.`);
         results.push({ symbol: record.symbol, verdict, skipped: true, reason: outcome.reason });
         continue;
@@ -232,6 +298,10 @@ async function checkRescanResults() {
         symbol: record.symbol,
         rescanTaskId: record.rescanTaskId,
         sizing,
+        // The lot this trigger actually became -- ties a pending-triggers.jsonl
+        // row to its exact position in paper-trades.jsonl, not just to a symbol.
+        lotId: (outcome && outcome.lotId) || null,
+        modeledEntry: (outcome && outcome.modeledEntry != null) ? outcome.modeledEntry : null,
         stopPlaced: outcome ? outcome.stopPlaced : null,
       });
       console.log(`[conditional-triggers] CONFIRMED + EXECUTED ${record.symbol}: rescan said still valid.`);
@@ -261,6 +331,7 @@ async function main() {
   armNewTriggers('crypto');
   const fired = await checkTriggers();
   const resolved = await checkRescanResults();
+  await Promise.allSettled(pendingAlerts);
   console.log(`[conditional-triggers] Wake complete: ${fired.length} newly fired, ${resolved.length} rescan(s) resolved.`);
 }
 
