@@ -165,11 +165,125 @@ function formatSymbolHistorySection(symbol) {
   ].join('\n');
 }
 
+// ---------- Earnings-calendar awareness (roadmap item 7) ----------
+//
+// A mechanical rule, not a statistical-edge claim: don't open a fresh
+// position right before a scheduled binary catalyst. Fetched once per
+// equity cycle inside generateFleetDataSnapshot() (the same place market
+// cap already gets fetched from Finnhub, same Promise.all/best-effort-
+// per-symbol posture) for the SHORTLIST only -- the only symbols that
+// actually get a round-1 thesis -- and cached here in module state so
+// the later, synchronous generateThesisTask() call can read it without
+// itself becoming async. That constraint is real, not cosmetic:
+// pilot-supervisor.js's maybeGenerateCycle() (out of this change's scope
+// -- a different file this task doesn't own) fully awaits
+// generateDataSnapshotTasks() first, THEN calls generateThesisTask() in
+// a plain, non-awaited .map() to build r1Ids -- if generateThesisTask()
+// itself returned a Promise instead of a taskId string, that .map()
+// would silently collect an array of Promises instead of task IDs and
+// break every downstream dependsOnTaskId wire-up. Sequencing through
+// this cache (populated-then-read, same process, already-awaited by the
+// time generateThesisTask() runs) avoids that entirely. Crypto has no
+// earnings/fundamentals concept for this asset class (see the standing
+// crypto constraints already in generateThesisTask() below) -- this
+// cache is never populated for the crypto pilot, and
+// formatEarningsWarningSection() returns '' immediately for it.
+const EARNINGS_WINDOW_TRADING_DAYS = 7;
+let earningsBySymbol = new Map();
+
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// Weekday count strictly between `from` and `to` (no market-holiday
+// calendar -- same order-of-magnitude approximation alpaca-client.js's
+// getDailyBars() already uses for its own calendar-day/trading-day
+// conversion). Good enough for a "roughly how many sessions away" flag
+// in a thesis prompt, not a precise trading-calendar computation.
+function tradingDaysBetween(from, to) {
+  let count = 0;
+  const cursor = new Date(from);
+  cursor.setHours(0, 0, 0, 0);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  while (cursor < end) {
+    cursor.setDate(cursor.getDate() + 1);
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
+// Best-effort per symbol -- one symbol's fetch failure never blocks the
+// rest or the cycle, same posture as generateFleetDataSnapshot()'s
+// existing profile2 Promise.all() loop. Populates earningsBySymbol with
+// one of: {status:'checked_found', date, daysAway}, {status:
+// 'checked_none'} (fetched OK, nothing in the window), or
+// {status:'error', message} (fetch itself failed -- honestly distinct
+// from "checked, nothing found").
+async function refreshEarningsCache(symbols) {
+  earningsBySymbol = new Map();
+  if (!finnhub.hasCredentials() || !symbols.length) return;
+  const today = new Date();
+  const from = isoDate(today);
+  // Padded a few extra calendar days beyond the trading-day window to
+  // comfortably cover weekends inside it (server-side `to` filter, not
+  // load-bearing for the daysAway math below).
+  const to = isoDate(new Date(today.getTime() + (EARNINGS_WINDOW_TRADING_DAYS + 4) * 24 * 60 * 60 * 1000));
+  await Promise.all(symbols.map(async (symbol) => {
+    try {
+      const resp = await finnhub.getEarningsCalendar(symbol, from, to);
+      const entries = (resp && Array.isArray(resp.earningsCalendar)) ? resp.earningsCalendar : [];
+      const upcoming = entries.filter((e) => e && e.date && e.date >= from).sort((a, b) => (a.date < b.date ? -1 : 1));
+      if (!upcoming.length) {
+        earningsBySymbol.set(symbol, { status: 'checked_none' });
+        return;
+      }
+      const next = upcoming[0];
+      earningsBySymbol.set(symbol, { status: 'checked_found', date: next.date, daysAway: tradingDaysBetween(today, new Date(next.date)) });
+    } catch (err) {
+      console.log(`[generate-pilot-tasks] finnhub earnings-calendar failed for ${symbol}: ${err.message}`);
+      earningsBySymbol.set(symbol, { status: 'error', message: err.message });
+    }
+  }));
+}
+
+// Additive section for generateThesisTask()'s payload -- honest about
+// all three states (real near-term catalyst found / checked and clear /
+// not fetched at all), never fabricated. Matches the SOURCE-tagging
+// convention used elsewhere in this file (landAsDone()'s sourceLine,
+// formatSymbolHistorySection()'s framing) and the "mark unavailable
+// data as unavailable, don't silently omit it" posture finnhub-client.js
+// already documents for market cap.
+function formatEarningsWarningSection(pilot, symbol) {
+  if (pilot === 'crypto') return ''; // no earnings/fundamentals concept for this asset class
+  if (!finnhub.hasCredentials()) {
+    return [
+      '## Earnings calendar',
+      `EARNINGS CALENDAR: FINNHUB_API_KEY not configured -- NOT FETCHED this cycle. Whether ${symbol} has a near-term earnings date is UNKNOWN, not confirmed absent -- do not assume it is clear of this catalyst.`,
+    ].join('\n');
+  }
+  const entry = earningsBySymbol.get(symbol);
+  if (!entry || entry.status === 'error') {
+    return [
+      '## Earnings calendar',
+      `EARNINGS CALENDAR: live check failed for ${symbol}${entry && entry.message ? ` (${entry.message})` : ''} -- NOT FETCHED this cycle. Whether it has a near-term earnings date is UNKNOWN, not confirmed absent.`,
+    ].join('\n');
+  }
+  if (entry.status !== 'checked_found') return '';
+  return [
+    '## Earnings calendar',
+    'SOURCE: verified live (Finnhub free-tier /calendar/earnings, fetched by generate-pilot-tasks.js).',
+    `NOTE: ${symbol} has a scheduled earnings report on ${entry.date}, ~${entry.daysAway} trading day(s) from now -- treat any position as exposed to this binary catalyst; factor this into your bull/bear case and time horizon.`,
+  ].join('\n');
+}
+
 function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, dataSnapshotTaskId) {
   const prefix = pilotPrefix(pilot);
   const taskId = `${prefix}${datePrefix}_thesis_r1_${symbol.toLowerCase()}`;
   const isCrypto = pilot === 'crypto';
   const symbolHistorySection = formatSymbolHistorySection(symbol);
+  const earningsSection = formatEarningsWarningSection(pilot, symbol);
   const payloadLines = [
     `ROUND-1 INDEPENDENT THESIS for ${symbol}, generated unattended by generate-pilot-tasks.js for the ${datePrefix} ${pilot} cycle (see ${dataSnapshotTaskId}, auto-injected below, for the full data).`,
     '',
@@ -179,6 +293,7 @@ function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, da
     '',
     priorLearningsSection,
     ...(symbolHistorySection ? ['', symbolHistorySection] : []),
+    ...(earningsSection ? ['', earningsSection] : []),
   ];
   return writeTaskFile(taskId, {
     from: 'claude',
@@ -420,6 +535,14 @@ async function generateFleetDataSnapshot(datePrefix) {
     .filter(Boolean);
   const ranked = computeScreenScore(candidates);
   const shortlist = ranked.slice(0, SHORTLIST_SIZE);
+
+  // Only the shortlist actually gets a round-1 thesis, so only the
+  // shortlist needs an earnings-calendar check -- see the "Earnings-
+  // calendar awareness" block above generateThesisTask() for why this
+  // is fetched here (already-async, already-awaited before
+  // generateThesisTask() runs) instead of inside generateThesisTask()
+  // itself.
+  await refreshEarningsCache(shortlist.map((c) => c.symbol));
 
   const taskId = `fleet_pilot_${datePrefix}_universe50_consolidation`;
   // BUG FOUND LIVE 2026-09-11: price/priceAvg50/priceAvg200 were computed
