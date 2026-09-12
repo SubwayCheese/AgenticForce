@@ -148,8 +148,13 @@ function runMonitorExecute() {
 
 async function checkConditionalTriggers() {
   try {
-    triggers.armNewTriggers('fleet');
-    triggers.armNewTriggers('crypto');
+    // armNewTriggers() became async 2026-09-11 when it started calling the
+    // new portfolio-risk-envelope.js gate (live account/positions lookups) --
+    // must be awaited now so its pending-triggers.jsonl writes are guaranteed
+    // to land before checkTriggers()/checkRescanResults() read that same
+    // file below. See conditional-triggers.js / portfolio-risk-envelope.js.
+    await triggers.armNewTriggers('fleet');
+    await triggers.armNewTriggers('crypto');
     const fired = await triggers.checkTriggers();
     const resolved = await triggers.checkRescanResults();
     if (fired.length || resolved.length) {

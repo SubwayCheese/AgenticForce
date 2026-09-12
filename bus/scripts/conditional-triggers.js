@@ -26,6 +26,16 @@ const cryptoSymbols = require('./crypto-symbols.js');
 const gen = require('./generate-pilot-tasks.js');
 const executor = require('./execute-portfolio-setup.js');
 const ntfy = require('./ntfy.js');
+// Portfolio-level risk envelope (capital-at-risk ceiling, crypto-correlation
+// cap, daily circuit breaker) -- added 2026-09-11, a NEW standalone module,
+// see portfolio-risk-envelope.js for the full rationale and real thresholds.
+// Called from this file's own arm/fire functions below (armNewTriggers(),
+// checkRescanResults()) as the practical integration point: this package
+// doesn't own execute-portfolio-setup.js's actual order-placement call site,
+// but every entry this system makes flows through one of those two funnels
+// first, so gating here is a real, effective checkpoint without touching a
+// file owned by another agent's package.
+const riskEnvelope = require('./portfolio-risk-envelope.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'pending-triggers.jsonl');
@@ -86,7 +96,7 @@ function findLatestRound3(pilot) {
 // Arms any conditionalCandidate from the latest round-3 synthesis that
 // isn't already tracked (by sourceTask::symbol) -- safe to call every
 // supervisor wake, idempotent by construction (readEvents() check below).
-function armNewTriggers(pilot) {
+async function armNewTriggers(pilot) {
   const taskId = findLatestRound3(pilot);
   if (!taskId) return [];
   const task = runTask.readTaskFile(taskId);
@@ -103,6 +113,22 @@ function armNewTriggers(pilot) {
     if (known.has(key)) continue; // already armed (or further along) this cycle
     if (typeof c.triggerPrice !== 'number' || !['at_or_below', 'at_or_above'].includes(c.triggerType)) {
       console.log(`[conditional-triggers] SKIPPED ${symbol}: malformed triggerPrice/triggerType, not arming (got ${JSON.stringify({ triggerPrice: c.triggerPrice, triggerType: c.triggerType })})`);
+      continue;
+    }
+    // Portfolio risk envelope gate -- arming a trigger doesn't spend
+    // capital yet, but the crypto-correlation check is specifically about
+    // not letting a pile of correlated altcoin longs get armed in the
+    // first place (see portfolio-risk-envelope.js), so this check belongs
+    // at arm-time too, not just at fire-time below.
+    let gate;
+    try {
+      gate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd: 15, stage: 'arm' });
+    } catch (err) {
+      console.log(`[conditional-triggers] ${symbol}: portfolio risk envelope check FAILED (${err.message}) -- not arming, fail safe.`);
+      continue;
+    }
+    if (!gate.ok) {
+      console.log(`[conditional-triggers] NOT ARMING ${symbol}: blocked by portfolio risk envelope -- ${gate.reasons.join('; ')}`);
       continue;
     }
     appendEvent({
@@ -206,6 +232,25 @@ async function checkRescanResults() {
       continue;
     }
 
+    // STILL VALID -- but gate on the portfolio risk envelope BEFORE sizing
+    // or executing anything. This is the moment capital actually gets
+    // committed, so it's the most important of the two integration points
+    // in this file (the other being armNewTriggers() above) -- see
+    // portfolio-risk-envelope.js for the real thresholds and rationale.
+    let gate;
+    try {
+      gate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol: record.symbol, newLegNotionalUsd: 15, stage: 'fire' });
+    } catch (err) {
+      console.log(`[conditional-triggers] ${record.symbol}: portfolio risk envelope check FAILED (${err.message}) -- not executing, fail safe, leaving fired for retry.`);
+      results.push({ symbol: record.symbol, verdict, blockedByRiskEnvelope: true, reasons: [`envelope check errored: ${err.message}`] });
+      continue;
+    }
+    if (!gate.ok) {
+      console.log(`[conditional-triggers] ${record.symbol}: rescan confirmed still valid, but BLOCKED by portfolio risk envelope -- ${gate.reasons.join('; ')} -- leaving fired, will retry next wake.`);
+      results.push({ symbol: record.symbol, verdict, blockedByRiskEnvelope: true, reasons: gate.reasons });
+      continue;
+    }
+
     // STILL VALID -- execute for real, same micro sizing as every other
     // --auto execution (execute-portfolio-setup.js's computeMicroSizing()).
     const setup = record.candidate.conditionalSetup;
@@ -257,8 +302,8 @@ async function checkRescanResults() {
 }
 
 async function main() {
-  armNewTriggers('fleet');
-  armNewTriggers('crypto');
+  await armNewTriggers('fleet');
+  await armNewTriggers('crypto');
   const fired = await checkTriggers();
   const resolved = await checkRescanResults();
   console.log(`[conditional-triggers] Wake complete: ${fired.length} newly fired, ${resolved.length} rescan(s) resolved.`);
