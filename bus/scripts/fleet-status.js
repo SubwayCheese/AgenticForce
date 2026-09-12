@@ -23,6 +23,7 @@ const path = require('path');
 const runTask = require('./run-task.js');
 const engine = require('./agent-engine.js');
 const alpaca = require('./alpaca-client.js');
+const cycleDateUtils = require('./cycle-date-utils.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
@@ -34,7 +35,6 @@ function listTaskFilenames() {
 }
 
 // The largest fleet_pilot_<YYYYMMDD>_ prefix present in tasks/.
-// YYYYMMDD sorts correctly as a plain string, so no date parsing needed.
 // Real bug, found and fixed 2026-09-11: conditional-triggers.js's rescan
 // tasks are named `fleet_pilot_<TODAY>_rescan_<symbol>_<ts>.md` -- TODAY's
 // date, not the ORIGINAL cycle's date, since a trigger can fire days after
@@ -44,17 +44,13 @@ function listTaskFilenames() {
 // correctly find nothing and silently emptied the ENTIRE dashboard for a
 // day that actually had real, live candidates. Rescan/reflection files
 // are follow-up actions on an existing cycle, not a new cycle themselves
-// -- excluded here explicitly.
+// -- excluded here explicitly. Delegates to cycle-date-utils.js, which now
+// holds this exact fix once instead of once per dashboard (see its
+// header -- the same bug was independently written and independently
+// fixed four separate times).
 function findLatestPipelineDate(filenames) {
   const files = filenames || listTaskFilenames();
-  const dates = new Set();
-  for (const f of files) {
-    if (/_rescan_/.test(f)) continue;
-    const m = /^fleet_pilot_(\d{8})_/.exec(f);
-    if (m) dates.add(m[1]);
-  }
-  if (dates.size === 0) return null;
-  return Array.from(dates).sort().pop();
+  return cycleDateUtils.latestCycleDate(files, 'fleet_pilot_');
 }
 
 // Round-1 and round-2 task files for one run date, grouped by symbol.

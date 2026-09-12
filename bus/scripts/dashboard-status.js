@@ -16,6 +16,7 @@ const path = require('path');
 const busStatus = require('./bus-status.js');
 const runTask = require('./run-task.js');
 const engine = require('./agent-engine.js');
+const cycleDateUtils = require('./cycle-date-utils.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DAEMON_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon.log');
@@ -120,8 +121,8 @@ const ACTIVITY_WINDOW_FOR_GRAPH = 60;
 // prefix -- so a new pilot/domain shows up automatically the day its first
 // task file lands, no hardcoded domain list to maintain.
 const DOMAIN_PATTERNS = [
-  { id: 'fleet', label: 'Equity Fleet', prefix: /^fleet_pilot_/ },
-  { id: 'crypto', label: 'Crypto Fleet', prefix: /^crypto_pilot_/ },
+  { id: 'fleet', label: 'Equity Fleet', prefix: /^fleet_pilot_/, cyclePrefix: 'fleet_pilot_' },
+  { id: 'crypto', label: 'Crypto Fleet', prefix: /^crypto_pilot_/, cyclePrefix: 'crypto_pilot_' },
 ];
 function getDomainActivity() {
   const files = fs.existsSync(runTask.TASKS_DIR) ? fs.readdirSync(runTask.TASKS_DIR).filter((f) => f.endsWith('.md')) : [];
@@ -136,10 +137,21 @@ function getDomainActivity() {
     bucket.total += 1;
     // Prefer the filename's own embedded YYYYMMDD (stable, doesn't drift
     // on a git checkout/clone the way mtime does); fall back to mtime for
-    // undated files (probes, one-off tests).
-    const dateMatch = /_(\d{8})_/.exec(f);
+    // undated files (probes, one-off tests). For a domain-matched file,
+    // ask cycle-date-utils.js first -- the same real cycle-date-vs-rescan-
+    // fire-date bug fixed in fleet-status.js/crypto-status.js/
+    // generate-pilot-tasks.js applies here too (a rescan's fire date is
+    // not a new cycle's date). Its answer is null for a rescan (or any
+    // non-domain file), so the original unanchored extraction -- which
+    // still returns a real, if less precise, embedded date for those --
+    // is kept as the fallback rather than dropped, to avoid changing what
+    // this panel has always shown for rescans/undated/other-domain files.
+    const cycleDate = match ? cycleDateUtils.resolveCycleDate(f, match.cyclePrefix) : null;
+    const dateMatch = cycleDate ? null : /_(\d{8})_/.exec(f);
     let ts;
-    if (dateMatch) {
+    if (cycleDate) {
+      ts = new Date(`${cycleDate.slice(0, 4)}-${cycleDate.slice(4, 6)}-${cycleDate.slice(6, 8)}T00:00:00Z`).getTime();
+    } else if (dateMatch) {
       const s = dateMatch[1];
       ts = new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00Z`).getTime();
     } else {

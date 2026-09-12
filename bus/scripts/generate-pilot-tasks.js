@@ -86,17 +86,17 @@ function pilotPrefix(pilot) {
 // crypto-status.js's findLatestPipelineDate(): a rescan is named with the
 // date it FIRES on, not its original cycle's date, so it can register a
 // date here that never had a real cycle (and thus no real keyLearnings).
+// Delegates to cycle-date-utils.js, which now holds this exact fix once
+// instead of once per dashboard/generator (see its header -- the same bug
+// was independently written and independently fixed four separate times).
+// require()'d locally rather than hoisted to this file's top-level
+// imports: this edit is scoped strictly to this function (another agent
+// owns the rest of this file in parallel, in a different worktree);
+// require() is cached, so this has no real per-call cost.
 function findPriorDate(pilot, beforeDatePrefix, filenames) {
+  const cycleDateUtils = require('./cycle-date-utils.js');
   const files = filenames || listTaskFilenames();
-  const re = new RegExp(`^${pilotPrefix(pilot)}(\\d{8})_`);
-  const dates = new Set();
-  for (const f of files) {
-    if (f.includes('_rescan_')) continue;
-    const m = re.exec(f);
-    if (m && m[1] < beforeDatePrefix) dates.add(m[1]);
-  }
-  if (dates.size === 0) return null;
-  return Array.from(dates).sort().pop();
+  return cycleDateUtils.latestCycleDateBefore(files, pilotPrefix(pilot), beforeDatePrefix);
 }
 
 // Reuses parseRound3Output()/discoverRound3Versions() verbatim -- no

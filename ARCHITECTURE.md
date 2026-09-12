@@ -1701,10 +1701,17 @@ Only genuinely open items keep full detail below.)*
 - [ ] `run-task.js` cannot call the FMP connector itself -- only Claude
       can, in-session. Orchestrator-sourced tasks are written by hand each
       time; the grounding step itself isn't scripted, only its consumption
-      (via `dependsOnTaskId`) is. **Directly relevant to the 24/7
-      autonomous pilot (section 9): the plan there proposes a standalone
-      `fmp-client.js` using a real FMP REST key specifically to close this
-      gap for the trading pilots.**
+      (via `dependsOnTaskId`) is. **Update, 2026-09-11: no longer relevant
+      to the 24/7 autonomous pilot (section 9) specifically** -- that gap
+      was closed there not by provisioning a real FMP REST key (never
+      happened) but by dropping FMP entirely in favor of
+      `alpaca-client.js`'s free market-data API (price/volume, same
+      paper-account key already in use, no new credential) plus
+      `finnhub-client.js`'s free tier (equity market cap, optional). See
+      section 9's credential-gap bullet for the real fix. This item still
+      stands for any OTHER orchestrator-sourced task that needs a scripted
+      grounding step -- just not for the trading pilots' own data
+      snapshot anymore.
 - [ ] Antigravity has no real invocation mechanism in `/bus/` -- deferred
       2026-09-01 in favor of proving the scaffold against Claude instead
       of a third stub. **Update, still not acted on:** Google Antigravity
@@ -1795,16 +1802,31 @@ human input -- the actual gap was authorship, not dispatch.
   fleet cycles both produced non-empty `keyLearnings`, both read back
   correctly). Previously this only ever happened when a human manually
   copied yesterday's learnings into today's prompt.
-- **The one real credential gap**: every prior data-snapshot step used
-  the FMP MCP connector, only callable from an interactive Claude
-  session. `bus/scripts/fmp-client.js` calls FMP's REST API directly
-  instead, but `FMP_API_KEY` does not exist yet in
-  `bus/secrets.local.json` -- confirmed by a direct `secrets-broker.js`
-  read. Until it's added, `generateDataSnapshotTasks()` degrades
-  gracefully: it sends an ntfy alert and generates nothing further for
-  that pilot that day, rather than fabricating data. `computeScreenScore()`
-  (the confirmed 50%/30%/20% momentum/liquidity/scale formula from
-  section 3q) is real and ready the moment the key exists.
+- **The one real credential gap -- resolved 2026-09-11, see below.**
+  Every prior data-snapshot step used the FMP MCP connector, only
+  callable from an interactive Claude session; `bus/scripts/fmp-client.js`
+  called FMP's REST API directly instead, but `FMP_API_KEY` never
+  existed in `bus/secrets.local.json` (confirmed by a direct
+  `secrets-broker.js` read), and FMP's paid tier would have been needed
+  to cover this call volume anyway. **Fix, direct user pushback ("There
+  has to be a free alternative" -- see project memory
+  `feedback_explore_alternatives`):** `generateFleetDataSnapshot()`/
+  `generateCryptoDataSnapshot()` now pull price/volume from
+  `alpaca-client.js`'s `getDailyBars()` -- free with the existing paper
+  account, no new credential, and batched (one call per universe instead
+  of one per symbol, strictly better than the old per-symbol FMP loop).
+  Equity market cap comes from `finnhub-client.js`'s free tier, optional
+  -- a missing `FINNHUB_API_KEY` now degrades to 0/no-cap-weight for
+  every symbol that cycle, rather than the old behavior (an ntfy alert
+  and generating nothing further for that pilot that day). Crypto market
+  cap has no free, ID-unambiguous source wired up yet -- an honest,
+  documented gap, not fabricated. `computeScreenScore()` (the confirmed
+  50%/30%/20% momentum/liquidity/scale formula from section 3q) is
+  unaffected -- same formula, new inputs. FMP remains a real, working
+  connector/REST path (see section 4) and stays the documented option
+  for a future PAID upgrade (bulk screener, deeper fundamentals) if the
+  free sources ever prove insufficient -- it just isn't what the trading
+  pilots run on today.
 - `bus/scripts/pilot-supervisor.js` -- the coarse "is today's cycle due"
   decision, meant to run every 30 min via Task Scheduler. Equity gates on
   Alpaca's own `/v2/clock` (no hand-rolled holiday calendar) plus
@@ -1838,8 +1860,10 @@ plan (`TradingPilotQueueDaemon` running `run-queue-daemon.js` at startup,
 `TradingPilotSupervisor` running `pilot-supervisor.js` every 30 min, both
 "run whether user is logged on or not" -- deliberately not the "logon
 only" mode `AgentCommsBackbone` uses, since that wouldn't survive nobody
-being logged in). Not registered yet -- gated on the FMP key above and a
-supervised end-to-end dry run first.
+being logged in). Not registered yet. The data-source gap that used to
+gate this (FMP) is resolved as of 2026-09-11 (see the credential-gap
+bullet above) -- the remaining gate is a supervised end-to-end dry run
+first.
 
 **Verified so far (2026-09-09, this build)**: `computeScreenScore()`
 ranks correctly against synthetic data; `generateThesisTask()`/
@@ -1849,10 +1873,20 @@ live against a throwaway future-dated cycle, then removed); prior-cycle
 `keyLearnings` read back correctly for both pilots against real
 2026-09-08 data; `pilot-supervisor.js`'s market-clock and
 `todayCycleExists()` gating both behave correctly against live state.
-**Not yet verified**: a full generated cycle actually dispatched
-end-to-end by `run-queue-daemon.js` (blocked on the FMP key), the
-idempotency guard against a real duplicate execution attempt, and the
-rate-limit requeue path against a real 429.
+**Not yet verified (as of that build)**: a full generated cycle actually
+dispatched end-to-end by `run-queue-daemon.js` (blocked on the FMP key
+at the time), the idempotency guard against a real duplicate execution
+attempt, and the rate-limit requeue path against a real 429.
+
+**Update, 2026-09-11: the FMP blocker above is gone (see the
+credential-gap fix earlier in this section), and full cycles now run for
+real.** `fleet_pilot_20260910` and `crypto_pilot_20260910` both completed
+rounds 1-3 end-to-end via `run-queue-daemon.js` with zero human
+involvement, and conditional-trigger rescans have since fired live for
+two fleet candidates (KO, VZ) on 2026-09-11. The idempotency guard and
+rate-limit requeue path remain unexercised against a REAL
+duplicate-execution attempt / real 429 specifically -- that residual gap
+is about those two mechanisms, not data availability.
 
 **Conditional triggers -- "keep passively scanning" (added 2026-09-10):**
 direct user pushback on the first live run of this pilot: round-3's

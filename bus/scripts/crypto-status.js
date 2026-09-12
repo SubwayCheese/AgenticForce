@@ -19,6 +19,7 @@ const runTask = require('./run-task.js');
 const engine = require('./agent-engine.js');
 const alpaca = require('./alpaca-client.js');
 const cryptoSymbols = require('./crypto-symbols.js');
+const cycleDateUtils = require('./cycle-date-utils.js');
 const { parseRound3Output, getTradeLog } = require('./fleet-status.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
@@ -33,17 +34,12 @@ function listTaskFilenames() {
 // crypto rescan firing on a later date than its cycle would otherwise
 // masquerade as a newer (empty) cycle. Not yet triggered for crypto (only
 // fleet's KO/VZ fired overnight), but the same collision is latent here
-// the first time a crypto trigger fires on a different day than its cycle.
+// the first time a crypto trigger fires on a different day than its
+// cycle. Delegates to cycle-date-utils.js -- see its header for the fix,
+// now defined once instead of once per dashboard.
 function findLatestCryptoPipelineDate(filenames) {
   const files = filenames || listTaskFilenames();
-  const dates = new Set();
-  for (const f of files) {
-    if (/_rescan_/.test(f)) continue;
-    const m = /^crypto_pilot_(\d{8})_/.exec(f);
-    if (m) dates.add(m[1]);
-  }
-  if (dates.size === 0) return null;
-  return Array.from(dates).sort().pop();
+  return cycleDateUtils.latestCycleDate(files, 'crypto_pilot_');
 }
 
 function discoverRound3Versions(datePrefix, filenames) {

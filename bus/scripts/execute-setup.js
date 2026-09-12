@@ -71,11 +71,32 @@ async function executeFromTask(taskId, qty) {
 module.exports = { extractConditionalSetup, executeFromTask, PAPER_TRADES_LOG };
 
 if (require.main === module) {
+  // GUARD, added 2026-09-11 (maintainability sweep): this script places an
+  // entry order with NO protective stop -- unlike
+  // execute-portfolio-setup.js, which places the entry and its GTC stop
+  // back-to-back in the same run specifically to close that gap. Running
+  // THIS script directly recreates the exact real incident that motivated
+  // that fix: the first real run (this script, then a separate
+  // place-safety-net-stops.js run ~90 minutes later) left 3 positions open
+  // with zero downside protection long enough that the user had to
+  // manually close them at a loss (see execute-portfolio-setup.js's header
+  // and ARCHITECTURE.md). For any candidate with a stated invalidation
+  // price, use `node execute-portfolio-setup.js <taskId>` instead -- it is
+  // the canonical executor. This script stays available only for a
+  // genuine one-off manual case with no invalidation price to protect,
+  // gated behind an explicit flag so it can't be run by accident.
+  if (!process.argv.includes('--i-understand-this-bypasses-safety-checks')) {
+    console.error('REFUSING TO RUN: execute-setup.js places a real paper entry order with NO protective stop.');
+    console.error('execute-portfolio-setup.js <taskId> is the canonical executor (entry + stop, back-to-back) -- use that instead.');
+    console.error('If you genuinely need this script anyway, re-run with --i-understand-this-bypasses-safety-checks.');
+    process.exit(1);
+  }
+
   const taskId = process.argv[2];
   const qty = process.argv[3];
   if (!taskId || !qty) {
-    console.error('Usage: node execute-setup.js <synthesis_task_id> <qty>');
-    console.error('Example: node execute-setup.js fleet_pilot_20260903_synthesis_r3v4 10');
+    console.error('Usage: node execute-setup.js <synthesis_task_id> <qty> --i-understand-this-bypasses-safety-checks');
+    console.error('Example: node execute-setup.js fleet_pilot_20260903_synthesis_r3v4 10 --i-understand-this-bypasses-safety-checks');
     process.exit(1);
   }
   executeFromTask(taskId, Number(qty)).catch((err) => {
