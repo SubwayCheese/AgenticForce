@@ -70,23 +70,43 @@ function extractCandidateThesis(sourceTaskId, symbol) {
   return null;
 }
 
+// Pairs one entry row with the exit row that actually closed IT, not merely
+// the next exit in the same symbol. Two rules, in order:
+//   1. lotId match -- exact, unambiguous, works even with two concurrent
+//      lots in one symbol (the 2026-09-11 VZ double-entry state);
+//   2. legacy fallback for rows written before lot ids existed: the earliest
+//      exit after this entry in the same symbol that no earlier entry has
+//      already claimed. `claimed` is what stops two entries in a symbol from
+//      both pointing at the same single exit and double-counting a trade.
+// Never throws on a record missing lotId -- every historical row is that shape.
+function findMatchingExit(entry, exits, claimed) {
+  if (entry.lotId) {
+    const byLot = exits.find((e) => e.lotId && e.lotId === entry.lotId);
+    if (byLot) return byLot;
+  }
+  return exits.find((e) => e.symbol === entry.symbol && e.ts > entry.ts && !claimed.has(e) && !e.lotId) || null;
+}
+
 // Mechanical, cheap, idempotent -- safe to call every supervisor wake.
-// Matches each closed (entry, next-exit) pair for the same symbol that
-// hasn't been journaled yet, computes real win/loss, writes one row.
+// Matches each closed (entry, exit) pair that hasn't been journaled yet,
+// computes real win/loss, writes one row.
 function journalClosedTrades() {
   const trades = readTrades();
   const journal = readJournal();
   const journaledKeys = new Set(journal.map((j) => `${j.entryTs}::${j.symbol}`));
 
-  const entries = trades.filter((t) => t.type === 'research-driven-entry');
+  const entries = trades.filter((t) => t.type === 'research-driven-entry')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const exits = trades.filter((t) => t.type === 'research-driven-exit')
     .sort((a, b) => a.ts.localeCompare(b.ts));
+  const claimed = new Set();
 
   const newEntries = [];
   for (const entry of entries) {
     const key = `${entry.ts}::${entry.symbol}`;
+    const exit = findMatchingExit(entry, exits, claimed);
+    if (exit) claimed.add(exit);
     if (journaledKeys.has(key)) continue;
-    const exit = exits.find((e) => e.symbol === entry.symbol && e.ts > entry.ts);
     if (!exit) continue; // still open -- nothing to journal yet, not an error
 
     const entryPrice = entry.actualFillPrice;
@@ -102,6 +122,11 @@ function journalClosedTrades() {
 
     const record = {
       type: 'trade-closed',
+      // Additive, null on every historical row by design -- the immutable
+      // identity of the position this row is about, so a journal row can be
+      // tied back to its exact lot in paper-trades.jsonl rather than to a
+      // symbol that may have been traded several times.
+      lotId: entry.lotId || null,
       entryTs: entry.ts,
       exitTs: exit.ts,
       symbol: entry.symbol,
@@ -109,6 +134,14 @@ function journalClosedTrades() {
       sourceTask: entry.sourceTask,
       direction: entry.direction,
       entryPrice,
+      // The price the thesis intended to enter at, when the candidate
+      // supplied one -- performance-scorecard.js measures entry slippage
+      // against this. Null (honestly) for a market-entry candidate with no
+      // stated level, and for every row written while execute-portfolio-setup.js
+      // was hardcoding modeledEntry:null.
+      modeledEntry: entry.modeledEntry != null ? entry.modeledEntry : null,
+      qty: entry.qty != null ? entry.qty : null,
+      notional: entry.notional != null ? entry.notional : null,
       exitPrice,
       pnlPct,
       outcome,
@@ -224,7 +257,7 @@ function getSymbolHistory(symbol, limit = 5) {
 }
 
 module.exports = {
-  readTrades, readJournal, appendJournalEntry, extractCandidateThesis,
-  journalClosedTrades, getJournalEntriesWithLessons, maybeDispatchReflection,
+  readTrades, readJournal, readJsonl, appendJournalEntry, extractCandidateThesis,
+  journalClosedTrades, findMatchingExit, getJournalEntriesWithLessons, maybeDispatchReflection,
   checkReflectionResults, getSymbolHistory, JOURNAL_PATH, TRADES_PATH,
 };
