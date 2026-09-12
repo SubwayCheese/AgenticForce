@@ -44,6 +44,8 @@ const dashboardStatus = require('./dashboard-status.js');
 const fleetStatus = require('./fleet-status.js');
 const cryptoSymbols = require('./crypto-symbols.js');
 const alpaca = require('./alpaca-client.js');
+const finnhub = require('./finnhub-client.js');
+const genPilotTasks = require('./generate-pilot-tasks.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1691,7 +1693,184 @@ function testEngineWriteSuccess() {
   }
 }
 
-function main() {
+// ---------- FAST/SLOW hybrid: finnhub-client.js's getEarningsCalendar()
+// (roadmap item 7, 2026-09-11 self-review) ----------
+// FINNHUB_API_KEY was not present in this worktree's copied
+// bus/secrets.local.json as of 2026-09-11 -- this test is honest about
+// that in its own PASS/FAIL detail rather than claiming a live
+// verification that didn't happen. Without a key it only proves
+// getEarningsCalendar() throws the same clear, documented "not
+// configured" error apiRequest() already gives every other Finnhub call
+// (getProfile2()) -- structure and error-handling, not live data. If a
+// key IS configured (now or later), it makes one real live call and
+// checks the documented { earningsCalendar: [...] } response shape.
+async function testFinnhubEarningsCalendarFast() {
+  const problems = [];
+  const today = new Date();
+  const from = today.toISOString().slice(0, 10);
+  const to = new Date(today.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (!finnhub.hasCredentials()) {
+    try {
+      await finnhub.getEarningsCalendar('AAPL', from, to);
+      problems.push('getEarningsCalendar() did not throw with FINNHUB_API_KEY absent');
+    } catch (err) {
+      if (!/FINNHUB_API_KEY not configured/.test(err.message)) {
+        problems.push(`getEarningsCalendar() threw, but not the expected missing-credentials message: "${err.message}"`);
+      }
+    }
+    record(
+      'finnhub-client.js getEarningsCalendar(): structural only -- FINNHUB_API_KEY NOT configured in this worktree, NOT verified live',
+      problems.length === 0,
+      problems.length ? problems.join('; ') : 'confirmed it throws the same documented "not configured" error every other Finnhub call gives when the key is absent'
+    );
+    return;
+  }
+  try {
+    const resp = await finnhub.getEarningsCalendar('AAPL', from, to);
+    if (!resp || !Array.isArray(resp.earningsCalendar)) problems.push(`unexpected response shape: ${JSON.stringify(resp)}`);
+  } catch (err) {
+    problems.push(`live call threw: ${err.message}`);
+  }
+  record(
+    'finnhub-client.js getEarningsCalendar(): verified LIVE against the real Finnhub API',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : 'real live call returned the documented { earningsCalendar: [...] } shape'
+  );
+}
+
+// ---------- SLOW: data-snapshot OUTPUT CONTENT (roadmap item 5, the
+// test-coverage half, 2026-09-11 self-review) ----------
+// A real, confirmed incident: generateFleetDataSnapshot() computed
+// price/priceAvg50/priceAvg200 on every candidate but never actually put
+// price into the table string sent to Codex -- it shipped completely
+// undetected because every check above this one exercises only the
+// dispatch/parsing layer, never a data-snapshot function's actual
+// rendered OUTPUT CONTENT. This asserts against the real rendered
+// markdown (task.output -- exactly what a downstream thesis task
+// receives via dependency injection), not the internal candidate
+// objects, since the bug was specifically that the internal objects had
+// the data and the string built from them didn't.
+//
+// Uses a throwaway datePrefix ('00000101') that can never collide with a
+// real production cycle: every real fleet_pilot_*/crypto_pilot_*
+// datePrefix is an actual calendar YYYYMMDD (always >= 20260911 for this
+// vault), and '00000101' sorts as the OLDEST possible date -- so even if
+// cleanup somehow failed, generate-pilot-tasks.js's own findPriorDate()
+// (which picks the MAX prior date) could never mistake it for the
+// latest real cycle. Cleans up both generated task files in a finally,
+// real network calls or not.
+const SNAPSHOT_TEST_DATE_PREFIX = '00000101';
+
+function splitTableRow(line) {
+  return line.split('|').map((c) => c.trim()).slice(1, -1);
+}
+
+// Shared assertion core for both pilots' rendered table -- exactly the
+// class of bug that shipped undetected (a real numeric field computed
+// internally but silently missing from, or misaligned in, the string
+// actually sent downstream) would be caught here.
+function assertSnapshotTableContent(label, output, headerLine, problems) {
+  if (!output) {
+    problems.push(`${label}: task has no output field at all`);
+    return;
+  }
+  if (!output.startsWith('SOURCE:')) problems.push(`${label}: rendered output does not start with a SOURCE: tag`);
+  const lines = output.split('\n');
+  const headerIdx = lines.findIndex((l) => l.trim() === headerLine);
+  if (headerIdx === -1) {
+    problems.push(`${label}: could not find expected table header "${headerLine}" in rendered output`);
+    return;
+  }
+  const headerCols = splitTableRow(lines[headerIdx]);
+  const priceCol = headerCols.indexOf('Price');
+  const chgCol = headerCols.indexOf('Chg%');
+  const volCol = headerCols.findIndex((c) => /Volume/.test(c));
+  if (priceCol === -1 || chgCol === -1 || volCol === -1) {
+    problems.push(`${label}: header missing one of Price/Chg%/Volume columns: [${headerCols.join(', ')}]`);
+    return;
+  }
+  const dataLines = lines.slice(headerIdx + 2).filter((l) => /^\|\s*\d+\s*\|/.test(l));
+  if (!dataLines.length) {
+    problems.push(`${label}: no data rows found under the table header`);
+    return;
+  }
+  for (const line of dataLines) {
+    const cells = splitTableRow(line);
+    const symbol = cells[1];
+    if (cells.length !== headerCols.length) {
+      problems.push(`${label}/${symbol || '?'}: row has ${cells.length} cell(s), header has ${headerCols.length} -- exactly the class of bug (a silently dropped/misaligned column) this test exists to catch`);
+      continue;
+    }
+    const priceCell = cells[priceCol];
+    const chgCell = cells[chgCol];
+    const volCell = cells[volCol];
+    if (!priceCell || !/^\$-?\d+(\.\d+)?$/.test(priceCell)) {
+      problems.push(`${label}/${symbol}: price cell is not a real dollar-formatted number: "${priceCell}"`);
+    }
+    if (!chgCell || !/^-?\d+(\.\d+)?%$/.test(chgCell)) {
+      problems.push(`${label}/${symbol}: chgPct cell is not a real numeric percentage: "${chgCell}"`);
+    }
+    const volNum = volCell ? parseInt(volCell.replace(/,/g, ''), 10) : NaN;
+    if (!volCell || !Number.isFinite(volNum)) {
+      problems.push(`${label}/${symbol}: avgVolume cell is not a real number: "${volCell}"`);
+    }
+  }
+}
+
+function cleanupSnapshotTaskFile(taskId) {
+  try {
+    const p = genPilotTasks.taskFilePath(taskId);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch (e) { /* best-effort cleanup */ }
+}
+
+async function testFleetDataSnapshotContentSlow() {
+  const problems = [];
+  const taskId = `fleet_pilot_${SNAPSHOT_TEST_DATE_PREFIX}_universe50_consolidation`;
+  try {
+    if (genPilotTasks.taskExists(taskId)) {
+      throw new Error(`throwaway task file ${taskId}.md already exists -- refusing to run to avoid clobbering a leftover from a prior interrupted suite run; delete it manually and re-run`);
+    }
+    const result = await genPilotTasks.generateFleetDataSnapshot(SNAPSHOT_TEST_DATE_PREFIX);
+    const task = runTask.readTaskFile(result.taskId);
+    assertSnapshotTableContent('fleet snapshot', task ? task.output : null, '| Rank | Symbol | Price | Chg% | Avg Volume (20d) | Market Cap | screenScore |', problems);
+    if (!result.symbols || !result.symbols.length) problems.push('fleet snapshot: shortlist came back empty');
+  } catch (err) {
+    problems.push(`fleet snapshot: threw ${err.message}`);
+  } finally {
+    cleanupSnapshotTaskFile(taskId);
+  }
+  record(
+    'generateFleetDataSnapshot(): rendered table actually contains real price/chgPct/avgVolume for every row (regression test for the 2026-09-11 missing-price incident)',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : 'every rendered row had a real $price, numeric Chg%, and numeric avgVolume -- checked against task.output, not the internal candidate objects'
+  );
+}
+
+async function testCryptoDataSnapshotContentSlow() {
+  const problems = [];
+  const taskId = `crypto_pilot_${SNAPSHOT_TEST_DATE_PREFIX}_universe_consolidation`;
+  try {
+    if (genPilotTasks.taskExists(taskId)) {
+      throw new Error(`throwaway task file ${taskId}.md already exists -- refusing to run to avoid clobbering a leftover from a prior interrupted suite run; delete it manually and re-run`);
+    }
+    const result = await genPilotTasks.generateCryptoDataSnapshot(SNAPSHOT_TEST_DATE_PREFIX);
+    const task = runTask.readTaskFile(result.taskId);
+    assertSnapshotTableContent('crypto snapshot', task ? task.output : null, '| Rank | Coin | Price | Chg% | Volume (20d avg) | screenScore |', problems);
+    if (!result.symbols || !result.symbols.length) problems.push('crypto snapshot: shortlist came back empty');
+  } catch (err) {
+    problems.push(`crypto snapshot: threw ${err.message}`);
+  } finally {
+    cleanupSnapshotTaskFile(taskId);
+  }
+  record(
+    'generateCryptoDataSnapshot(): rendered table actually contains real price/chgPct/avgVolume for every row',
+    problems.length === 0,
+    problems.length ? problems.join('; ') : 'every rendered row had a real $price, numeric Chg%, and numeric avgVolume -- checked against task.output, not the internal candidate objects'
+  );
+}
+
+async function main() {
   console.log(`=== /bus/ verification suite -- run ${RUN_ID} ===\n`);
   console.log('-- fast checks --');
   testExtractPayloadFast();
@@ -1718,6 +1897,10 @@ function main() {
   testFleetSymbolGridFast();
   testCryptoSymbolsFast();
   testCryptoNoShortGuardFast();
+  await testFinnhubEarningsCalendarFast();
+  console.log('\n-- slow checks: data-snapshot output content (real Alpaca/Finnhub calls) --');
+  await testFleetDataSnapshotContentSlow();
+  await testCryptoDataSnapshotContentSlow();
   console.log('\n-- slow checks (spawn real codex exec, may take a minute or more) --');
   testLiveChain();
   testLiveFanIn();
@@ -1745,4 +1928,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { main };
+module.exports = { main, testFinnhubEarningsCalendarFast, testFleetDataSnapshotContentSlow, testCryptoDataSnapshotContentSlow };

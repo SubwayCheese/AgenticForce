@@ -53,4 +53,29 @@ function getProfile2(symbol) {
   return apiRequest('/stock/profile2', { symbol });
 }
 
-module.exports = { loadConfig, hasCredentials, apiRequest, getProfile2 };
+// Earnings calendar -- roadmap item 7 (2026-09-11 self-review, data-
+// quality lens): the one gap that doesn't need proof of statistical edge
+// to justify, a purely mechanical rule (don't open a fresh position
+// right before a scheduled binary catalyst). Confirmed against Finnhub's
+// public docs (finnhub.io/docs/api/earnings-calendar) and the official
+// Go/JS client's EarningRelease struct, not guessed: GET
+// /calendar/earnings?symbol=X&from=YYYY-MM-DD&to=YYYY-MM-DD (both dates
+// required to avoid the endpoint's own "defaults to today +7d" default
+// window), returning { earningsCalendar: [ { symbol, date, hour,
+// quarter, year, epsEstimate, epsActual, revenueEstimate, revenueActual
+// }, ... ] } -- one entry per scheduled/reported release in range. Free
+// tier, same as getProfile2() above.
+//
+// NOT live-verified from this worktree: FINNHUB_API_KEY was not present
+// in the bus/secrets.local.json copied in here as of 2026-09-11 (see
+// run-verification-suite.js's testFinnhubEarningsCalendarFast(), which
+// says so honestly in its own PASS output rather than claiming a live
+// check that didn't happen). Same apiRequest()/loadConfig() discipline
+// as every other call here -- throws the same documented "not
+// configured" error if the key is missing, caller decides how to
+// degrade (see generate-pilot-tasks.js's formatEarningsWarningSection()).
+function getEarningsCalendar(symbol, from, to) {
+  return apiRequest('/calendar/earnings', { symbol, from, to });
+}
+
+module.exports = { loadConfig, hasCredentials, apiRequest, getProfile2, getEarningsCalendar };
