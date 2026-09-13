@@ -25,6 +25,7 @@ const path = require('path');
 const { buildSnapshot, buildAgentGraph } = require('./dashboard-status.js');
 const { buildFleetSnapshot } = require('./fleet-status.js');
 const { buildCryptoSnapshot } = require('./crypto-status.js');
+const { getClaudeAgentRoster } = require('./agent-roster.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DASHBOARD_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'dashboard.html');
@@ -90,6 +91,22 @@ const server = http.createServer((req, res) => {
     try {
       const graph = buildAgentGraph();
       send(res, 200, 'application/json', JSON.stringify(graph));
+    } catch (err) {
+      send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
+    }
+    return;
+  }
+
+  // The ~/.claude/agents/*.md subagent roster (added 2026-09-11 for
+  // city.html's 3D rebuild) -- a SEPARATE population from /agent-graph.json's
+  // `agents[]` (the bus/ dispatch-engine workers). Kept as its own endpoint
+  // rather than merged into agent-graph.json: it changes far less often,
+  // and this is the one dashboard data source that reaches outside the
+  // AgentVault repo directory, worth keeping isolated/greppable.
+  if (url === '/agent-roster.json') {
+    try {
+      const roster = getClaudeAgentRoster();
+      send(res, 200, 'application/json', JSON.stringify(roster));
     } catch (err) {
       send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
     }

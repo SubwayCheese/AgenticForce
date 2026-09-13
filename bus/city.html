@@ -17,8 +17,6 @@
     --teal:#4fb0a8;
     --red:#d9695f;
     --green:#6fae6a;
-    --building:#1b2028;
-    --building-line:rgba(255,255,255,0.12);
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -46,42 +44,7 @@
   .navlink:hover{color:var(--ink);border-color:var(--line-strong);}
 
   .main{flex:1;position:relative;overflow:hidden;}
-  svg{width:100%;height:100%;display:block;}
-
-  .ground{stroke:var(--line);stroke-width:1;}
-  .path{stroke:var(--line-strong);stroke-width:1.5;stroke-dasharray:2,5;fill:none;}
-
-  .building-shape{fill:var(--building);stroke:var(--building-line);stroke-width:1.5;}
-  .building-shape.active{stroke:var(--amber);}
-  .building-label{fill:var(--dim);font-size:11px;text-anchor:middle;}
-  .building-sub{fill:var(--dim-2);font-size:9.5px;text-anchor:middle;}
-  .window{fill:var(--dim-2);opacity:0.4;}
-  .window.lit{fill:var(--amber);opacity:0.9;}
-  .window.lit.crypto{fill:var(--teal);}
-
-  .hub-ring{fill:none;stroke:var(--line-strong);stroke-width:1.2;stroke-dasharray:3,4;}
-  .hub-label{fill:var(--dim-2);font-size:9.5px;text-anchor:middle;}
-
-  .agent-icon path, .agent-icon rect{fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:stroke .3s;}
-  .agent-icon.idle path, .agent-icon.idle rect{stroke:var(--dim);}
-  .agent-icon.working path, .agent-icon.working rect{stroke:var(--amber);}
-  .agent-icon-halo{fill:none;stroke:var(--amber);opacity:0;}
-  .agent-wrap.working .agent-icon-halo{animation:pulse 1.4s ease-out infinite;}
-  .agent-wrap.working .agent-eye{animation:blink 2.2s steps(1) infinite;}
-  .agent-name{fill:var(--dim-2);font-size:9px;text-anchor:middle;}
-  @keyframes pulse{
-    0%{r:10;opacity:0.55;}
-    100%{r:22;opacity:0;}
-  }
-  @keyframes blink{
-    0%,88%,100%{opacity:1;}
-    93%{opacity:0.15;}
-  }
-  .building-shape.active .building-pulse{animation:buildingPulse 1.8s ease-out infinite;}
-  @keyframes buildingPulse{
-    0%{opacity:0.5;}
-    100%{opacity:0;}
-  }
+  canvas{display:block;width:100%;height:100%;}
 
   .legend{
     position:absolute;top:16px;left:16px;
@@ -89,7 +52,8 @@
     box-shadow:var(--top-hi);
     padding:11px 14px;font-size:11px;color:var(--dim);
     display:flex;flex-direction:column;gap:5px;
-    max-width:230px;
+    max-width:250px;
+    pointer-events:none;
   }
   .legend .row{display:flex;align-items:center;gap:7px;}
   .legend .swatch{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
@@ -97,15 +61,24 @@
   .feed-note{
     position:absolute;bottom:16px;left:16px;
     font-size:11px;color:var(--dim-2);
+    pointer-events:none;
   }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 
 <header>
   <div>
     <h1>bus / agent city</h1>
-    <div class="subtitle">each district is a real domain in tasks/ -- buildings grow with activity, agents walk out when dispatched. Live from serve-dashboard.js, polled every 2s.</div>
+    <div class="subtitle">a real 3D city: rooftop lights = real accumulated lessons per domain, the perimeter ring = the real, growing ~/.claude/agents subagent roster, the two walking figures = the real bus/ dispatch engine (Codex + Claude). Live from serve-dashboard.js, polled every 2s.</div>
   </div>
   <div style="display:flex;gap:10px;">
     <a class="navlink" href="/" target="_blank">console &rarr;</a>
@@ -116,310 +89,619 @@
 </header>
 
 <div class="main">
-  <svg id="citySvg">
-    <g id="groundLayer"></g>
-    <g id="buildingLayer"></g>
-    <g id="agentLayer"></g>
-  </svg>
+  <canvas id="cityCanvas"></canvas>
 
   <div class="legend">
     <div class="row"><span class="swatch" style="background:var(--amber)"></span> lit window: task in the last 7 days</div>
-    <div class="row"><span class="swatch" style="background:var(--dim-2)"></span> unlit window: no recent task</div>
     <div class="row">taller building = more total tasks ever</div>
-    <div class="row">amber outline + pulse = a task is active there right now</div>
-    <div class="row">bot walks from the queue hub to a district while dispatched, back when done</div>
+    <div class="row">rooftop beacon (1+), particle ring (3+), spire (6+) = real accumulated lessons for that domain</div>
+    <div class="row">ring pods = the real ~/.claude/agents roster, one per specialist</div>
+    <div class="row">the two figures walk from the hub to a district while dispatched, back when idle</div>
+    <div class="row">drag to orbit, scroll to zoom</div>
   </div>
 
   <div class="feed-note" id="feedNote"></div>
 </div>
 
-<script>
-// Reuses agents.html's data source verbatim (agent-graph.json, same 2s
-// poll cadence) plus one new field on that same response (domains --
-// see dashboard-status.js's getDomainActivity()). Buildings are NOT laid
-// out via agents.html's force-directed physics -- they're stable
-// structures with fixed slots, derived purely from whatever domains[]
-// the backend actually returns (no hardcoded building list), so a new
-// pilot/domain shows up automatically the day its first task file lands.
-// Only the AGENTS move, lerping between a central queue hub and whichever
-// district their current task's filename prefix maps to.
+<script type="module">
+// 3D rebuild, 2026-09-11. Same real data sources the 2D version used
+// (agent-graph.json's domains[]/agents[]) plus two additions: domains[]
+// now carries a real learningCount (dashboard-status.js's new
+// getLearningActivity(), summing trading-journal.jsonl lessons + round-3
+// keyLearnings[]) and a new, separate endpoint agent-roster.json (the
+// ~/.claude/agents/*.md subagent roster -- a genuinely different, growing
+// population from the 2-member bus/ dispatch engine agent-graph.json
+// already described). See city-2d-archive.html for the prior SVG version
+// this replaced, and C:\Users\trevo\.claude\plans\federated-jingling-rainbow.md
+// for the full design brief (architecture + Fable's visual design pass).
+//
+// Two independent loops, same principle the 2D version already used for
+// its agent lerp (tickAgents() running independently of its 2s poll),
+// generalized to the whole scene: poll() only ever updates *target*
+// values in cityState; renderLoop() runs continuously via
+// requestAnimationFrame regardless of poll success/failure, easing
+// current values toward targets and rendering every frame. A poll
+// failure freezes the DATA, never the CAMERA/animation.
 
-const svgNS = 'http://www.w3.org/2000/svg';
-const svg = document.getElementById('citySvg');
-const groundLayer = document.getElementById('groundLayer');
-const buildingLayer = document.getElementById('buildingLayer');
-const agentLayer = document.getElementById('agentLayer');
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
 const feedNote = document.getElementById('feedNote');
+const canvas = document.getElementById('cityCanvas');
 
-let width = svg.clientWidth || 900;
-let height = svg.clientHeight || 600;
-window.addEventListener('resize', () => { width = svg.clientWidth; height = svg.clientHeight; layoutBuildings(); });
+// ---------- Palette (Fable's visual design pass, see the plan doc) ----------
+const COLOR = {
+  buildingBase: 0x161b23,
+  buildingShadow: 0x0e1218,
+  windowUnlit: 0x5a6270,
+  ground: 0x0e1119,
+  hubPlaza: 0x161b23,
+  hubRim: 0x8891a0,
+  shellNeutral: 0x161b23,
+  ambient: 0x1a2230,
+  key: 0x4a5a72,
+  bgHorizon: 0x05060a,
+  bgZenith: 0x0b0e13,
+};
+const DOMAIN_COLOR = {
+  fleet: { accent: 0xe8a33d, ring: 0xc9a15f },
+  crypto: { accent: 0x4fb0a8, ring: 0x7fada8 },
+  'vault-ops': { accent: 0x6fae6a, ring: 0x8ab087 },
+};
+function domainColor(id) { return DOMAIN_COLOR[id] || DOMAIN_COLOR['vault-ops']; }
+const ROSTER_COLOR = { yellow: 0xd9c15f, purple: 0x9b8bc4, green: 0x6fae6a, orange: 0xd9824f, blue: 0x6f97c9 };
+function rosterColor(name) { return ROSTER_COLOR[name] != null ? ROSTER_COLOR[name] : 0x8891a0; }
+// The 2-member bus/ dispatch engine -- static, small, known set (unlike
+// the growing roster ring below). Keyed by agent-graph.json's real ids.
+const WORKER_STYLE = {
+  codex: { accent: 0x4fb0a8, head: 'pyramid' },
+  'claude-agent': { accent: 0xe8a33d, head: 'sphere' },
+};
+function workerStyle(id) { return WORKER_STYLE[id] || { accent: 0x8891a0, head: 'sphere' }; }
 
-let buildings = new Map(); // id -> {id, label, x, y, total, last7Days, active}
-let agentsState = new Map(); // id -> {id, x, y, targetX, targetY, working, taskId}
-let hub = { x: 0, y: 0 };
+// ---------- Renderer / scene / camera ----------
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-// Same taskId -> domain mapping the backend uses to bucket tasks/, kept
-// in sync deliberately (see dashboard-status.js's DOMAIN_PATTERNS) --
-// duplicated here only because it's cheap regex, not because the logic
-// diverges.
+const scene = new THREE.Scene();
+scene.background = makeGradientTexture(COLOR.bgHorizon, COLOR.bgZenith);
+scene.add(makeStarfield());
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
+camera.position.set(0, 24, 36);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 4, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.35;
+controls.maxPolarAngle = Math.PI * 0.49; // never let the camera dip below the ground plane
+controls.minDistance = 8;
+controls.maxDistance = 90;
+
+const ambientLight = new THREE.AmbientLight(COLOR.ambient, 0.9);
+scene.add(ambientLight);
+const keyLight = new THREE.DirectionalLight(COLOR.key, 1.1);
+keyLight.position.set(-20, 30, 15);
+scene.add(keyLight);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.5, 0.72);
+composer.addPass(bloomPass);
+
+function resize() {
+  const w = canvas.clientWidth || window.innerWidth;
+  const h = canvas.clientHeight || window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+}
+window.addEventListener('resize', resize);
+
+function makeGradientTexture(bottomHex, topHex) {
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 256;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0, c.height, 0, 0);
+  grad.addColorStop(0, '#' + bottomHex.toString(16).padStart(6, '0'));
+  grad.addColorStop(1, '#' + topHex.toString(16).padStart(6, '0'));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, c.width, c.height);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makeStarfield() {
+  const count = 300;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = 140 + Math.random() * 60;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI * 0.45; // upper hemisphere only
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.cos(phi) + 10;
+    positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.4, transparent: true, opacity: 0.5, sizeAttenuation: true });
+  return new THREE.Points(geo, mat);
+}
+
+// ---------- Ground + hub ----------
+const groundGroup = new THREE.Group();
+scene.add(groundGroup);
+
+const groundDisc = new THREE.Mesh(
+  new THREE.CircleGeometry(60, 48),
+  new THREE.MeshStandardMaterial({ color: COLOR.ground, roughness: 1 })
+);
+groundDisc.rotation.x = -Math.PI / 2;
+groundGroup.add(groundDisc);
+
+{
+  // Faint wide grid, echoes the 2D version's dashed ground lines.
+  const grid = new THREE.GridHelper(60, 24, 0x2a303c, 0x2a303c);
+  grid.material.transparent = true;
+  grid.material.opacity = 0.12;
+  groundGroup.add(grid);
+}
+
+const HUB_RADIUS = 4;
+const hubPlaza = new THREE.Mesh(
+  new THREE.CylinderGeometry(HUB_RADIUS, HUB_RADIUS, 0.3, 32),
+  new THREE.MeshStandardMaterial({ color: COLOR.hubPlaza, roughness: 0.8 })
+);
+hubPlaza.position.y = 0.15;
+groundGroup.add(hubPlaza);
+
+const hubRim = new THREE.Mesh(
+  new THREE.TorusGeometry(HUB_RADIUS, 0.06, 8, 48),
+  new THREE.MeshStandardMaterial({ color: COLOR.hubRim, emissive: COLOR.hubRim, emissiveIntensity: 0.4 })
+);
+hubRim.rotation.x = Math.PI / 2;
+hubRim.position.y = 0.32;
+groundGroup.add(hubRim);
+
+// ---------- Label sprites (billboarded text, standard Three.js technique) ----------
+function makeLabelSprite(text, color, sizePx) {
+  const px = sizePx || 28;
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  ctx.font = `${px}px "IBM Plex Mono", monospace`;
+  const width = Math.ceil(ctx.measureText(text).width) + 16;
+  c.width = width; c.height = px + 12;
+  ctx.font = `${px}px "IBM Plex Mono", monospace`;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 8, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  const scale = 0.016;
+  sprite.scale.set(c.width * scale, c.height * scale, 1);
+  return sprite;
+}
+
+// ==================== BUILDINGS ====================
+const buildingsGroup = new THREE.Group();
+scene.add(buildingsGroup);
+
+const BUILDING_RADIUS = 14; // layout circle radius for the domain buildings
+const buildings = new Map(); // id -> { data, targetHeight, height, mesh, ... }
+
+function buildingLayoutPositions(ids) {
+  const n = Math.max(ids.length, 1);
+  const positions = {};
+  ids.forEach((id, i) => {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    positions[id] = { x: Math.cos(angle) * BUILDING_RADIUS, z: Math.sin(angle) * BUILDING_RADIUS };
+  });
+  return positions;
+}
+
+function heightForTotal(total) {
+  return 2.5 + Math.min(total, 400) * 0.045; // continuous, generous soft cap
+}
+
+function createBuildingEntry(domain, pos) {
+  const group = new THREE.Group();
+  group.position.set(pos.x, 0, pos.z);
+  group.scale.set(0.001, 0.001, 0.001); // grow-in animation starts from ~0
+
+  const color = domainColor(domain.id);
+  const width = 3.4, depth = 3.4;
+  const bodyMat = new THREE.MeshStandardMaterial({ color: COLOR.buildingBase, roughness: 0.85 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(width, 1, depth), bodyMat);
+  body.position.y = 0.5; // rescaled in sync()
+  group.add(body);
+
+  // Window grid on all 4 vertical faces -- each a thin inset emissive
+  // plane. Rebuilt (not just recolored) only when row count changes.
+  const windowsGroup = new THREE.Group();
+  group.add(windowsGroup);
+
+  const roofGroup = new THREE.Group(); // beacon / ring / spire live here, positioned at current roof height in sync()
+  group.add(roofGroup);
+
+  buildingsGroup.add(group);
+  return {
+    domain, group, body, bodyMat, windowsGroup, roofGroup,
+    width, depth,
+    height: 0.001, targetHeight: heightForTotal(domain.total),
+    scaleIn: 0, // 0..1 grow-in progress
+    windowRows: -1, windowLit: -1, // force first build
+    beacon: null, ring: null, spire: null,
+    tier: -1,
+    active: false,
+  };
+}
+
+function rebuildWindows(entry) {
+  entry.windowsGroup.clear();
+  const rows = Math.max(2, Math.min(10, Math.round(entry.targetHeight / 0.9)));
+  const cols = 3;
+  const litFraction = entry.domain.total ? entry.domain.last7Days / entry.domain.total : 0;
+  const litCount = Math.round(rows * cols * litFraction);
+  const accent = domainColor(entry.domain.id).accent;
+  let i = 0;
+  const faces = [
+    { dir: new THREE.Vector3(0, 0, 1), rot: 0 },
+    { dir: new THREE.Vector3(0, 0, -1), rot: Math.PI },
+    { dir: new THREE.Vector3(1, 0, 0), rot: -Math.PI / 2 },
+    { dir: new THREE.Vector3(-1, 0, 0), rot: Math.PI / 2 },
+  ];
+  for (const face of faces) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const lit = i < litCount;
+        i++;
+        const mat = new THREE.MeshStandardMaterial({
+          color: lit ? accent : COLOR.windowUnlit,
+          emissive: lit ? accent : COLOR.windowUnlit,
+          emissiveIntensity: lit ? 1.1 : 0.15,
+        });
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.42), mat);
+        const alongWidth = (c - (cols - 1) / 2) * 0.7;
+        const y = 0.6 + r * 0.85;
+        if (face.dir.x === 0) {
+          win.position.set(alongWidth, y, face.dir.z * (entry.depth / 2 + 0.01));
+        } else {
+          win.position.set(face.dir.x * (entry.width / 2 + 0.01), y, alongWidth);
+        }
+        win.rotation.y = face.rot;
+        entry.windowsGroup.add(win);
+      }
+    }
+  }
+  entry.windowRows = rows;
+  entry.windowLit = litCount;
+}
+
+function ensureRoofTier(entry) {
+  const learning = entry.domain.learningCount || 0;
+  const tier = learning >= 6 ? 3 : learning >= 3 ? 2 : learning >= 1 ? 1 : 0;
+  if (tier === entry.tier) return;
+  entry.tier = tier;
+  entry.roofGroup.clear();
+  entry.beacon = null; entry.ring = null; entry.spire = null;
+  if (tier === 0) return;
+
+  const accent = domainColor(entry.domain.id).accent;
+  const ringColor = domainColor(entry.domain.id).ring;
+
+  // Tier 1: beacon -- slim column + faceted tip + a real point light.
+  const beaconGroup = new THREE.Group();
+  const column = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.08, 0.9, 8),
+    new THREE.MeshStandardMaterial({ color: COLOR.buildingBase, roughness: 0.7 })
+  );
+  column.position.y = 0.45;
+  beaconGroup.add(column);
+  const tip = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.16, 0),
+    new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 1.4 })
+  );
+  tip.position.y = 1.0;
+  beaconGroup.add(tip);
+  const beaconLight = new THREE.PointLight(accent, 1.2, 6, 2);
+  beaconLight.position.y = 1.0;
+  beaconGroup.add(beaconLight);
+  entry.roofGroup.add(beaconGroup);
+  entry.beacon = { group: beaconGroup, tip, light: beaconLight };
+
+  if (tier >= 2) {
+    // Tier 3: orbiting particle ring around the beacon.
+    const n = 14;
+    const positions = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      positions[i * 3] = Math.cos(a) * 0.55;
+      positions[i * 3 + 1] = 1.0;
+      positions[i * 3 + 2] = Math.sin(a) * 0.55;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({ color: ringColor, size: 0.09, transparent: true, opacity: 0.85 });
+    const ring = new THREE.Points(geo, mat);
+    entry.roofGroup.add(ring);
+    entry.ring = ring;
+  }
+
+  if (tier >= 3) {
+    // Tier 6: an added spire, same facade material, emissive seam.
+    const spireGroup = new THREE.Group();
+    const spire = new THREE.Mesh(
+      new THREE.ConeGeometry(0.35, 1.4, 6),
+      new THREE.MeshStandardMaterial({ color: COLOR.buildingBase, roughness: 0.8 })
+    );
+    spire.position.set(0.7, 0.7, 0);
+    spireGroup.add(spire);
+    const seam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 1.3, 0.04),
+      new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 1.0 })
+    );
+    seam.position.set(0.7 + 0.18, 0.7, 0);
+    spireGroup.add(seam);
+    entry.roofGroup.add(spireGroup);
+    entry.spire = spireGroup;
+  }
+}
+
+function syncBuildingMeshes(domains) {
+  const positions = buildingLayoutPositions(domains.map((d) => d.id));
+  const seen = new Set();
+  for (const d of domains) {
+    seen.add(d.id);
+    let entry = buildings.get(d.id);
+    if (!entry) {
+      entry = createBuildingEntry(d, positions[d.id]);
+      buildings.set(d.id, entry);
+    }
+    entry.domain = d;
+    entry.targetHeight = heightForTotal(d.total);
+    if (entry.windowRows === -1 || Math.round(entry.targetHeight / 0.9) !== entry.windowRows) rebuildWindows(entry);
+    ensureRoofTier(entry);
+  }
+  for (const id of Array.from(buildings.keys())) {
+    if (!seen.has(id)) {
+      const entry = buildings.get(id);
+      buildingsGroup.remove(entry.group);
+      buildings.delete(id);
+    }
+  }
+}
+
+function doorPosition(entry) {
+  const p = entry.group.position;
+  return new THREE.Vector3(p.x, 0, p.z + entry.depth / 2 + 1.2);
+}
+
+// ==================== ROSTER PODS (~/.claude/agents) ====================
+const rosterGroup = new THREE.Group();
+scene.add(rosterGroup);
+const ROSTER_RADIUS = 24;
+const rosterPods = new Map(); // id -> { group, ... }
+
+function rosterLayoutPositions(ids) {
+  const n = Math.max(ids.length, 1);
+  const positions = {};
+  ids.forEach((id, i) => {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    positions[id] = { x: Math.cos(angle) * ROSTER_RADIUS, z: Math.sin(angle) * ROSTER_RADIUS };
+  });
+  return positions;
+}
+
+function createPod(entry, pos) {
+  const group = new THREE.Group();
+  group.position.set(pos.x, 0, pos.z);
+  group.scale.set(0.001, 0.001, 0.001);
+
+  const plinth = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.6, 0.5, 6),
+    new THREE.MeshStandardMaterial({ color: COLOR.shellNeutral, roughness: 0.8 })
+  );
+  plinth.position.y = 0.25;
+  group.add(plinth);
+
+  const color = rosterColor(entry.color);
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.32, 0),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9, transparent: true, opacity: 0.85 })
+  );
+  core.position.y = 0.85;
+  group.add(core);
+
+  const label = makeLabelSprite(entry.id, '#8891a0', 22);
+  label.position.y = 1.4;
+  group.add(label);
+
+  rosterGroup.add(group);
+  return { group, plinth, core, label, scaleIn: 0 };
+}
+
+function syncRosterPods(roster) {
+  const ids = roster.map((r) => r.id);
+  const positions = rosterLayoutPositions(ids);
+  const seen = new Set();
+  for (const r of roster) {
+    seen.add(r.id);
+    let pod = rosterPods.get(r.id);
+    if (!pod) {
+      pod = createPod(r, positions[r.id]);
+      rosterPods.set(r.id, pod);
+    } else {
+      pod.group.position.set(positions[r.id].x, 0, positions[r.id].z);
+    }
+  }
+  for (const id of Array.from(rosterPods.keys())) {
+    if (!seen.has(id)) {
+      const pod = rosterPods.get(id);
+      rosterGroup.remove(pod.group);
+      rosterPods.delete(id);
+    }
+  }
+}
+
+// ==================== WORKERS (bus/ dispatch engine) ====================
+const workersGroup = new THREE.Group();
+scene.add(workersGroup);
+const workers = new Map(); // id -> { group, target, working, glow }
+
+function createWorker(id) {
+  const style = workerStyle(id);
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.28, 0.5, 4, 8),
+    new THREE.MeshStandardMaterial({ color: COLOR.shellNeutral, roughness: 0.7 })
+  );
+  body.position.y = 0.55;
+  group.add(body);
+
+  let head;
+  if (style.head === 'sphere') {
+    head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshStandardMaterial({ color: style.accent, emissive: style.accent, emissiveIntensity: 0.5 }));
+  } else {
+    head = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 4), new THREE.MeshStandardMaterial({ color: style.accent, emissive: style.accent, emissiveIntensity: 0.5 }));
+  }
+  head.position.y = 1.05;
+  group.add(head);
+
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.35, 16),
+    new THREE.MeshBasicMaterial({ color: style.accent, transparent: true, opacity: 0.35 })
+  );
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = 0.02;
+  group.add(glow);
+
+  const label = makeLabelSprite(id, '#8891a0', 20);
+  label.position.y = 1.5;
+  group.add(label);
+
+  group.position.set(0, 0, 0);
+  workersGroup.add(group);
+  return { group, target: new THREE.Vector3(0, 0, 0), working: false, glow };
+}
+
+function syncWorkers(agents) {
+  const seen = new Set();
+  for (const agent of agents) {
+    seen.add(agent.id);
+    let w = workers.get(agent.id);
+    if (!w) { w = createWorker(agent.id); workers.set(agent.id, w); }
+    if (agent.currentTask) {
+      const domainId = domainForTaskId(agent.currentTask.taskId);
+      const entry = buildings.get(domainId);
+      const door = entry ? doorPosition(entry) : new THREE.Vector3(0, 0, 0);
+      w.target.copy(door);
+      w.working = true;
+    } else {
+      w.target.set(0, 0, HUB_RADIUS * 0.5);
+      w.working = false;
+    }
+  }
+  for (const id of Array.from(workers.keys())) {
+    if (!seen.has(id)) {
+      const w = workers.get(id);
+      workersGroup.remove(w.group);
+      workers.delete(id);
+    }
+  }
+}
+
+// Same taskId -> domain mapping dashboard-status.js's DOMAIN_PATTERNS
+// uses server-side, duplicated client-side deliberately (cheap regex,
+// same convention the 2D version already used).
 function domainForTaskId(taskId) {
   if (/^fleet_pilot_/.test(taskId)) return 'fleet';
   if (/^crypto_pilot_/.test(taskId)) return 'crypto';
   return 'vault-ops';
 }
 
-function layoutBuildings() {
-  hub.x = width / 2; hub.y = height / 2;
-  const ids = Array.from(buildings.keys());
-  const n = ids.length || 1;
-  ids.forEach((id, i) => {
-    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-    const b = buildings.get(id);
-    b.x = hub.x + Math.cos(angle) * 240;
-    b.y = hub.y + Math.sin(angle) * 190;
-  });
-}
-
-function doorPosition(b) {
-  return { x: b.x, y: b.y + 34 }; // just below the building footprint
-}
-
-const buildingEls = new Map(); // id -> {group, shape, pulse, label, sub, windows}
-
-function renderBuildings() {
-  buildings.forEach((b) => {
-    let entry = buildingEls.get(b.id);
-    const rows = Math.min(6, Math.max(2, 2 + Math.floor(b.total / 8)));
-    const cols = 3;
-    const w = 26 + cols * 16, h = 20 + rows * 16;
-    if (!entry) {
-      const group = document.createElementNS(svgNS, 'g');
-      const shape = document.createElementNS(svgNS, 'rect');
-      shape.setAttribute('class', 'building-shape');
-      shape.setAttribute('rx', 3);
-      const pulse = document.createElementNS(svgNS, 'rect');
-      pulse.setAttribute('class', 'building-pulse');
-      pulse.setAttribute('fill', 'none');
-      pulse.setAttribute('stroke', 'var(--amber)');
-      pulse.setAttribute('rx', 3);
-      const label = document.createElementNS(svgNS, 'text');
-      label.setAttribute('class', 'building-label');
-      const sub = document.createElementNS(svgNS, 'text');
-      sub.setAttribute('class', 'building-sub');
-      group.appendChild(shape); group.appendChild(pulse);
-      group.appendChild(label); group.appendChild(sub);
-      buildingLayer.appendChild(group);
-      entry = { group, shape, pulse, label, sub, windows: [] };
-      buildingEls.set(b.id, entry);
-    }
-    // Windows rebuilt only when the row/col count actually changes --
-    // cheap to just diff by count since it only changes when total
-    // crosses an 8-task tier boundary, not every poll.
-    if (entry.windows.length !== rows * cols) {
-      entry.windows.forEach((el) => el.remove());
-      entry.windows = [];
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const win = document.createElementNS(svgNS, 'rect');
-          win.setAttribute('class', 'window');
-          win.setAttribute('width', 8);
-          win.setAttribute('height', 8);
-          win.setAttribute('rx', 1);
-          entry.group.appendChild(win);
-          entry.windows.push(win);
-        }
-      }
-    }
-
-    const x0 = b.x - w / 2, y0 = b.y - h / 2;
-    entry.shape.setAttribute('x', x0); entry.shape.setAttribute('y', y0);
-    entry.shape.setAttribute('width', w); entry.shape.setAttribute('height', h);
-    entry.shape.setAttribute('class', 'building-shape' + (b.active ? ' active' : ''));
-    entry.pulse.setAttribute('x', x0 - 3); entry.pulse.setAttribute('y', y0 - 3);
-    entry.pulse.setAttribute('width', w + 6); entry.pulse.setAttribute('height', h + 6);
-    entry.label.setAttribute('x', b.x); entry.label.setAttribute('y', y0 - 12);
-    entry.label.textContent = b.label;
-    entry.sub.setAttribute('x', b.x); entry.sub.setAttribute('y', y0 + h + 16);
-    entry.sub.textContent = `${b.total} tasks total, ${b.last7Days} in last 7d`;
-
-    // Lit fraction is a real derived figure -- how much of this domain's
-    // total activity happened in the last 7 days -- not a cosmetic random
-    // fill. A brand-new, all-recent domain lights up fully; a domain with
-    // a lot of old history and little recent work stays mostly dim.
-    const fraction = b.total > 0 ? Math.min(1, b.last7Days / b.total) : 0;
-    const litCount = Math.round(entry.windows.length * fraction);
-    entry.windows.forEach((win, i) => {
-      const r = Math.floor(i / cols), c = i % cols;
-      win.setAttribute('x', x0 + 13 + c * 16);
-      win.setAttribute('y', y0 + 10 + r * 16);
-      const lit = i < litCount;
-      win.setAttribute('class', 'window' + (lit ? ' lit' : '') + (lit && b.id === 'crypto' ? ' crypto' : ''));
-    });
-  });
-}
-
-// Bot icon ported verbatim from agents.html (Lucide "bot" glyph, ISC) --
-// same reasoning as that file's own comment: a recognizable, stroke-only
-// icon matching this page's zero-fill style.
-function createBotIcon() {
-  const g = document.createElementNS(svgNS, 'g');
-  g.setAttribute('class', 'agent-icon');
-  const shapes = [
-    ['path', { d: 'M12 8V4H8' }],
-    ['rect', { x: 4, y: 8, width: 16, height: 12, rx: 2 }],
-    ['path', { d: 'M2 14h2' }],
-    ['path', { d: 'M20 14h2' }],
-  ];
-  shapes.forEach(([tag, attrs]) => {
-    const el = document.createElementNS(svgNS, tag);
-    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
-    g.appendChild(el);
-  });
-  ['M9 13v2', 'M15 13v2'].forEach((d) => {
-    const eye = document.createElementNS(svgNS, 'path');
-    eye.setAttribute('d', d);
-    eye.setAttribute('class', 'agent-eye');
-    g.appendChild(eye);
-  });
-  return g;
-}
-
-const agentEls = new Map(); // id -> {wrap, halo, icon, name}
-
-function renderAgents() {
-  agentsState.forEach((a) => {
-    let entry = agentEls.get(a.id);
-    if (!entry) {
-      const wrap = document.createElementNS(svgNS, 'g');
-      wrap.setAttribute('class', 'agent-wrap');
-      const halo = document.createElementNS(svgNS, 'circle');
-      halo.setAttribute('class', 'agent-icon-halo');
-      halo.setAttribute('cx', 12); halo.setAttribute('cy', 14); halo.setAttribute('r', 13);
-      const icon = createBotIcon();
-      const name = document.createElementNS(svgNS, 'text');
-      name.setAttribute('class', 'agent-name');
-      wrap.appendChild(halo); wrap.appendChild(icon);
-      agentLayer.appendChild(wrap);
-      agentLayer.appendChild(name);
-      entry = { wrap, halo, icon, name };
-      agentEls.set(a.id, entry);
-    }
-    const scale = 1.1;
-    const tx = a.x - 12 * scale, ty = a.y - 14 * scale;
-    entry.wrap.setAttribute('transform', `translate(${tx}, ${ty}) scale(${scale})`);
-    entry.wrap.setAttribute('class', 'agent-wrap' + (a.working ? ' working' : ''));
-    entry.icon.setAttribute('class', 'agent-icon' + (a.working ? ' working' : ' idle'));
-    entry.name.setAttribute('x', a.x);
-    entry.name.setAttribute('y', a.y + 24);
-    entry.name.textContent = a.id + (a.working ? ' → ' + a.domainLabel : '');
-  });
-}
-
-function tickAgents() {
-  const speed = 0.06; // lerp fraction per frame -- reaches target in well under a second at 60fps
-  agentsState.forEach((a) => {
-    a.x += (a.targetX - a.x) * speed;
-    a.y += (a.targetY - a.y) * speed;
-  });
-  renderAgents();
-  requestAnimationFrame(tickAgents);
-}
-
-let hubDrawn = false;
-function renderGround() {
-  if (hubDrawn) {
-    const ring = groundLayer.querySelector('.hub-ring');
-    ring.setAttribute('cx', hub.x); ring.setAttribute('cy', hub.y);
-    const label = groundLayer.querySelector('.hub-label');
-    label.setAttribute('x', hub.x); label.setAttribute('y', hub.y + 4);
-    buildings.forEach((b) => {
-      const line = groundLayer.querySelector(`.path[data-to="${b.id}"]`);
-      if (line) { line.setAttribute('x1', hub.x); line.setAttribute('y1', hub.y); line.setAttribute('x2', b.x); line.setAttribute('y2', b.y); }
-    });
-    return;
-  }
-  buildings.forEach((b) => {
-    const line = document.createElementNS(svgNS, 'line');
-    line.setAttribute('class', 'path');
-    line.setAttribute('data-to', b.id);
-    groundLayer.appendChild(line);
-  });
-  const ring = document.createElementNS(svgNS, 'circle');
-  ring.setAttribute('class', 'hub-ring');
-  ring.setAttribute('r', 26);
-  const label = document.createElementNS(svgNS, 'text');
-  label.setAttribute('class', 'hub-label');
-  label.textContent = 'queue';
-  groundLayer.appendChild(ring);
-  groundLayer.appendChild(label);
-  hubDrawn = true;
-  renderGround();
-}
-
-function updateCity(graph) {
-  layoutBuildingsIfNeeded(graph.domains || []);
-  layoutBuildings();
-  renderGround();
-
-  const activeDomains = new Set();
-  const seenAgentIds = new Set();
-
-  (graph.agents || []).forEach((agent) => {
-    seenAgentIds.add(agent.id);
-    let a = agentsState.get(agent.id);
-    if (!a) {
-      a = { id: agent.id, x: hub.x, y: hub.y, targetX: hub.x, targetY: hub.y, working: false, domainLabel: '' };
-      agentsState.set(agent.id, a);
-    }
-    if (agent.currentTask) {
-      const domainId = domainForTaskId(agent.currentTask.taskId);
-      const b = buildings.get(domainId);
-      const door = b ? doorPosition(b) : hub;
-      a.targetX = door.x; a.targetY = door.y;
-      a.working = true;
-      a.domainLabel = b ? b.label : domainId;
-      activeDomains.add(domainId);
-    } else {
-      a.targetX = hub.x; a.targetY = hub.y;
-      a.working = false;
-      a.domainLabel = '';
-    }
-  });
-  for (const id of Array.from(agentsState.keys())) {
-    if (!seenAgentIds.has(id)) { agentsState.delete(id); const el = agentEls.get(id); if (el) { el.wrap.remove(); el.name.remove(); agentEls.delete(id); } }
-  }
-
-  buildings.forEach((b) => { b.active = activeDomains.has(b.id); });
-  renderBuildings();
-}
-
-function layoutBuildingsIfNeeded(domains) {
-  const incomingIds = domains.map((d) => d.id);
-  const changed = incomingIds.length !== buildings.size || incomingIds.some((id) => !buildings.has(id));
-  domains.forEach((d) => {
-    let b = buildings.get(d.id);
-    if (!b) { b = { id: d.id, x: 0, y: 0, active: false }; buildings.set(d.id, b); }
-    b.label = d.label; b.total = d.total; b.last7Days = d.last7Days;
-  });
-  if (changed) layoutBuildings();
-}
-
+// ==================== POLL (data loop) ====================
 async function poll() {
   try {
-    const res = await fetch('agent-graph.json', { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const graph = await res.json();
-    updateCity(graph);
-    feedNote.textContent = 'last updated ' + new Date(graph.generatedAt).toLocaleTimeString();
+    const [graphRes, rosterRes] = await Promise.all([
+      fetch('agent-graph.json', { cache: 'no-store' }),
+      fetch('agent-roster.json', { cache: 'no-store' }),
+    ]);
+    if (!graphRes.ok) throw new Error('agent-graph.json HTTP ' + graphRes.status);
+    if (!rosterRes.ok) throw new Error('agent-roster.json HTTP ' + rosterRes.status);
+    const graph = await graphRes.json();
+    const rosterPayload = await rosterRes.json();
+
+    syncBuildingMeshes(graph.domains || []);
+    syncWorkers(graph.agents || []);
+    syncRosterPods(rosterPayload.roster || []);
+
+    feedNote.textContent = 'last updated ' + new Date(graph.generatedAt).toLocaleTimeString() + ' -- ' + (graph.domains || []).length + ' domain(s), ' + (rosterPayload.count || 0) + ' roster agent(s)';
   } catch (err) {
     feedNote.textContent = 'poll failed: ' + err.message + ' (is serve-dashboard.js running?)';
   }
 }
 
+// ==================== RENDER LOOP (independent of poll) ====================
+const clock = new THREE.Clock();
+
+function renderLoop() {
+  requestAnimationFrame(renderLoop);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const t = clock.elapsedTime;
+
+  // Buildings: grow-in scale + continuous height easing.
+  buildings.forEach((entry) => {
+    entry.scaleIn = Math.min(1, entry.scaleIn + dt * 1.2);
+    const s = entry.scaleIn;
+    entry.group.scale.set(s, s, s);
+
+    entry.height += (entry.targetHeight - entry.height) * Math.min(1, dt * 2.2);
+    entry.body.scale.y = entry.height;
+    entry.body.position.y = entry.height / 2;
+    entry.windowsGroup.position.y = 0; // windows already positioned in world-ish Y within the group
+    entry.roofGroup.position.y = entry.height;
+
+    if (entry.beacon) {
+      const pulse = 1 + Math.sin(t * (2 * Math.PI / 4)) * 0.15;
+      entry.beacon.tip.material.emissiveIntensity = 1.4 * pulse;
+      entry.beacon.light.intensity = 1.2 * pulse;
+    }
+    if (entry.ring) entry.ring.rotation.y = t * (2 * Math.PI / 25);
+  });
+
+  // Roster pods: grow-in only (static otherwise).
+  rosterPods.forEach((pod) => {
+    pod.scaleIn = Math.min(1, pod.scaleIn + dt * 1.2);
+    const s = pod.scaleIn;
+    pod.group.scale.set(s, s, s);
+    pod.core.rotation.y = t * 0.6;
+  });
+
+  // Workers: lerp toward target, glow tied to working state.
+  workers.forEach((w) => {
+    w.group.position.lerp(w.target, Math.min(1, dt * 2.5));
+    const targetOpacity = w.working ? 0.55 : 0.2;
+    w.glow.material.opacity += (targetOpacity - w.glow.material.opacity) * Math.min(1, dt * 3);
+  });
+
+  controls.update();
+  composer.render();
+}
+
+resize();
 poll();
 setInterval(poll, 2000);
-requestAnimationFrame(tickAgents);
+renderLoop();
 </script>
 </body>
 </html>

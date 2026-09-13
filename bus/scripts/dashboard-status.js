@@ -17,6 +17,8 @@ const busStatus = require('./bus-status.js');
 const runTask = require('./run-task.js');
 const engine = require('./agent-engine.js');
 const cycleDateUtils = require('./cycle-date-utils.js');
+const fleetStatus = require('./fleet-status.js');
+const journal = require('./trading-journal.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DAEMON_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon.log');
@@ -163,6 +165,42 @@ function getDomainActivity() {
   return [...domains, otherDomain];
 }
 
+// Real "how much has this domain learned" count for city.html's 3D
+// rebuild (added 2026-09-11) -- two genuine sources summed per domain,
+// NOT a naive grep (the string "keyLearnings" also appears in every
+// synthesis prompt's own boilerplate instructions, which would overcount):
+//   1. bus/trading-journal.jsonl entries with a real attached lesson,
+//      bucketed by the entry's own assetClass field.
+//   2. Each tasks/*_synthesis_r3_*.md's keyLearnings[] length, extracted
+//      via fleet-status.js's parseRound3Output() (empty-safe, handles
+//      both the JSON-fence and prose output formats already), bucketed
+//      by filename prefix. Every version of a re-run cycle (_v2, _v3,
+//      ...) counts separately -- each is a real completed synthesis with
+//      its own real keyLearnings, not a superseded draft to skip.
+function getLearningActivity() {
+  const counts = { fleet: 0, crypto: 0 };
+
+  for (const entry of journal.getJournalEntriesWithLessons()) {
+    if (!entry.lesson) continue;
+    const bucket = entry.assetClass === 'crypto' ? 'crypto' : 'fleet';
+    counts[bucket] += 1;
+  }
+
+  const files = fs.existsSync(runTask.TASKS_DIR) ? fs.readdirSync(runTask.TASKS_DIR).filter((f) => f.endsWith('.md')) : [];
+  const synthesisRe = /^(fleet_pilot_|crypto_pilot_)\d{8}_synthesis_r3_/;
+  for (const f of files) {
+    const match = synthesisRe.exec(f);
+    if (!match) continue;
+    const bucket = match[1] === 'crypto_pilot_' ? 'crypto' : 'fleet';
+    const task = runTask.readTaskFile(f.replace(/\.md$/, ''));
+    if (!task || task.status !== 'done' || !task.output) continue;
+    const parsed = fleetStatus.parseRound3Output(task.output);
+    if (parsed && Array.isArray(parsed.keyLearnings)) counts[bucket] += parsed.keyLearnings.length;
+  }
+
+  return counts; // { fleet, crypto } -- vault-ops has no learning concept, stays 0 by omission
+}
+
 function buildAgentGraph() {
   const agentIds = engine.listAgentConfigs();
   const inFlightIds = getInFlightTasks();
@@ -229,13 +267,16 @@ function buildAgentGraph() {
     }
   }
 
+  const learning = getLearningActivity();
+  const domains = getDomainActivity().map((d) => ({ ...d, learningCount: learning[d.id] || 0 }));
+
   return {
     generatedAt: new Date().toISOString(),
     orchestrator: { id: 'claude', label: 'claude (orchestrator)' },
     agents,
     dependsOnEdges,
-    domains: getDomainActivity(),
+    domains,
   };
 }
 
-module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph, getDomainActivity };
+module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph, getDomainActivity, getLearningActivity };
