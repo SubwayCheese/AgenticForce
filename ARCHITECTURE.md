@@ -1943,6 +1943,34 @@ whose CURRENT price isn't the right entry.
   code review, not a live test -- deliberately not exercising real order
   placement as a "test."
 
+## Standing note: $1,000/leg-era paper P&L is not yet validation evidence (2026-09-13)
+
+Per-trade sizing was raised from $15/leg to $1,000/leg on 2026-09-13
+(direct user instruction -- transaction-cost drag was dominating the P&L
+signal at $15/leg, confirmed real in `performance-scorecard.js`'s own
+output). The same day, a multi-agent research stack deepened the
+existing historical backtest of `computeScreenScore()`
+(`bus/scripts/backtest-screen-score-v2.js`) with proper non-overlapping
+statistics and real transaction-cost modeling. Formal, predeclared
+verdict: **no statistically defensible, cost-surviving edge in either
+asset class** -- equity's cost-adjusted excess return is actually
+slightly negative at every horizon tested (5/10/20 trading days,
+n=51/26/13 independent trials); crypto's stays positive but every
+confidence interval spans zero (not significant).
+
+Recording this explicitly so it can't be missed later: **do not treat
+$1,000/leg-era paper P&L, however it turns out over the following weeks,
+as evidence toward any real-capital decision** until either (a) the
+screen formula is revalidated with a longer backtest window and/or a
+real market-cap term (see the `FINNHUB_API_KEY` note elsewhere in this
+doc -- enabling that key changes the live formula and would invalidate
+this exact backtest's applicability until re-run with the cap term
+included), or (b) the verdict above is independently re-run and comes
+back clearly positive. A lucky run of $1,000-scale trades in the
+meantime is not proof the screen works -- it's a run of trades on a
+formula that, measured properly, hasn't shown it works. See
+`bus/scripts/backtest-screen-score-v2-results.md` for the full numbers.
+
 ## Related Notes
 
 - [[00 - Master Agent Index]] (hub)
