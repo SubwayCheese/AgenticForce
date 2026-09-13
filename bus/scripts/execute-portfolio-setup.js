@@ -57,15 +57,24 @@ const VAULT_ROOT = path.join(__dirname, '..', '..');
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
 
 // Sizing used ONLY on the --auto path (pilot-supervisor.js's unattended
-// runs). Revised 2026-09-10 per direct user instruction: "micro trades,"
-// not the earlier 10-share/$50 scale -- the whole point is many small,
-// frequent, low-stakes learning trades (see trading-journal.js), not a
-// few large convictions. $15/leg across every asset class/price range
-// (see computeMicroSizing() below for how this becomes qty for the one
-// case notional orders don't work -- short equity). The manual <taskId>
-// path below is completely unaffected and keeps its existing fail-loud/
-// 10-share-default behavior.
-const AUTO_MICRO_NOTIONAL_PER_LEG = 15; // dollars/leg -- true micro sizing
+// runs). Originally $15/leg (2026-09-10, "micro trades" -- many small,
+// frequent, low-stakes learning trades, not a few large convictions).
+// Raised to $1,000/leg on 2026-09-13 per direct user instruction: this is
+// paper money on a ~$100k fake balance, and $15/leg was small enough that
+// transaction-cost drag and entry slippage often dominated a trade's
+// entire P&L (confirmed real in performance-scorecard.js's output --
+// mean entry slippage exceeded the mean P&L on the measurable trades).
+// $1,000/leg is still well under 1% of account equity per leg but gives
+// a real signal-to-noise improvement. See portfolio-risk-envelope.js's
+// MAX_TOTAL_NOTIONAL_AT_RISK_USD/MAX_DAILY_REALIZED_LOSS_USD -- scaled
+// proportionally the same day, don't change one without the other. The
+// function name/variable name below still says "micro" -- kept as-is
+// rather than a repo-wide rename for a constant-value change; the
+// function's actual behavior (single flat dollar target across every
+// asset class/price range) is unchanged, only the number is different.
+// The manual <taskId> path below is completely unaffected and keeps its
+// existing fail-loud/10-share-default behavior.
+const AUTO_MICRO_NOTIONAL_PER_LEG = 1000; // dollars/leg
 
 function appendLog(record) {
   fs.appendFileSync(LOG_PATH, JSON.stringify(record) + '\n');

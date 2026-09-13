@@ -34,33 +34,43 @@ const TRADES_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'paper-trades.jsonl');
 
 // ---------------------------------------------------------------------------
 // Thresholds -- all configurable constants, chosen against this system's
-// real current shape (confirmed live 2026-09-11: $99,986 paper equity, 3
-// open positions totaling ~$95 notional, $15/leg auto-micro-sizing per
-// execute-portfolio-setup.js's AUTO_MICRO_NOTIONAL_PER_LEG).
+// real current shape (originally confirmed live 2026-09-11: $99,986 paper
+// equity, 3 open positions totaling ~$95 notional, $15/leg auto-micro-sizing).
+//
+// RESCALED 2026-09-13 per direct user instruction: since this is paper
+// money on a huge fake balance, AUTO_MICRO_NOTIONAL_PER_LEG (execute-
+// portfolio-setup.js) was raised from $15/leg to $1,000/leg -- these
+// ceilings are scaled proportionally the same day, on the same "small
+// multiple of one leg" philosophy as before (see the original reasoning
+// below, unchanged), not as a % of equity.
 //
 // Deliberately NOT expressed as a % of the paper account's equity: at
 // ~$100k paper equity, any %-of-equity ceiling loose enough to matter would
-// be in the thousands of dollars and would never bind at $15/leg scale --
-// it would look like a control but never actually constrain anything. The
-// whole point of this envelope is to make it safe to scale up FROM $15/leg
-// later, so the ceiling anchors to that micro-sizing philosophy (a small
-// multiple of one leg) rather than to the size of the (arbitrarily large)
-// paper account.
+// be in the thousands of dollars and would never bind at leg scale -- it
+// would look like a control but never actually constrain anything. The
+// whole point of this envelope is to make it safe to scale up leg size
+// later (this is that later), so the ceiling anchors to the micro-sizing
+// philosophy (a small multiple of one leg) rather than to the size of the
+// (arbitrarily large) paper account.
 
 // No more than this many simultaneous open positions across the whole
 // account (fleet + crypto combined) -- an operational-complexity cap as
 // much as a capital one: one supervisor loop with no per-position risk
-// budgeting can't meaningfully track more than this at once. At $15/leg
-// this also caps notional at roughly MAX_SIMULTANEOUS_POSITIONS * $15.
+// budgeting can't meaningfully track more than this at once. Unchanged by
+// the 2026-09-13 rescale -- this cap is about operational complexity, not
+// dollar size, and 12 simultaneous positions was already a real ceiling
+// worth keeping regardless of leg size.
 const MAX_SIMULTANEOUS_POSITIONS = 12;
 
 // No more than this much total notional (sum of |market_value| across all
 // open positions) at risk at once, INCLUDING the position about to be
-// opened. ~16-17 legs worth at $15/leg, or a smaller number of legs mixed
-// with occasional larger manually-sized entries (e.g. the $50 ETH/USD
-// entry seen live in paper-trades.jsonl) -- enough headroom for real
-// mixed sizing without ever approaching a real fraction of the account.
-const MAX_TOTAL_NOTIONAL_AT_RISK_USD = 250;
+// opened. 10 legs worth at the current $1,000/leg (was ~16-17 legs worth
+// at the old $15/leg) -- kept as a ROUND number a little below
+// MAX_SIMULTANEOUS_POSITIONS * $1,000 ($12,000) so this dollar ceiling
+// realistically binds slightly before the position-count ceiling in the
+// worst case, both real and independent, still comfortably under 10% of
+// the ~$100k paper equity.
+const MAX_TOTAL_NOTIONAL_AT_RISK_USD = 10000;
 
 // No more than this many simultaneous crypto longs (open positions +
 // armed/fired-but-unresolved conditional triggers, deduped by symbol) at
@@ -74,15 +84,14 @@ const MAX_TOTAL_NOTIONAL_AT_RISK_USD = 250;
 const MAX_SIMULTANEOUS_CRYPTO_LONGS = 3;
 
 // Daily circuit breaker: if today's REALIZED (closed) P&L across the whole
-// account falls to or below -$30, stop opening new positions for the rest
-// of the day. At $15/leg, a single leg realizing a full, complete loss is
-// -$15; two such losses in one day (-$30) is a real, above-noise signal
-// that something is systematically wrong today (bad data, a broken
-// rescan, a genuinely bad market day) rather than routine per-trade
-// variance -- real losses observed in paper-trades.jsonl so far are
-// fractions of a dollar to low single dollars, so $30 is a deliberate
-// multiple above routine noise, not a hair-trigger.
-const MAX_DAILY_REALIZED_LOSS_USD = 30;
+// account falls to or below -$2,000, stop opening new positions for the
+// rest of the day. Scaled 2026-09-13 with the same "2 full-loss legs"
+// reasoning as the original $30 (2 x the old $15/leg) -- at $1,000/leg, 2
+// legs realizing a full, complete loss is -$2,000, still a real,
+// above-noise signal that something is systematically wrong today (bad
+// data, a broken rescan, a genuinely bad market day) rather than routine
+// per-trade variance.
+const MAX_DAILY_REALIZED_LOSS_USD = 2000;
 
 function log(msg) {
   console.log(`[portfolio-risk-envelope] ${msg}`);

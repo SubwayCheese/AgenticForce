@@ -315,10 +315,12 @@ function sum(values) {
   return nums.reduce((s, v) => s + v, 0);
 }
 
-// Equal-weighted across trades, and stated as such: these are micro trades of
-// deliberately similar size ($15/leg on the --auto path), so an equal weight
-// is close to a dollar weight, but they are not identical and the aggregate
-// dollar P&L is reported alongside so neither has to be inferred.
+// Equal-weighted across trades, and stated as such: these are trades of
+// deliberately similar size (a single flat notional per leg on the --auto
+// path -- $15 originally, $1,000 as of 2026-09-13), so an equal weight is
+// close to a dollar weight, but they are not identical (size changed over
+// time, plus any manually-sized entries) and the aggregate dollar P&L is
+// reported alongside so neither has to be inferred.
 function aggregate(trades) {
   const measurable = trades.filter((t) => t.pnlPct !== null);
   const wins = measurable.filter((t) => t.pnlPct > 0).length;
