@@ -1971,6 +1971,126 @@ meantime is not proof the screen works -- it's a run of trades on a
 formula that, measured properly, hasn't shown it works. See
 `bus/scripts/backtest-screen-score-v2-results.md` for the full numbers.
 
+## 10. Layered research pipeline + vault persistence (added 2026-09-13)
+
+**Why this was needed:** the round-1/round-2 thesis pipeline ran on a
+genuinely thin real-data diet -- price/volume, a screen score, earnings
+dates, and a symbol's own trading history. Direct user request: give the
+trading agents richer real context to reason from *while the live
+pipeline keeps trading and journaling its own outcomes* (the trade-
+outcome learning loop in section 9 is untouched, this runs alongside it,
+not instead of it).
+
+**Four new layers, all in `bus/scripts/generate-pilot-tasks.js`:**
+1. **Macro regime** -- trend (uptrend/downtrend/mixed) + vol regime
+   (low/normal/elevated, annualized stdev of trailing-20 daily returns,
+   separate thresholds for equity vs. crypto). Equity fetches one extra
+   `SPY` daily-bars call; crypto reuses BTC's already-fetched bars --
+   zero extra network calls.
+2. **Sector/category context** -- new static `sector-map.json` (50
+   equities) / `crypto-category-map.json` (32 coins), opportunistically
+   overridden by live Finnhub `finnhubIndustry` for equities when a key
+   is configured. Plus sector-relative performance (this cycle's
+   `chgPct` vs. its own sector-group average).
+3. **Technical indicators** -- RSI(14) (Wilder's formula), 50/200-day MA
+   posture, 20-day support/resistance -- all computed from bars already
+   in memory, no new fetches.
+4. **Company/asset research** -- a real Codex web-search dispatch per
+   symbol (`generateCompanyResearchTask()`), injected into **round-2**
+   (the adversarial challenge), not round-1, via the existing
+   multi-parent `dependsOnTaskIds` mechanism (same one `generateSynthesisTask()`
+   already used for round-3 -- no new formatter code needed for the
+   injection itself). It depends ONLY on the data-snapshot task, same
+   parent as round-1's own thesis task, so it runs in parallel with
+   round-1 and never delays cycle start -- confirmed on disk (round-1's
+   task files show `dependsOnTaskId` pointing only at the snapshot task,
+   never the research task). The prompt requires an inline
+   `(Source: publisher, URL, date)` citation per bullet and a separate
+   final `Lean: bullish/bearish/neutral/mixed` line -- verified live
+   against a real dispatch, which came back with real, checkable Apple
+   Newsroom URLs per finding.
+
+**Vault persistence (`bus/scripts/vault-research-writer.js`), added the
+same day after direct user clarification of what "research" means for
+this project** (see project memory `feedback_agentvault_research_definition`):
+a one-shot Codex search dispatch whose output only ever flowed into one
+cycle's round-2 prompt, then vanished, does not meet that bar. Every
+completed company-research task now gets published as a dated,
+sourced snapshot note into `06 - Markets & Trading Research` (the
+existing Obsidian research category from the 2026-09-03 manual batch),
+following that category's own Evidence Ledger / source-tier /
+observation-only conventions -- explicitly labeled lower rigor than the
+manually reviewed batch (single live-web-search pass, no FMP
+cross-check, no second-agent review) in every note's own Provenance
+section, never silently presented as equally rigorous. A per-ticker
+watchlist row is upserted (`Core Watchlist.md` for equities, a new
+`Crypto Watchlist.md` for crypto); an idempotent published-ledger
+(`bus/vault-research-published.jsonl`) prevents double-publishing.
+`pilot-supervisor.js`'s `checkVaultResearchPublishing()` runs this every
+30-min wake, same cheap/mechanical posture as `checkTradingJournal()`.
+
+The `Lean` line is captured for logging but deliberately never written
+into the vault note -- this category is observation-only, no trade
+recommendations/price targets/opinions, a hard rule from the original
+2026-09-03 research plan.
+
+## 11. Migrated to a Raspberry Pi -- the pilot's permanent host (added 2026-09-13)
+
+**The live pilot no longer runs on Windows.** Direct user request ("run
+this entire operation from the Pi so my computer doesn't always have to
+be on"). Both Windows Task Scheduler tasks that used to drive this
+(`TradingPilotQueueDaemon`, `TradingPilotSupervisor`) are now disabled --
+**deliberately**, not accidentally: running the scheduler on two
+machines at once against the same real Alpaca paper account is a real
+duplicate-decision risk, confirmed live during the migration itself (a
+test run on the Pi, before Windows was disabled, generated a second
+independent crypto research cycle for the same day; the position-
+identity check correctly blocked one resulting duplicate-entry attempt,
+but that's a lucky catch on one specific symbol, not a guarantee against
+the general case -- see the real logged `entry-blocked`/`trigger-blocked`
+rows in `bus/paper-trades.jsonl`/`bus/pending-triggers.jsonl` dated
+2026-09-13T21:45).
+
+**Host**: a Raspberry Pi (hostname `RaspPiDrive`, user `subwaycheese`),
+64-bit Raspberry Pi OS Lite (headless, no desktop), reachable over the
+home Wi-Fi via `ssh subwaycheese@RaspPiDrive.local`. Confirmed real
+prerequisites on this hardware: Codex CLI (`codex-cli`) and Claude Code
+both ship official Linux ARM64 (aarch64) builds and run natively here --
+this was the single open risk before migrating (see the pre-existing
+`tasks/codex_arm_support_probe.md`, which had already answered this
+question once, back on 2026-09-04, before it mattered).
+
+**What runs where:**
+- `run-queue-daemon.js` -- a systemd service
+  (`/etc/systemd/system/agentvault-queue-daemon.service`), `enabled`
+  (survives reboot) and `Restart=always`. Its `binary: "codex"` /
+  `claude` invocations (agent configs in `bus/scripts/agents/*.json`)
+  resolve by bare name via `PATH`, so the unit file sets
+  `Environment="PATH=/home/subwaycheese/.local/bin:/usr/local/bin:/usr/bin:/bin"`
+  explicitly -- both binaries are native installs symlinked under
+  `~/.local/bin`, which only reaches `PATH` via `.profile` for
+  interactive login shells, not for a systemd service or cron (a real,
+  confirmed gotcha, not a hypothetical one).
+- `pilot-supervisor.js` -- a user crontab entry, `*/30 * * * *`, same
+  cadence as the old Windows Task Scheduler job, same explicit `PATH=`
+  line for the same reason.
+- Secrets: `bus/secrets.local.json` is gitignored by design (see
+  section 3j) and was copied to the Pi via `scp` directly, never through
+  git.
+- The repo itself: a normal `git clone` of this same GitHub remote
+  (`github.com/SubwayCheese/AgenticForce`, private -- SSH-key auth, not
+  a password/PAT, since the Pi needs to `git pull`/`push` routinely).
+
+**Operational note for any future session, on either machine:** this
+repo's `tasks/*.md` files and several `bus/*.jsonl` logs are real,
+meaningful state (not disposable build output) that both machines share
+through normal git commits -- not a live/shared filesystem. A machine
+that generates a new day's cycle before committing/pushing, while another
+clone is also active, risks exactly the duplicate-cycle scenario above.
+Windows Task Scheduler stays disabled deliberately; if it's ever
+re-enabled for any reason, disable the Pi's cron/systemd first, or
+vice versa -- never both live at once.
+
 ## Related Notes
 
 - [[00 - Master Agent Index]] (hub)
