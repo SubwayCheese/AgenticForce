@@ -1,6 +1,6 @@
 # Paper-trading performance scorecard
 
-Generated 2026-09-12T00:20:14.570Z from `bus/paper-trades.jsonl` + `bus/trading-journal.jsonl`.
+Generated 2026-09-13T05:24:31.537Z from `bus/paper-trades.jsonl` + `bus/trading-journal.jsonl`.
 
 > Cost-adjusted figures subtract an **estimated** round-trip transaction cost of 0.2% (equities) / 0.05% (crypto). These are assumptions, not measured costs -- the paper account fills commission- and spread-free. Recalibrate before treating any net figure as real.
 
@@ -22,6 +22,8 @@ Across 4 closed trade(s): **-0.13% per trade raw**, **-0.29% cost-adjusted**, ve
 | Mean benchmark return, same periods | -0.39% |
 | Mean excess vs benchmark (cost-adjusted) | +0.05% |
 
+> **Trades from more than one sizing era are present -- "overall" equal-weights them despite very different real dollar exposure per trade. Use byEra for an honest read; treat "overall" as a rough, cost-of-doing-business number only.**
+
 **Equities (benchmark SPY)** -- 3 closed trade(s), 3 with usable fill prices.
 
 | Metric | Value |
@@ -35,6 +37,32 @@ Across 4 closed trade(s): **-0.13% per trade raw**, **-0.29% cost-adjusted**, ve
 | Mean excess vs benchmark (cost-adjusted) | +0.05% |
 
 **Crypto (benchmark BTC/USD)** -- 1 closed trade(s), 1 with usable fill prices.
+
+| Metric | Value |
+| --- | --- |
+| Win rate | 0.0% (0W / 1L) |
+| Mean P&L per trade | -0.12% |
+| Mean cost-adjusted P&L per trade | -0.17% |
+| Total realized P&L (dollars) | -$0.01 |
+| Mean entry slippage (positive = adverse) | not measurable (1/1 entries have no modeledEntry) |
+| Mean benchmark return, same periods | n/a |
+| Mean excess vs benchmark (cost-adjusted) | n/a |
+
+## By sizing era
+
+**larger-sized (>=$100)** -- 3 closed trade(s), 3 with usable fill prices.
+
+| Metric | Value |
+| --- | --- |
+| Win rate | 0.0% (0W / 3L) |
+| Mean P&L per trade | -0.14% |
+| Mean cost-adjusted P&L per trade | -0.34% |
+| Total realized P&L (dollars) | -$14.31 |
+| Mean entry slippage (positive = adverse) | +0.29% across 3 trade(s) |
+| Mean benchmark return, same periods | -0.39% |
+| Mean excess vs benchmark (cost-adjusted) | +0.05% |
+
+**micro-sized (<$100)** -- 1 closed trade(s), 1 with usable fill prices.
 
 | Metric | Value |
 | --- | --- |
@@ -80,3 +108,8 @@ Across 4 closed trade(s): **-0.13% per trade raw**, **-0.29% cost-adjusted**, ve
 ## Still open (not scored)
 
 - ETH/USD -- entered 2026-09-10T23:11:35.731Z, lot `legacy/none`, from crypto_pilot_20260910_synthesis_r3_portfolio_v2
+- VZ -- entered 2026-09-11T17:06:08.002Z, lot `legacy/none`, from fleet_pilot_20260910_synthesis_r3_portfolio_v2
+- VZ -- entered 2026-09-11T19:12:22.465Z, lot `legacy/none`, from fleet_pilot_20260911_synthesis_r3_portfolio
+- MSFT -- entered 2026-09-11T19:42:22.284Z, lot `legacy/none`, from fleet_pilot_20260910_synthesis_r3_portfolio_v2
+- ARB/USD -- entered 2026-09-12T02:42:23.763Z, lot `5376b6d6-a2e7-4c58-b16b-2b8c5a942849`, from crypto_pilot_20260912_synthesis_r3_portfolio
+- LTC/USD -- entered 2026-09-12T02:42:36.749Z, lot `550497d7-02cf-4763-a872-2ebd70ce40f6`, from crypto_pilot_20260912_synthesis_r3_portfolio

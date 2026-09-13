@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T00:20:14.570Z",
+  "generatedAt": "2026-09-13T05:24:31.537Z",
   "estimatedRoundTripCostPct": {
     "equity": 0.2,
     "crypto": 0.05
@@ -25,6 +25,8 @@
     "meanBenchmarkReturnPct": -0.3894389868084864,
     "meanExcessVsBenchmarkPct": 0.051952204805390347
   },
+  "mixedSizingEras": true,
+  "mixedSizingErasNote": "Trades from more than one sizing era are present -- \"overall\" equal-weights them despite very different real dollar exposure per trade. Use byEra for an honest read; treat \"overall\" as a rough, cost-of-doing-business number only.",
   "byAssetClass": {
     "equity": {
       "tradeCount": 3,
@@ -59,13 +61,77 @@
       "meanExcessVsBenchmarkPct": null
     }
   },
-  "openPositionCount": 1,
+  "byEra": {
+    "larger-sized (>=$100)": {
+      "tradeCount": 3,
+      "measurableCount": 3,
+      "wins": 0,
+      "losses": 3,
+      "winRatePct": 0,
+      "meanPnlPct": -0.13748678200309594,
+      "meanCostAdjustedPnlPct": -0.33748678200309595,
+      "totalDollarPnl": -14.310000000000116,
+      "slippageMeasuredCount": 3,
+      "slippageUnmeasurableCount": 0,
+      "meanEntrySlippagePct": 0.28520666302507947,
+      "benchmarkedCount": 3,
+      "meanBenchmarkReturnPct": -0.3894389868084864,
+      "meanExcessVsBenchmarkPct": 0.051952204805390347
+    },
+    "micro-sized (<$100)": {
+      "tradeCount": 1,
+      "measurableCount": 1,
+      "wins": 0,
+      "losses": 1,
+      "winRatePct": 0,
+      "meanPnlPct": -0.11570815339789128,
+      "meanCostAdjustedPnlPct": -0.1657081533978913,
+      "totalDollarPnl": -0.01134536580800071,
+      "slippageMeasuredCount": 0,
+      "slippageUnmeasurableCount": 1,
+      "meanEntrySlippagePct": null,
+      "benchmarkedCount": 0,
+      "meanBenchmarkReturnPct": null,
+      "meanExcessVsBenchmarkPct": null
+    }
+  },
+  "openPositionCount": 6,
   "openPositions": [
     {
       "lotId": null,
       "symbol": "ETH/USD",
       "entryTs": "2026-09-10T23:11:35.731Z",
       "sourceTask": "crypto_pilot_20260910_synthesis_r3_portfolio_v2"
+    },
+    {
+      "lotId": null,
+      "symbol": "VZ",
+      "entryTs": "2026-09-11T17:06:08.002Z",
+      "sourceTask": "fleet_pilot_20260910_synthesis_r3_portfolio_v2"
+    },
+    {
+      "lotId": null,
+      "symbol": "VZ",
+      "entryTs": "2026-09-11T19:12:22.465Z",
+      "sourceTask": "fleet_pilot_20260911_synthesis_r3_portfolio"
+    },
+    {
+      "lotId": null,
+      "symbol": "MSFT",
+      "entryTs": "2026-09-11T19:42:22.284Z",
+      "sourceTask": "fleet_pilot_20260910_synthesis_r3_portfolio_v2"
+    },
+    {
+      "lotId": "5376b6d6-a2e7-4c58-b16b-2b8c5a942849",
+      "symbol": "ARB/USD",
+      "entryTs": "2026-09-12T02:42:23.763Z",
+      "sourceTask": "crypto_pilot_20260912_synthesis_r3_portfolio"
+    },
+    {
+      "lotId": "550497d7-02cf-4763-a872-2ebd70ce40f6",
+      "symbol": "LTC/USD",
+      "entryTs": "2026-09-12T02:42:36.749Z",
+      "sourceTask": "crypto_pilot_20260912_synthesis_r3_portfolio"
     }
   ],
   "trades": [
@@ -82,6 +148,8 @@
       "holdingHours": 9.744819722222223,
       "qty": 10,
       "notional": null,
+      "entrySizeUsd": 3664.04,
+      "sizingEra": "larger-sized (>=$100)",
       "modeledEntry": 367.77,
       "modeledEntrySource": null,
       "entryPrice": 366.404,
@@ -123,6 +191,8 @@
       "holdingHours": 9.7438625,
       "qty": 10,
       "notional": null,
+      "entrySizeUsd": 3381.51,
+      "sizingEra": "larger-sized (>=$100)",
       "modeledEntry": 339.14,
       "modeledEntrySource": null,
       "entryPrice": 338.151,
@@ -164,6 +234,8 @@
       "holdingHours": 9.742949444444445,
       "qty": 30,
       "notional": null,
+      "entrySizeUsd": 3265.2000000000003,
+      "sizingEra": "larger-sized (>=$100)",
       "modeledEntry": 109.05,
       "modeledEntrySource": null,
       "entryPrice": 108.84,
@@ -205,6 +277,8 @@
       "holdingHours": 2.602898611111111,
       "qty": 0.000124636,
       "notional": 10,
+      "entrySizeUsd": 10,
+      "sizingEra": "micro-sized (<$100)",
       "modeledEntry": null,
       "modeledEntrySource": null,
       "entryPrice": 78670.342,

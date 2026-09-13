@@ -163,6 +163,32 @@ function buildTrade(entry, exit, journalRow, lesson) {
     dollarPnl = direction === 'short' ? (entryPrice - exitPrice) * qty : (exitPrice - entryPrice) * qty;
   }
 
+  // Real entry-time dollar size, computed from what actually happened, not
+  // a hardcoded date cutoff -- notional-sized entries (crypto, equity long)
+  // carry entry.notional directly; qty-sized entries (equity short, no
+  // fractional-share shorting) are qty * entryPrice. Used to bucket trades
+  // into a sizing era below: added 2026-09-13, real gap found by the
+  // multi-agent research stack the same day AUTO_MICRO_NOTIONAL_PER_LEG
+  // went from $15 to $1,000 -- aggregate()'s own equal-weighting comment
+  // already said trades are "deliberately similar size," an assumption
+  // that breaks the moment both eras coexist (a -5% $1,000 loss and a +4%
+  // $15 gain averaging to -0.5%/trade would hide that one trade was 83x
+  // the real dollar exposure of the other).
+  const entrySizeUsd = entry.notional != null ? Number(entry.notional) : (qty && entryPrice ? qty * entryPrice : null);
+  // $100 is a clean midpoint between the two real sizes seen so far ($15,
+  // $1,000) -- classifies by what the trade actually was, not by which
+  // side of a date boundary it fell on, so it stays correct even if
+  // sizing changes again later.
+  // Labeled by real observed size, not by a specific regime name -- the
+  // >=$100 bucket is NOT purely "the new $1,000/leg era" (confirmed live:
+  // it also catches TSLA/GOOGL/CSCO, real 10-share MANUAL entries from
+  // 2026-09-08, before the micro-sizing system existed at all, worth
+  // $1,088-$3,664 each -- genuinely never $15 trades despite predating
+  // the sizing-increase commit). The label says what's true either way:
+  // this trade's real entry size was clearly bigger or clearly smaller
+  // than the $15-era micro target, without asserting WHY.
+  const sizingEra = entrySizeUsd === null ? 'unknown size' : entrySizeUsd < 100 ? 'micro-sized (<$100)' : 'larger-sized (>=$100)';
+
   return {
     lotId: entry.lotId || null,
     symbol: entry.symbol,
@@ -176,6 +202,8 @@ function buildTrade(entry, exit, journalRow, lesson) {
     holdingHours: (new Date(exit.ts).getTime() - new Date(entry.ts).getTime()) / 3600000,
     qty,
     notional: entry.notional != null ? Number(entry.notional) : null,
+    entrySizeUsd,
+    sizingEra,
     modeledEntry,
     modeledEntrySource: entry.modeledEntrySource || null,
     entryPrice,
@@ -351,13 +379,29 @@ function buildScorecard(trades, openPositions) {
     const subset = trades.filter((t) => t.assetClass === assetClass);
     if (subset.length) byClass[assetClass] = aggregate(subset);
   }
+  // Sizing-era split, added 2026-09-13 -- see buildTrade()'s sizingEra
+  // comment for why "overall" alone becomes misleading the moment both
+  // eras coexist. Both eras present is exactly the trigger to look at
+  // byEra instead of overall.
+  const byEra = {};
+  const eras = Array.from(new Set(trades.map((t) => t.sizingEra)));
+  for (const era of eras) {
+    const subset = trades.filter((t) => t.sizingEra === era);
+    if (subset.length) byEra[era] = aggregate(subset);
+  }
+  const mixedEras = eras.filter((e) => e !== 'unknown').length > 1;
   return {
     generatedAt: new Date().toISOString(),
     estimatedRoundTripCostPct: ESTIMATED_ROUND_TRIP_COST_PCT,
     costBasisNote: 'Transaction costs are ESTIMATES, not measured -- the paper account fills free of commission and spread. See ESTIMATED_ROUND_TRIP_COST_PCT in performance-scorecard.js.',
     benchmarkSymbols: BENCHMARK_SYMBOL,
     overall: aggregate(trades),
+    mixedSizingEras: mixedEras,
+    mixedSizingErasNote: mixedEras
+      ? 'Trades from more than one sizing era are present -- "overall" equal-weights them despite very different real dollar exposure per trade. Use byEra for an honest read; treat "overall" as a rough, cost-of-doing-business number only.'
+      : null,
     byAssetClass: byClass,
+    byEra,
     openPositionCount: openPositions.length,
     openPositions: openPositions.map((e) => ({ lotId: e.lotId || null, symbol: e.symbol, entryTs: e.ts, sourceTask: e.sourceTask || null })),
     trades,
@@ -426,8 +470,19 @@ function renderMarkdown(card) {
       L.push('');
     }
     L.push(...renderAggregate('Overall', card.overall));
+    if (card.mixedSizingEras) {
+      L.push(`> **${card.mixedSizingErasNote}**`);
+      L.push('');
+    }
     for (const [assetClass, agg] of Object.entries(card.byAssetClass)) {
       L.push(...renderAggregate(`${assetClass === 'equity' ? 'Equities' : 'Crypto'} (benchmark ${BENCHMARK_SYMBOL[assetClass]})`, agg));
+    }
+    if (card.mixedSizingEras) {
+      L.push('## By sizing era');
+      L.push('');
+      for (const [era, agg] of Object.entries(card.byEra)) {
+        L.push(...renderAggregate(era, agg));
+      }
     }
 
     L.push('## Per-trade detail');
