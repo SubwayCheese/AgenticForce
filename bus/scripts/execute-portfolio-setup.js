@@ -52,6 +52,7 @@ const fleetStatus = require('./fleet-status.js');
 const cryptoStatus = require('./crypto-status.js');
 const runTask = require('./run-task.js');
 const ntfy = require('./ntfy.js');
+const riskEnvelope = require('./portfolio-risk-envelope.js');
 
 const VAULT_ROOT = path.join(__dirname, '..', '..');
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
@@ -512,6 +513,34 @@ async function executeOne(candidate, sourceTask, sizing) {
       });
     }
     return { skipped: true, permanent: !dup.transient, reason: dup.source === 'lookup-failed' ? 'position-lookup-failed' : 'duplicate-position', detail: dup.detail };
+  }
+
+  // REAL GAP FOUND LIVE 2026-09-13 (multi-agent research-stack synthesis,
+  // cross-checking the risk-manager lens's own re-review): every real
+  // capital-at-risk/correlation/circuit-breaker check in this system was
+  // wired into conditional-triggers.js's arm/fire path ONLY. This
+  // function -- the one runForTaskMicro() calls directly for every
+  // --auto approvedCandidate, which is how ARB/USD and LTC/USD actually
+  // entered on 2026-09-12 -- had zero risk-envelope check at all. The
+  // $10,000/$2,000/3-crypto-long ceilings were real and correctly
+  // rescaled to $1,000/leg, but were unenforced on the path that most
+  // commonly opens positions. Gate here too, same as conditional-
+  // triggers.js's 'fire' stage (capital is about to be committed).
+  const riskGate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd: AUTO_MICRO_NOTIONAL_PER_LEG, stage: 'fire' });
+  if (!riskGate.ok) {
+    console.log(`  SKIPPED: blocked by portfolio risk envelope -- ${riskGate.reasons.join('; ')}`);
+    appendLog({
+      ts: new Date().toISOString(),
+      type: 'entry-blocked',
+      blockReason: 'portfolio-risk-envelope',
+      sourceTask,
+      symbol,
+      assetClass: isCrypto ? 'crypto' : 'equity',
+      direction,
+      reasons: riskGate.reasons,
+      note: 'Real gap found and closed 2026-09-13: the --auto approved-candidate execution path had no risk-envelope check at all, unlike the conditional-trigger arm/fire path.',
+    });
+    return { skipped: true, reason: 'portfolio-risk-envelope-block', findings: riskGate.reasons };
   }
 
   if (!isCrypto) {

@@ -316,7 +316,13 @@ module.exports = {
 // real pending-triggers.jsonl / paper-trades.jsonl state) -- no mocks.
 if (require.main === module) {
   const symbol = process.argv[2] || null;
-  checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd: 15, stage: 'cli-test' })
+  // Real leg size, not a copied literal (this exact class of drift -- a
+  // hardcoded 15 outliving the $15/leg era -- is what execute-portfolio-
+  // setup.js/conditional-triggers.js's own stale-15 bug was; lazy-required
+  // here, inside the CLI-only block, to avoid a circular top-level
+  // require with execute-portfolio-setup.js, which now requires this file).
+  const { AUTO_MICRO_NOTIONAL_PER_LEG } = require('./execute-portfolio-setup.js');
+  checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd: AUTO_MICRO_NOTIONAL_PER_LEG, stage: 'cli-test' })
     .then((result) => console.log(JSON.stringify(result, null, 2)))
     .catch((err) => { console.error('FAILED:', err.message); process.exit(1); });
 }
