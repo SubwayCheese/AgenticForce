@@ -23,6 +23,13 @@ const alpaca = require('./alpaca-client.js');
 const finnhub = require('./finnhub-client.js');
 const ntfy = require('./ntfy.js');
 const journal = require('./trading-journal.js');
+// Layered research pipeline (macro/sector/technical/company), added
+// 2026-09-13 -- direct user request to give round-1/round-2 richer real
+// context while the live pipeline keeps trading/journaling real outcomes.
+// Static category maps loaded once at module load, same pattern as
+// FLEET_UNIVERSE_PATH/crypto-universe.json below.
+const SECTOR_MAP = require('./sector-map.json').sectors;
+const CRYPTO_CATEGORY_MAP = require('./crypto-category-map.json').categories;
 
 const TASKS_DIR = runTask.TASKS_DIR;
 const FLEET_UNIVERSE_PATH = path.join(__dirname, 'fleet-universe.json');
@@ -278,12 +285,171 @@ function formatEarningsWarningSection(pilot, symbol) {
   ].join('\n');
 }
 
+// ---------- Layered research: macro / sector / technical (2026-09-13) ----------
+//
+// All three are pure computation on data already fetched by the data-
+// snapshot functions -- no new API calls beyond one extra SPY bars fetch
+// for equity macro (crypto macro reuses BTC's bars from the universe
+// fetch, zero extra calls). Same cache-then-synchronous-read split as
+// the earnings cache above: populated inside the already-async snapshot
+// generators, read back synchronously inside generateThesisTask()/
+// generateChallengeTask() (which must themselves stay synchronous --
+// see refreshEarningsCache()'s comment for why).
+
+// One shared snapshot per cycle (not per-symbol) -- macro regime is the
+// same context for every thesis that cycle.
+let macroSnapshot = null;
+// Per-shortlist-symbol sector + technical fields, combined in one cache
+// (mirrors earningsBySymbol's shape/lifetime -- shortlist-only, reset
+// each cycle).
+let researchContextBySymbol = new Map();
+
+// close vs both moving averages -- three-state regime label. avg50/avg200
+// come from the existing priceAverages() helper (defined below), reused
+// verbatim rather than recomputed.
+function computeMacroRegime(bars, isCrypto) {
+  if (!bars || !bars.length) return null;
+  const { priceAvg50, priceAvg200 } = priceAverages(bars);
+  const lastClose = bars[bars.length - 1].c;
+  let regime = 'mixed';
+  if (priceAvg50 !== null && priceAvg200 !== null) {
+    if (lastClose > priceAvg50 && priceAvg50 > priceAvg200) regime = 'uptrend';
+    else if (lastClose < priceAvg50 && priceAvg50 < priceAvg200) regime = 'downtrend';
+  }
+  // Annualized realized volatility from the trailing 20 daily returns --
+  // a rough risk-on/risk-off proxy, not a VIX-equivalent. Separate
+  // thresholds for equity vs crypto: crypto's baseline realized vol is
+  // structurally higher, the same "low" label would never fire for it
+  // under equity-calibrated thresholds.
+  const recent = bars.slice(-21);
+  const returns = [];
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i - 1].c) returns.push((recent[i].c - recent[i - 1].c) / recent[i - 1].c);
+  }
+  let volRegime = null, annualizedVol = null;
+  if (returns.length >= 2) {
+    const meanR = returns.reduce((s, v) => s + v, 0) / returns.length;
+    const variance = returns.reduce((s, v) => s + (v - meanR) ** 2, 0) / (returns.length - 1);
+    annualizedVol = Math.sqrt(variance) * Math.sqrt(252) * 100; // percent
+    const thresholds = isCrypto ? { low: 40, elevated: 80 } : { low: 15, elevated: 30 };
+    volRegime = annualizedVol < thresholds.low ? 'low' : annualizedVol > thresholds.elevated ? 'elevated' : 'normal';
+  }
+  return { regime, volRegime, annualizedVol, priceAvg50, priceAvg200, lastClose, asOf: bars[bars.length - 1].t || null };
+}
+
+function formatMacroSection(pilot) {
+  const isCrypto = pilot === 'crypto';
+  const sourceSymbol = isCrypto ? 'BTC' : 'SPY';
+  if (!macroSnapshot) {
+    return [
+      '## Macro regime',
+      `MACRO REGIME: NOT FETCHED this cycle (${sourceSymbol} data unavailable) -- broad market regime is UNKNOWN, not confirmed neutral.`,
+    ].join('\n');
+  }
+  const m = macroSnapshot;
+  return [
+    '## Macro regime',
+    `SOURCE: verified live (Alpaca market-data API, ${sourceSymbol} daily bars, fetched by generate-pilot-tasks.js).`,
+    `FACT: ${sourceSymbol} last close $${m.lastClose}, 50-day avg $${m.priceAvg50 ? m.priceAvg50.toFixed(2) : 'n/a'}, 200-day avg $${m.priceAvg200 ? m.priceAvg200.toFixed(2) : 'n/a'}. Trailing-20-day annualized realized volatility ~${m.annualizedVol !== null ? m.annualizedVol.toFixed(1) + '%' : 'n/a'}.`,
+    `INTERPRETATION: broad ${isCrypto ? 'crypto' : 'equity'} regime reads as "${m.regime}" (close vs. 50-day vs. 200-day average), volatility regime "${m.volRegime || 'n/a'}". This is ${sourceSymbol}-wide context, not specific to this symbol -- weigh it as backdrop, not a directional call on this name.`,
+  ].join('\n');
+}
+
+// Wilder's RSI(14) on trailing daily closes. Needs 15 closes for 14
+// diffs -- returns null (not a fabricated number) if fewer bars exist.
+function computeRSI14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const closes = bars.slice(-15).map((b) => b.c);
+  let gainSum = 0, lossSum = 0;
+  for (let i = 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gainSum += diff; else lossSum += -diff;
+  }
+  const avgGain = gainSum / 14, avgLoss = lossSum / 14;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+// Deliberately reports POSTURE (current above/below ordering), not a
+// precise "crossed N bars ago" claim -- the data doesn't cleanly support
+// pinpointing an exact cross date without more careful lookback logic,
+// and an invented-sounding precise date is worse than an honest posture.
+function computeMAPosture(priceAvg50, priceAvg200) {
+  if (priceAvg50 === null || priceAvg200 === null) return null;
+  return priceAvg50 > priceAvg200 ? 'above' : priceAvg50 < priceAvg200 ? 'below' : 'equal';
+}
+
+// 20-day support/resistance from real intraday highs/lows, not just
+// closes -- matches the existing 20-day avgVolume window elsewhere in
+// this file for consistency.
+function computeSupportResistance(bars) {
+  if (!bars || !bars.length) return { support: null, resistance: null };
+  const recent = bars.slice(-20);
+  return {
+    support: Math.min(...recent.map((b) => b.l)),
+    resistance: Math.max(...recent.map((b) => b.h)),
+  };
+}
+
+// Resolves a symbol's sector/category: live Finnhub finnhubIndustry
+// (equity only, when configured) overrides the static map; the static
+// map is the only source for crypto (Finnhub has no crypto coverage) and
+// the fallback for equity when Finnhub isn't configured or a given
+// symbol's profile call failed. Never returns null -- 'Unknown' if truly
+// unresolvable, so the formatter always has something honest to say.
+function resolveSector(pilot, symbol, liveIndustry) {
+  if (liveIndustry) return { label: liveIndustry, source: 'live (Finnhub finnhubIndustry)' };
+  const map = pilot === 'crypto' ? CRYPTO_CATEGORY_MAP : SECTOR_MAP;
+  const staticLabel = map[symbol];
+  return staticLabel ? { label: staticLabel, source: 'static classification (sector-map.json/crypto-category-map.json)' } : { label: 'Unknown', source: 'unresolved' };
+}
+
+function formatSectorSection(pilot, symbol) {
+  const ctx = researchContextBySymbol.get(symbol);
+  if (!ctx || !ctx.sector) {
+    return [
+      '## Sector context',
+      `SECTOR CONTEXT: NOT AVAILABLE for ${symbol} this cycle.`,
+    ].join('\n');
+  }
+  const { sector, sectorRelPerf } = ctx;
+  return [
+    '## Sector context',
+    `FACT: ${symbol}'s sector/category is "${sector.label}" (source: ${sector.source}).`,
+    sectorRelPerf !== null
+      ? `FACT: ${symbol}'s change today (${sectorRelPerf >= 0 ? '+' : ''}${sectorRelPerf.toFixed(2)} percentage points relative to its own sector's average change this cycle, computed from this cycle's real screened universe -- not a broad index).`
+      : 'INTERPRETATION: sector-relative performance not computable this cycle (insufficient peer data).',
+  ].join('\n');
+}
+
+function formatTechnicalSection(pilot, symbol) {
+  const ctx = researchContextBySymbol.get(symbol);
+  if (!ctx || ctx.rsi14 === null || ctx.rsi14 === undefined) {
+    return [
+      '## Technical indicators',
+      `TECHNICAL INDICATORS: NOT AVAILABLE for ${symbol} this cycle (insufficient bar history).`,
+    ].join('\n');
+  }
+  const { rsi14, maPosture, support20d, resistance20d } = ctx;
+  const rsiLabel = rsi14 > 70 ? 'overbought' : rsi14 < 30 ? 'oversold' : 'neutral';
+  return [
+    '## Technical indicators',
+    `FACT: RSI(14) = ${rsi14.toFixed(1)}. INTERPRETATION: reads as "${rsiLabel}" (>70 overbought, <30 oversold, else neutral -- a real, checkable computation, not a forecast).`,
+    maPosture ? `FACT: 50-day average is ${maPosture} the 200-day average (posture only -- not a claim about when any crossover occurred).` : '',
+    (support20d !== null && resistance20d !== null) ? `FACT: 20-day support $${support20d.toFixed(2)}, resistance $${resistance20d.toFixed(2)} (real trailing high/low, not projected levels).` : '',
+  ].filter(Boolean).join('\n');
+}
+
 function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, dataSnapshotTaskId) {
   const prefix = pilotPrefix(pilot);
   const taskId = `${prefix}${datePrefix}_thesis_r1_${symbol.toLowerCase()}`;
   const isCrypto = pilot === 'crypto';
   const symbolHistorySection = formatSymbolHistorySection(symbol);
   const earningsSection = formatEarningsWarningSection(pilot, symbol);
+  const macroSection = formatMacroSection(pilot);
+  const sectorSection = formatSectorSection(pilot, symbol);
+  const technicalSection = formatTechnicalSection(pilot, symbol);
   const payloadLines = [
     `ROUND-1 INDEPENDENT THESIS for ${symbol}, generated unattended by generate-pilot-tasks.js for the ${datePrefix} ${pilot} cycle (see ${dataSnapshotTaskId}, auto-injected below, for the full data).`,
     '',
@@ -294,6 +460,9 @@ function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, da
     priorLearningsSection,
     ...(symbolHistorySection ? ['', symbolHistorySection] : []),
     ...(earningsSection ? ['', earningsSection] : []),
+    ...(macroSection ? ['', macroSection] : []),
+    ...(sectorSection ? ['', sectorSection] : []),
+    ...(technicalSection ? ['', technicalSection] : []),
   ];
   return writeTaskFile(taskId, {
     from: 'claude',
@@ -304,20 +473,59 @@ function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, da
   });
 }
 
-function generateChallengeTask(pilot, symbol, datePrefix, thesisTaskId) {
+// researchTaskId added 2026-09-13 (layered research pipeline, direct
+// user request + explicit decision on WHERE it injects): a company-
+// research task (generateCompanyResearchTask() below) runs in parallel
+// with round-1 (both depend only on the data-snapshot task), so it never
+// delays round-1's own dispatch. Round-2 depends on BOTH via
+// dependsOnTaskIds -- the same multi-parent mechanism generateSynthesisTask()
+// already uses for round-3 -- so round-2 sees round-1's thesis AND the
+// independent research pass, neither of which round-1 itself saw.
+function generateChallengeTask(pilot, symbol, datePrefix, thesisTaskId, researchTaskId) {
   const prefix = pilotPrefix(pilot);
   const taskId = `${prefix}${datePrefix}_challenge_r2_${symbol.toLowerCase()}`;
   const payload = [
-    `ROUND-2 ADVERSARIAL CHALLENGE for the round-1 thesis on ${symbol} (dependency, auto-injected below). Pressure-test it using the full injected dataset -- written by a different specialist, who is not told what you conclude. Do NOT just restate or endorse it; show real work trying to break it first.`,
+    `ROUND-2 ADVERSARIAL CHALLENGE for the round-1 thesis on ${symbol} (two dependencies auto-injected below, each labeled by its own task_id: the round-1 thesis task is the thing being challenged; the "research_company" task is an independent, real web-search-based research pass that ran in PARALLEL with round-1 and was NOT shown to it -- treat it as supporting evidence, not as round-1's own reasoning). Pressure-test the thesis using the full injected dataset -- written by a different specialist, who is not told what you conclude. Do NOT just restate or endorse it; show real work trying to break it first.`,
     '',
-    'Challenge every FACT-tagged claim, every INTERPRETATION-tagged claim, identify data gaps and internal inconsistencies, then build the strongest genuine counterargument using only the same injected data. Conclude with a verdict: "thesis holds up," "thesis has material weaknesses, stance should be downgraded," or "thesis has material weaknesses, stance should be reversed."',
+    'Challenge every FACT-tagged claim, every INTERPRETATION-tagged claim, identify data gaps and internal inconsistencies, then build the strongest genuine counterargument using only the same injected data (the thesis dependency plus the independent research dependency). Conclude with a verdict: "thesis holds up," "thesis has material weaknesses, stance should be downgraded," or "thesis has material weaknesses, stance should be reversed."',
   ].join('\n');
   return writeTaskFile(taskId, {
     from: 'claude',
     to: 'codex',
     type: 'request',
     payload,
-    dependsOnTaskId: thesisTaskId,
+    dependsOnTaskIds: [thesisTaskId, researchTaskId],
+  });
+}
+
+// Company/asset research (2026-09-13, layered research pipeline): a real
+// Codex dispatch using its own hosted web-search tool (confirmed real,
+// works under --sandbox read-only -- see ARCHITECTURE.md's 2026-09-03
+// finding and generateRescanTask()'s identical framing below), filling
+// the gap left by not having FMP/deep-Finnhub fundamentals. Depends ONLY
+// on the data-snapshot task -- same parent as round-1's own thesis task
+// -- so it starts in parallel with round-1 and never delays it. Its
+// output is injected into round-2 (see generateChallengeTask() above)
+// via the existing multi-parent dependsOnTaskIds mechanism -- no new
+// formatter needed, that mechanism already attributes each dependency by
+// its real task_id.
+function generateCompanyResearchTask(pilot, symbol, datePrefix, dataSnapshotTaskId) {
+  const prefix = pilotPrefix(pilot);
+  const taskId = `${prefix}${datePrefix}_research_company_${symbol.toLowerCase()}`;
+  const isCrypto = pilot === 'crypto';
+  const payload = [
+    `COMPANY/ASSET RESEARCH for ${symbol}, generated for the ${datePrefix} ${pilot} cycle (see ${dataSnapshotTaskId}, auto-injected below, for this cycle's price/volume/screen data). This runs in PARALLEL with round 1's own thesis dispatch -- you are not told what round 1 concludes, and round 1 does not see your output; both feed round 2 independently.`,
+    '',
+    `Use your own hosted web-search tool to find real, current, checkable information about ${symbol} ${isCrypto ? '(the coin/protocol)' : '(the company)'} that isn't already in the injected price/volume data: recent news, ${isCrypto ? 'protocol developments, major partnerships/listings, on-chain narrative shifts' : 'analyst sentiment, recent earnings commentary or guidance changes, major corporate actions, competitive/sector developments'}. Be honest that AI-summarized search results can contain wrong or unconfirmed claims stated as fact -- flag anything you can't corroborate as unconfirmed rather than presenting it as settled fact, and say plainly if your search tool returns nothing useful rather than inventing a finding to fill space.`,
+    '',
+    'Output a few real, sourced-in-your-own-words findings (2-5 bullet points) plus a one-line summary of whether this research leans bullish, bearish, or neutral/mixed right now.',
+  ].join('\n');
+  return writeTaskFile(taskId, {
+    from: 'claude',
+    to: 'codex',
+    type: 'request',
+    payload,
+    dependsOnTaskId: dataSnapshotTaskId,
   });
 }
 
@@ -527,6 +735,19 @@ const ENABLE_MARKET_CAP_IN_SCREEN = false;
 async function generateFleetDataSnapshot(datePrefix) {
   const universe = JSON.parse(fs.readFileSync(FLEET_UNIVERSE_PATH, 'utf8')).symbols;
   const barsBySymbol = await alpaca.getDailyBars(universe, { limit: 210 });
+
+  // Macro layer (2026-09-13): one extra tiny getDailyBars() call for SPY
+  // (not in fleet-universe.json, but getDailyBars() accepts any valid
+  // symbol -- confirmed, no change needed there). One shared snapshot for
+  // the whole cycle, not per-symbol.
+  try {
+    const spyBars = await alpaca.getDailyBars(['SPY'], { limit: 210 });
+    macroSnapshot = spyBars.SPY ? computeMacroRegime(spyBars.SPY.bars, false) : null;
+  } catch (err) {
+    console.log(`[generate-pilot-tasks] macro (SPY) fetch failed: ${err.message}`);
+    macroSnapshot = null;
+  }
+
   const finnhubAvailable = finnhub.hasCredentials();
   const profiles = finnhubAvailable
     ? await Promise.all(universe.map(async (s) => {
@@ -550,9 +771,33 @@ async function generateFleetDataSnapshot(datePrefix) {
       // just fetched for display purposes.
       const marketCap = ENABLE_MARKET_CAP_IN_SCREEN ? marketCapForDisplay : 0;
       const { priceAvg50, priceAvg200 } = priceAverages(entry.bars);
-      return { symbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap, marketCapForDisplay, priceAvg50, priceAvg200 };
+      // Sector layer: live finnhubIndustry (already fetched, previously
+      // discarded) overrides the static sector-map.json fallback.
+      const sector = resolveSector('fleet', symbol, profile && profile.finnhubIndustry);
+      // Technical layer: pure computation on entry.bars, already in memory.
+      const rsi14 = computeRSI14(entry.bars);
+      const maPosture = computeMAPosture(priceAvg50, priceAvg200);
+      const { support: support20d, resistance: resistance20d } = computeSupportResistance(entry.bars);
+      return { symbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap, marketCapForDisplay, priceAvg50, priceAvg200, sector, rsi14, maPosture, support20d, resistance20d };
     })
     .filter(Boolean);
+
+  // Sector relative performance: group the already-built candidates by
+  // resolved sector, average chgPct per group (all data already on each
+  // candidate -- zero extra fetches), then each symbol's deviation from
+  // its own sector's average.
+  const sectorTotals = new Map(); // label -> { sum, count }
+  for (const c of candidates) {
+    const label = c.sector.label;
+    const t = sectorTotals.get(label) || { sum: 0, count: 0 };
+    t.sum += c.chgPct; t.count += 1;
+    sectorTotals.set(label, t);
+  }
+  for (const c of candidates) {
+    const t = sectorTotals.get(c.sector.label);
+    c.sectorRelPerf = t && t.count ? c.chgPct - (t.sum / t.count) : null;
+  }
+
   const ranked = computeScreenScore(candidates);
   const shortlist = ranked.slice(0, SHORTLIST_SIZE);
 
@@ -563,6 +808,17 @@ async function generateFleetDataSnapshot(datePrefix) {
   // generateThesisTask() runs) instead of inside generateThesisTask()
   // itself.
   await refreshEarningsCache(shortlist.map((c) => c.symbol));
+
+  // Sector + technical context cache, shortlist-only, same lifetime/
+  // reset posture as earningsBySymbol -- populated synchronously here
+  // (no await needed, everything's already computed above).
+  researchContextBySymbol = new Map();
+  for (const c of shortlist) {
+    researchContextBySymbol.set(c.symbol, {
+      sector: c.sector, sectorRelPerf: c.sectorRelPerf,
+      rsi14: c.rsi14, maPosture: c.maPosture, support20d: c.support20d, resistance20d: c.resistance20d,
+    });
+  }
 
   const taskId = `fleet_pilot_${datePrefix}_universe50_consolidation`;
   // BUG FOUND LIVE 2026-09-11: price/priceAvg50/priceAvg200 were computed
@@ -622,6 +878,10 @@ async function generateCryptoDataSnapshot(datePrefix) {
   const coinList = allAssets.map((a) => a.coin);
   const barsByCoin = await alpaca.getDailyBars(coinList, { limit: 210 });
 
+  // Macro layer (2026-09-13): zero extra network calls -- BTC is already
+  // one of the 32 coins fetched above, reuse its bars directly.
+  macroSnapshot = barsByCoin.BTC ? computeMacroRegime(barsByCoin.BTC.bars, true) : null;
+
   const candidates = allAssets
     .map((a) => {
       const entry = barsByCoin[a.coin];
@@ -633,11 +893,39 @@ async function generateCryptoDataSnapshot(datePrefix) {
       // field (max === min), so screenScore degrades to Chg%/Volume only
       // rather than fabricating a number -- an honest, documented gap,
       // not a silent one.
-      return { symbol: a.coin, alpacaSymbol: a.alpacaSymbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap: 0, priceAvg50, priceAvg200 };
+      // Sector/category layer: crypto has no live source (Finnhub is
+      // equity-only) -- the static crypto-category-map.json is the ONLY
+      // source, not a fallback.
+      const sector = resolveSector('crypto', a.coin, null);
+      const rsi14 = computeRSI14(entry.bars);
+      const maPosture = computeMAPosture(priceAvg50, priceAvg200);
+      const { support: support20d, resistance: resistance20d } = computeSupportResistance(entry.bars);
+      return { symbol: a.coin, alpacaSymbol: a.alpacaSymbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap: 0, priceAvg50, priceAvg200, sector, rsi14, maPosture, support20d, resistance20d };
     })
     .filter(Boolean);
+
+  const sectorTotals = new Map();
+  for (const c of candidates) {
+    const label = c.sector.label;
+    const t = sectorTotals.get(label) || { sum: 0, count: 0 };
+    t.sum += c.chgPct; t.count += 1;
+    sectorTotals.set(label, t);
+  }
+  for (const c of candidates) {
+    const t = sectorTotals.get(c.sector.label);
+    c.sectorRelPerf = t && t.count ? c.chgPct - (t.sum / t.count) : null;
+  }
+
   const ranked = computeScreenScore(candidates);
   const shortlist = ranked.slice(0, CRYPTO_SHORTLIST_SIZE);
+
+  researchContextBySymbol = new Map();
+  for (const c of shortlist) {
+    researchContextBySymbol.set(c.symbol, {
+      sector: c.sector, sectorRelPerf: c.sectorRelPerf,
+      rsi14: c.rsi14, maPosture: c.maPosture, support20d: c.support20d, resistance20d: c.resistance20d,
+    });
+  }
 
   const taskId = `crypto_pilot_${datePrefix}_universe_consolidation`;
   const table = ranked
@@ -699,7 +987,16 @@ module.exports = {
   generateSynthesisTask,
   generateRescanTask,
   generateReflectionTask,
+  generateCompanyResearchTask,
   computeScreenScore,
+  computeMacroRegime,
+  computeRSI14,
+  computeMAPosture,
+  computeSupportResistance,
+  resolveSector,
+  formatMacroSection,
+  formatSectorSection,
+  formatTechnicalSection,
   generateFleetDataSnapshot,
   generateCryptoDataSnapshot,
   generateDataSnapshotTasks,

@@ -115,10 +115,15 @@ async function maybeGenerateCycle(pilot) {
 
   const priorSection = gen.getPriorLearningsSection(pilot, datePrefix);
   const r1Ids = snapshot.symbols.map((symbol) => gen.generateThesisTask(pilot, symbol, datePrefix, priorSection, snapshot.taskId));
-  const r2Ids = snapshot.symbols.map((symbol, i) => gen.generateChallengeTask(pilot, symbol, datePrefix, r1Ids[i]));
+  // Company-research (2026-09-13, layered research pipeline): depends
+  // ONLY on the data-snapshot task, same as r1Ids -- runs in parallel
+  // with round-1, never delays it. Order relative to r1Ids doesn't
+  // matter since neither depends on the other.
+  const researchIds = snapshot.symbols.map((symbol) => gen.generateCompanyResearchTask(pilot, symbol, datePrefix, snapshot.taskId));
+  const r2Ids = snapshot.symbols.map((symbol, i) => gen.generateChallengeTask(pilot, symbol, datePrefix, r1Ids[i], researchIds[i]));
   const r3Id = gen.generateSynthesisTask(pilot, datePrefix, snapshot.symbols, r1Ids, r2Ids, priorSection);
 
-  log(`${pilot} ${datePrefix}: generated ${snapshot.symbols.length} symbols, ${r1Ids.length} thesis + ${r2Ids.length} challenge tasks, synthesis ${r3Id}. run-queue-daemon.js will dispatch from here.`);
+  log(`${pilot} ${datePrefix}: generated ${snapshot.symbols.length} symbols, ${r1Ids.length} thesis + ${researchIds.length} company-research + ${r2Ids.length} challenge tasks, synthesis ${r3Id}. run-queue-daemon.js will dispatch from here.`);
 }
 
 // Both scripts are already argument-free/schedule-ready (execute-portfolio-
