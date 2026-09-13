@@ -580,7 +580,7 @@ async function executeOne(candidate, sourceTask, sizing) {
     note: 'Placed via execute-portfolio-setup.js -- stop order placed immediately after, same run, no manual gap.',
   });
 
-  const result = await placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition: setup.invalidationCondition, isCrypto, sourceTask, lotId });
+  const result = await placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition: setup.invalidationCondition, isCrypto, sourceTask, lotId, referencePrice: actualFillPrice });
   return { skipped: false, executed: true, lotId, modeledEntry, ...result, actualFillPrice };
 }
 
@@ -605,12 +605,34 @@ async function executeOne(candidate, sourceTask, sizing) {
 // `lotId` is optional and may legitimately be absent: monitor-paper-trades.js
 // re-arms stops on positions entered before lot ids existed. Absent just means
 // the stop record is symbol-keyed the way it always was, never an error.
-async function placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition, isCrypto, sourceTask, lotId = null }) {
-  const stopPrice = parseStopPrice(invalidationCondition);
+// Real incident, 2026-09-12: ARB/USD and LTC/USD both entered and sat with
+// ZERO protective stop for hours -- not a parser bug, their round-3
+// invalidationCondition was genuinely qualitative with no numeric level at
+// all ("Exit if re-verification shows ARB no longer above both newly
+// calculated 50-day and 200-day averages"). parseStopPrice() correctly
+// found nothing to extract; the old code just gave up. A thesis describing
+// its exit qualitatively instead of with a hard price is not grounds to
+// leave a real position completely unprotected -- fall back to a
+// conservative fixed percentage off a real reference price (the fill price
+// at entry time, or the live price on a later re-arm) when no numeric level
+// exists. Tagged stopPriceSource so this is always distinguishable from a
+// real thesis-derived level in the log.
+const FALLBACK_STOP_PCT_CRYPTO = 0.08;
+const FALLBACK_STOP_PCT_EQUITY = 0.05;
+
+async function placeProtectiveStop({ symbol, direction, filledQty, invalidationCondition, isCrypto, sourceTask, lotId = null, referencePrice = null }) {
+  let stopPrice = parseStopPrice(invalidationCondition);
+  let stopPriceSource = 'thesis-derived';
   if (stopPrice === null) {
-    console.log(`  WARNING: could not parse a stop price out of invalidationCondition ("${invalidationCondition}") -- NO STOP PLACED. Handle manually.`);
-    await alertUnprotectedPosition(symbol, sourceTask, 'no parseable stop price in invalidationCondition');
-    return { stopPlaced: false, reason: 'unparseable-stop-price' };
+    if (!referencePrice) {
+      console.log(`  WARNING: could not parse a stop price out of invalidationCondition ("${invalidationCondition}") and no reference price available for a fallback -- NO STOP PLACED. Handle manually.`);
+      await alertUnprotectedPosition(symbol, sourceTask, 'no parseable stop price in invalidationCondition, and no reference price for a fallback');
+      return { stopPlaced: false, reason: 'unparseable-stop-price' };
+    }
+    const pct = isCrypto ? FALLBACK_STOP_PCT_CRYPTO : FALLBACK_STOP_PCT_EQUITY;
+    stopPrice = direction === 'short' ? referencePrice * (1 + pct) : referencePrice * (1 - pct);
+    stopPriceSource = `fallback-${Math.round(pct * 100)}pct`;
+    console.log(`  No numeric stop price in invalidationCondition ("${invalidationCondition}") -- falling back to a ${Math.round(pct * 100)}% stop off reference price $${referencePrice}: $${stopPrice.toFixed(6)}.`);
   }
   if (!filledQty) {
     console.log(`  WARNING: no filled quantity available to size the protective stop -- NO STOP PLACED. Handle manually.`);
@@ -628,8 +650,17 @@ async function placeProtectiveStop({ symbol, direction, filledQty, invalidationC
   // A 1% buffer between stop and limit keeps the order fillable through
   // normal slippage rather than sitting unfilled at an exact price.
   const stopOrderType = isCrypto ? 'stop_limit' : 'stop';
+  // Real incident, 2026-09-12: a computed fallback price (referencePrice *
+  // 0.92, etc.) can carry floating-point noise well past Alpaca's stated
+  // "maximum precision of 9 decimal places" for crypto (confirmed live:
+  // 0.13017908000000003 was rejected outright). Round BEFORE submitting,
+  // not after -- a thesis-derived price parsed from text is normally clean
+  // already, but rounding it too is harmless and closes this class of bug
+  // for both sources at once.
+  const roundToPrecision = (n) => Number(n.toFixed(9));
+  stopPrice = roundToPrecision(stopPrice);
   const stopLimitPrice = isCrypto
-    ? (stopDirection === 'short' ? stopPrice * 0.99 : stopPrice * 1.01)
+    ? roundToPrecision(stopDirection === 'short' ? stopPrice * 0.99 : stopPrice * 1.01)
     : undefined;
 
   const attempt = async (timeInForce) => alpaca.submitOrder({ symbol, direction: stopDirection, qty: filledQty, orderType: stopOrderType, stopPrice, limitPrice: stopLimitPrice, timeInForce, intent: 'close', clientOrderId: deriveStopClientOrderId(lotId, symbol, timeInForce) });
@@ -639,6 +670,18 @@ async function placeProtectiveStop({ symbol, direction, filledQty, invalidationC
   try {
     stopOrder = await attempt('gtc');
   } catch (gtcErr) {
+    // Real incident, 2026-09-12: crypto does NOT support 'day' at all
+    // (confirmed live: 422 "invalid crypto time_in_force" -- same fact
+    // monitor-paper-trades.js's own closing-order logic already documents).
+    // The GTC-fractional-qty issue this retry was built for is an EQUITY-
+    // only problem (crypto's existing stops, e.g. ETH/USD, already work
+    // fine under GTC) -- retrying crypto with 'day' can never succeed and
+    // was masking the real GTC error with a second, unhelpful one.
+    if (isCrypto) {
+      console.log(`  WARNING: GTC stop rejected for crypto (${gtcErr.message.split('\n')[0]}) -- crypto has no 'day' fallback to retry with. NO STOP PLACED. Handle manually.`);
+      await alertUnprotectedPosition(symbol, sourceTask, `crypto GTC stop order rejected, no retry available: ${gtcErr.message.split('\n')[0]}`);
+      return { stopPlaced: false, reason: 'stop-order-rejected' };
+    }
     console.log(`  GTC stop rejected (${gtcErr.message.split('\n')[0]}) -- retrying as a 'day' stop (Alpaca allows fractional qty under 'day', not 'gtc').`);
     try {
       stopOrder = await attempt('day');
@@ -660,6 +703,7 @@ async function placeProtectiveStop({ symbol, direction, filledQty, invalidationC
     assetClass: isCrypto ? 'crypto' : 'equity',
     qty: filledQty,
     stopPrice,
+    stopPriceSource,
     orderId: stopOrder.id,
     orderStatus: stopOrder.status,
     timeInForce: timeInForceUsed,

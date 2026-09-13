@@ -257,7 +257,13 @@ async function main() {
       console.log(`  WARNING: ${entry.symbol} is open with NO live stop order -- attempting to re-arm now.`);
       if (execute) {
         const filledQty = Math.abs(Number(live.qty));
-        const result = await placeProtectiveStop({ symbol: entry.symbol, direction: entry.direction, filledQty, invalidationCondition: entry.invalidationCondition, isCrypto, sourceTask: entry.sourceTask, lotId: entry.lotId || null });
+        // Prefer the real fill price from the entry record over the live
+        // current price for the fallback-percentage-stop case (matches
+        // execute-portfolio-setup.js's own call site) -- falls back to the
+        // live price only if the entry record predates actualFillPrice
+        // being logged.
+        const referencePrice = entry.actualFillPrice || Number(live.avg_entry_price) || Number(live.current_price) || null;
+        const result = await placeProtectiveStop({ symbol: entry.symbol, direction: entry.direction, filledQty, invalidationCondition: entry.invalidationCondition, isCrypto, sourceTask: entry.sourceTask, lotId: entry.lotId || null, referencePrice });
         console.log(`  Re-arm result: stopPlaced=${result.stopPlaced}${result.timeInForce ? `, timeInForce=${result.timeInForce}` : ''}${result.reason ? `, reason=${result.reason}` : ''}`);
       } else {
         console.log(`  (dry run -- would attempt to re-arm a protective stop; re-run with --execute)`);
