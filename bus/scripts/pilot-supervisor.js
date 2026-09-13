@@ -34,6 +34,7 @@ const alpaca = require('./alpaca-client.js');
 const triggers = require('./conditional-triggers.js');
 const journal = require('./trading-journal.js');
 const runTask = require('./run-task.js');
+const vaultWriter = require('./vault-research-writer.js');
 
 const SCRIPTS_DIR = __dirname;
 const VAULT_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
@@ -185,6 +186,24 @@ function checkTradingJournal() {
   }
 }
 
+// Persists completed company-research dispatches into the real vault
+// (06 - Markets & Trading Research) so findings compound over time
+// instead of only flowing through one cycle's round-2 prompt and being
+// discarded -- direct user request 2026-09-13. Mechanical and cheap
+// (a tasks/ dir scan + a small published-ledger check), same posture as
+// checkTradingJournal() above.
+function checkVaultResearchPublishing() {
+  try {
+    const results = vaultWriter.publishPendingCompanyResearch();
+    const written = results.filter((r) => r.written);
+    if (written.length) {
+      log(`vault-research-writer: published ${written.length} new company-research note(s): ${written.map((r) => r.taskId).join(', ')}`);
+    }
+  } catch (err) {
+    log(`vault-research-writer FAILED: ${err.message}`);
+  }
+}
+
 async function main() {
   await maybeGenerateCycle('fleet');
   await maybeGenerateCycle('crypto');
@@ -193,10 +212,11 @@ async function main() {
   runExecuteAuto('crypto');
   runMonitorExecute();
   checkTradingJournal();
+  checkVaultResearchPublishing();
 }
 
 if (require.main === module) {
   main().catch((err) => { log(`FAILED: ${err.message}`); process.exit(1); });
 }
 
-module.exports = { log, getMarketClock, isCycleDue, todayCycleExists, maybeGenerateCycle, checkConditionalTriggers, checkTradingJournal, runExecuteAuto, runMonitorExecute, main };
+module.exports = { log, getMarketClock, isCycleDue, todayCycleExists, maybeGenerateCycle, checkConditionalTriggers, checkTradingJournal, checkVaultResearchPublishing, runExecuteAuto, runMonitorExecute, main };
