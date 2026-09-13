@@ -165,9 +165,20 @@ async function armNewTriggers(pilot) {
     // not letting a pile of correlated altcoin longs get armed in the
     // first place (see portfolio-risk-envelope.js), so this check belongs
     // at arm-time too, not just at fire-time below.
+    //
+    // REAL BUG FOUND LIVE 2026-09-13 (multi-agent risk re-review, same day
+    // as the $15->$1,000/leg sizing change): this call and the one below
+    // both hardcoded `newLegNotionalUsd: 15` -- so every real arm/fire
+    // check told the $10,000 capital-at-risk ceiling "this new leg only
+    // adds $15" even after real legs became $1,000. The ceiling was
+    // rescaled correctly in portfolio-risk-envelope.js, but these two
+    // callers, which feed it the real leg size, were missed in that same
+    // commit -- the ceiling was effectively decorative on this path.
+    // Fixed by referencing the real live constant instead of a copied
+    // literal, so this can't silently drift out of sync again.
     let gate;
     try {
-      gate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd: 15, stage: 'arm' });
+      gate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd: executor.AUTO_MICRO_NOTIONAL_PER_LEG, stage: 'arm' });
     } catch (err) {
       console.log(`[conditional-triggers] ${symbol}: portfolio risk envelope check FAILED (${err.message}) -- not arming, fail safe.`);
       continue;
@@ -284,7 +295,7 @@ async function checkRescanResults() {
     // portfolio-risk-envelope.js for the real thresholds and rationale.
     let gate;
     try {
-      gate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol: record.symbol, newLegNotionalUsd: 15, stage: 'fire' });
+      gate = await riskEnvelope.checkPortfolioRiskEnvelope({ symbol: record.symbol, newLegNotionalUsd: executor.AUTO_MICRO_NOTIONAL_PER_LEG, stage: 'fire' });
     } catch (err) {
       console.log(`[conditional-triggers] ${record.symbol}: portfolio risk envelope check FAILED (${err.message}) -- not executing, fail safe, leaving fired for retry.`);
       results.push({ symbol: record.symbol, verdict, blockedByRiskEnvelope: true, reasons: [`envelope check errored: ${err.message}`] });
