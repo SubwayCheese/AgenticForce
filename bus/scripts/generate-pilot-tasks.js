@@ -508,6 +508,22 @@ function landAsDone(taskId, sourceLine, payload) {
   fs.writeFileSync(filePath, text, 'utf8');
 }
 
+// Deliberately decoupled from finnhub.hasCredentials(), added 2026-09-13
+// (multi-agent research-stack finding, cross-checked live): setting
+// FINNHUB_API_KEY unlocks several independent Finnhub-backed features at
+// once (equity market cap for THIS screen, the earnings-calendar safety
+// gate, company news) -- but computeScreenScore()'s 20% market-cap term
+// has been silently contributing zero (norm() returns 0 when every value
+// is equal) for as long as the key has been unset, and a real, freshly
+// deepened backtest (bus/scripts/backtest-screen-score-v2.js) tested
+// EXACTLY that zeroed-cap formula. If the key gets set for the earnings
+// gate alone, the screen formula would silently change out from under a
+// backtest that just returned a "no edge" verdict, without anyone
+// deciding that on purpose. This flag is that decision, made explicit:
+// flip it to true (and re-run the backtest with a real cap term first)
+// when actually ready to let market cap back into the live score.
+const ENABLE_MARKET_CAP_IN_SCREEN = false;
+
 async function generateFleetDataSnapshot(datePrefix) {
   const universe = JSON.parse(fs.readFileSync(FLEET_UNIVERSE_PATH, 'utf8')).symbols;
   const barsBySymbol = await alpaca.getDailyBars(universe, { limit: 210 });
@@ -528,9 +544,13 @@ async function generateFleetDataSnapshot(datePrefix) {
       if (!entry) return null;
       const profile = profileBySymbol.get(symbol);
       // Finnhub's marketCapitalization is in MILLIONS of USD -- see finnhub-client.js.
-      const marketCap = profile && profile.marketCapitalization ? profile.marketCapitalization * 1e6 : 0;
+      const marketCapForDisplay = profile && profile.marketCapitalization ? profile.marketCapitalization * 1e6 : 0;
+      // What actually feeds computeScreenScore() -- locked to 0 (see
+      // ENABLE_MARKET_CAP_IN_SCREEN above) even when a real value was
+      // just fetched for display purposes.
+      const marketCap = ENABLE_MARKET_CAP_IN_SCREEN ? marketCapForDisplay : 0;
       const { priceAvg50, priceAvg200 } = priceAverages(entry.bars);
-      return { symbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap, priceAvg50, priceAvg200 };
+      return { symbol, price: entry.lastClose, chgPct: entry.chgPct, avgVolume: entry.avgVolume, marketCap, marketCapForDisplay, priceAvg50, priceAvg200 };
     })
     .filter(Boolean);
   const ranked = computeScreenScore(candidates);
@@ -555,17 +575,19 @@ async function generateFleetDataSnapshot(datePrefix) {
   // + a shortlist-detail block (50/200-day averages) for the top 15,
   // matching the pattern already used for crypto.
   const table = ranked
-    .map((c, i) => `| ${i + 1} | ${c.symbol} | $${c.price.toFixed(2)} | ${c.chgPct.toFixed(2)}% | ${Math.round(c.avgVolume).toLocaleString()} | ${c.marketCap ? '$' + (c.marketCap / 1e9).toFixed(1) + 'B' : 'n/a'} | ${c.screenScore.toFixed(1)} |`)
+    .map((c, i) => `| ${i + 1} | ${c.symbol} | $${c.price.toFixed(2)} | ${c.chgPct.toFixed(2)}% | ${Math.round(c.avgVolume).toLocaleString()} | ${c.marketCapForDisplay ? '$' + (c.marketCapForDisplay / 1e9).toFixed(1) + 'B' : 'n/a'} | ${c.screenScore.toFixed(1)} |`)
     .join('\n');
   const shortlistDetail = shortlist.map((c) => [
     `### ${c.symbol}`,
-    `- Live quote: $${c.price.toFixed(2)}, change ${c.chgPct.toFixed(2)}%, 50-day avg $${c.priceAvg50 ? c.priceAvg50.toFixed(2) : 'n/a'}, 200-day avg $${c.priceAvg200 ? c.priceAvg200.toFixed(2) : 'n/a'}, market cap ${c.marketCap ? '$' + (c.marketCap / 1e9).toFixed(1) + 'B' : 'n/a'}.`,
+    `- Live quote: $${c.price.toFixed(2)}, change ${c.chgPct.toFixed(2)}%, 50-day avg $${c.priceAvg50 ? c.priceAvg50.toFixed(2) : 'n/a'}, 200-day avg $${c.priceAvg200 ? c.priceAvg200.toFixed(2) : 'n/a'}, market cap ${c.marketCapForDisplay ? '$' + (c.marketCapForDisplay / 1e9).toFixed(1) + 'B' : 'n/a'} (reference only, not scored -- see below).`,
   ].join('\n')).join('\n\n');
-  const capNote = finnhubAvailable
+  const capNote = ENABLE_MARKET_CAP_IN_SCREEN
     ? ''
-    : '\n\nFINNHUB_API_KEY not configured -- market cap is n/a for every symbol this cycle, and screenScore is effectively 50 x norm(Chg%) + 30 x norm(AvgVolume) only (the 20% cap weight contributes nothing when every value is equal). Add FINNHUB_API_KEY to bus/secrets.local.json (free tier, finnhub.io) to restore it.';
+    : finnhubAvailable
+      ? '\n\nMarket cap IS available (FINNHUB_API_KEY configured, shown above for reference) but is deliberately NOT included in screenScore -- ENABLE_MARKET_CAP_IN_SCREEN in generate-pilot-tasks.js is off until the screen is re-backtested with a real cap term (see ARCHITECTURE.md\'s 2026-09-13 note); screenScore is effectively 50 x norm(Chg%) + 30 x norm(AvgVolume) only.'
+      : '\n\nFINNHUB_API_KEY not configured -- market cap is n/a for every symbol this cycle, and screenScore is effectively 50 x norm(Chg%) + 30 x norm(AvgVolume) only (the 20% cap weight contributes nothing when every value is equal). Add FINNHUB_API_KEY to bus/secrets.local.json (free tier, finnhub.io) to restore the market-cap DISPLAY -- restoring it in the actual score additionally requires flipping ENABLE_MARKET_CAP_IN_SCREEN on, deliberately, after a fresh backtest.';
   const payload = [
-    `Unattended screen, ${universe.length}-symbol fixed universe (bus/scripts/fleet-universe.json), price/volume from Alpaca's free market-data API (batched daily bars, same paper-account key already configured -- no new credential), market cap from Finnhub's free tier. Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized. Top ${SHORTLIST_SIZE} become this cycle's shortlist.${capNote}`,
+    `Unattended screen, ${universe.length}-symbol fixed universe (bus/scripts/fleet-universe.json), price/volume from Alpaca's free market-data API (batched daily bars, same paper-account key already configured -- no new credential), market cap from Finnhub's free tier (reference only -- see note). Formula: screenScore = 50 x norm(Chg%) + 30 x norm(AvgVolume) + 20 x norm(MarketCap), min-max normalized -- MarketCap term currently disabled, see note. Top ${SHORTLIST_SIZE} become this cycle's shortlist.${capNote}`,
     '',
     '| Rank | Symbol | Price | Chg% | Avg Volume (20d) | Market Cap | screenScore |',
     '|---|---|---|---|---|---|---|',
