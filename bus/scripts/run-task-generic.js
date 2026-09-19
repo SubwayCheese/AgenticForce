@@ -156,7 +156,13 @@ function main() {
       console.log(`DONE: ${result.output}`);
       console.log(`Files changed -- added: [${result.diff.added.join(', ')}] modified: [${result.diff.modified.join(', ')}] removed: [${result.diff.removed.join(', ')}]`);
     } else {
-      console.log(`ERROR (exit ${result.exitCode})`);
+      // Without this, execFileSync in run-queue-daemon.js's dispatchOne()
+      // never throws on a real dispatch failure -- the entire rate-limit
+      // backoff/retry mechanism (isRateLimitError, 15-min backoff, 3
+      // retries) lives inside that catch block and was unreachable dead
+      // code until this fix.
+      process.exitCode = 1;
+      console.log(`ERROR (exit ${result.exitCode}): ${result.output}`);
     }
     return;
   }
@@ -225,9 +231,17 @@ function main() {
   appendLog(logEntry);
   writeTaskResult(taskId, { status, output: result.output, reason: status === 'unverified' ? reason : undefined });
 
-  if (status === 'done') console.log(`DONE: ${result.output}`);
-  else if (status === 'unverified') console.log(`UNVERIFIED: ${reason}`);
-  else console.log(`ERROR (exit ${result.exitCode})`);
+  if (status === 'done') {
+    console.log(`DONE: ${result.output}`);
+  } else if (status === 'unverified') {
+    console.log(`UNVERIFIED: ${reason}`);
+  } else {
+    // See the matching comment in the write-mode branch above: without
+    // this, run-queue-daemon.js's execFileSync never throws on a real
+    // dispatch failure and the rate-limit backoff mechanism never runs.
+    process.exitCode = 1;
+    console.log(`ERROR (exit ${result.exitCode}): ${result.output}`);
+  }
 }
 
 if (require.main === module) {

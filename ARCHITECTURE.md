@@ -1759,7 +1759,10 @@ still holds as a hard boundary:
   `project_agentvault_phase4_trading_fleet.md` (memory). Full autonomy
   is the agreed target for the PAPER phase specifically; real money
   keeps a human go/no-go per trade until the user explicitly revisits
-  that.
+  that. (See section 19 for a separate, narrowly-scoped exception
+  covering the standalone "survive" branch only -- this section's
+  boundary is otherwise unchanged, and remains fully binding for the
+  fleet/crypto pilots described throughout this document.)
 - **No individualized investment advice, suitability claims, or
   guarantees** -- every synthesis task's output carries the disclaimer
   "Research decision-support only. A human must independently decide
@@ -2090,6 +2093,1279 @@ clone is also active, risks exactly the duplicate-cycle scenario above.
 Windows Task Scheduler stays disabled deliberately; if it's ever
 re-enabled for any reason, disable the Pi's cron/systemd first, or
 vice versa -- never both live at once.
+
+## 12. Recurring backtest layer + weekly dual-specialist validation (added
+2026-09-13)
+
+**Why this was needed:** direct user request for a "fully autonomous 24/7"
+pipeline that is "constantly backtesting, learning, and executing trades...
+use both codex and claude accordingly." Investigation found sections 9-11
+above already deliver the execution/learning/24-7 parts in full (the queue
+daemon as a systemd service, `pilot-supervisor.js` on cron generating and
+executing daily cycles, `trading-journal.js`'s reflection loop) -- the one
+real, confirmed gap was that nothing scheduled a recurring BACKTEST, and
+Claude was entirely absent from the live loop (deliberately -- see section
+9's `generateThesisTask()` note on the 2026-09-03 session-limit incident;
+`claude-agent` shares this interactive Claude Code session's own usage pool,
+confirmed again here via `secrets-broker.js`/`env` showing no separate
+`ANTHROPIC_API_KEY`). User's explicit choices, this session: Claude stays
+out of the high-frequency live loop and appears only in a new low-frequency
+role; backtest results are report-only, never automatically pausing/resizing
+live `--auto` execution; daily cheap + weekly deep cadence; the existing live
+pilot is untouched.
+
+**Three new files, zero edits to any existing pilot/execution file:**
+
+- `bus/scripts/generate-backtest-tasks.js` -- generalizes the one-off
+  `strategy_backtest_20260913_*` suite (NVDA/JPM/KO, hand-built and run
+  manually earlier the same day to validate the pattern) into
+  `generateWeeklyBacktestBatch(pilot, symbols, weekPrefix)`. Per symbol:
+  one orchestrator-sourced data task (real ~2-year daily bars via
+  `alpaca-client.js`'s `getDailyBars()`, walk-forward RSI14/MA50/MA200/
+  support-resistance via `generate-pilot-tasks.js`'s own
+  `computeRSI14()`/`computeSupportResistance()`, no lookahead), one
+  `to: codex` and one `to: claude-agent` independent backtest task
+  (`dependsOnTaskId` on the data task), one per-symbol fan-in synthesis
+  reconciling the two. Ends with one batch-level fan-in synthesis across
+  the week's symbols, `recordFact: strategy_backtest_<weekPrefix>_<pilot>_verdict`.
+  This is where Claude re-enters the pipeline -- bounded to
+  ~8 dispatches/week (5 equities + 3 crypto), nowhere near daily-loop
+  volume.
+- `bus/scripts/backtest-vault-writer.js` -- mirrors
+  `vault-research-writer.js`'s exact pattern (dated note, idempotent
+  ledger `bus/backtest-vault-published.jsonl`, explicit lower-rigor
+  Provenance section) into a new
+  `06 - Markets & Trading Research/04 - Strategy Backtests/` category, one
+  subfolder for daily notes and one for weekly batch notes.
+- `bus/scripts/backtest-supervisor.js` -- structured directly after
+  `pilot-supervisor.js`'s `isCycleDue`/`todayCycleExists`/
+  `maybeGenerateCycle` shape. Daily (idempotent per UTC date, tracked in
+  new `bus/backtest-rotation-state.json`): re-runs the existing, unmodified
+  `backtest-screen-score-v2.js` as a subprocess, parses its own "Direct
+  verdict" heading (never re-derives it), records it via
+  `memory-store.js`'s `recordFact()` called directly (a legitimate direct
+  call -- this is real script output over real bars, trustworthy by
+  construction, the same category `to: claude` orchestrator-sourced facts
+  already get) and publishes a vault note. Weekly (gated on Sunday UTC,
+  same state file): rotates a fixed-size slice through
+  `fleet-universe.json` (5/week, ~10 weeks to cover all 50) and the crypto
+  universe (3/week, ~11 weeks to cover all 32), deterministic and
+  wraparound, calls `generate-backtest-tasks.js` per pilot. **Never calls
+  `execute-portfolio-setup.js` and never touches `paper-trades.jsonl`** --
+  report-only by construction, not just by convention; the already-running
+  `agentvault-queue-daemon` (unmodified) dispatches the generated
+  `status: pending` files itself, same as any other task file.
+- New crontab line, `0 8 * * *` (08:00 UTC), deliberately off the crypto
+  pilot's 02:00 UTC and equity pilot's ~10:00 ET windows so the queue
+  daemon never has a live cycle and a fresh backtest batch queuing at
+  once. Same explicit `PATH=` line as the existing `pilot-supervisor.js`
+  entry, for the same `.profile`/cron gotcha reason (section 11).
+
+**Verified live, the same day**: two full manual runs of
+`backtest-supervisor.js` -- the first (fresh state, and the real UTC day
+happened to be a Sunday) ran both the daily backtest AND generated a real
+weekly batch (21 fleet + 13 crypto task files, `agentvault-queue-daemon`
+picked them up and began dispatching immediately, unprompted); the second,
+same-day run correctly no-op'd both jobs (idempotency confirmed). Confirmed
+`bus/paper-trades.jsonl`'s SHA-256 identical before and after both runs
+(report-only holds in practice, not just in code review). Confirmed the
+daily fact (`backtest_daily_screen_score_verdict`) and the dated vault note
+both landed correctly via `memory-query.js` and a direct file read.
+
+## 13. Parameter-search "learning" layer (added 2026-09-13)
+
+**Why this was needed:** direct follow-on the same day, user asked for
+something closer to real "model learning" per agent. True weight-level
+fine-tuning of Codex/Claude isn't feasible here -- neither CLI exposes a
+custom-model path, and it would mean a whole separate training pipeline
+with no guarantee of benefit. Agreed alternative: treat
+`computeScreenScore()`'s weights (a hardcoded 50% chgPct / 30% avgVolume /
+20% marketCap split) as parameters **fit to data** via a real grid search
+against the recurring backtest -- genuine learning (optimizing parameters
+against an objective), just not inside the LLMs.
+
+**Real decisions made getting here, not assumed**: the user first asked
+about TradingView as a market-cap data source -- investigated and
+rejected (no legitimate public API, only unofficial scrapers of private
+endpoints, a real ToS/reliability risk on an unattended box). Then asked
+about free alternatives; Finnhub (already integrated, zero new
+engineering) vs. SEC EDGAR's company-facts API (official, free, no
+signup, but real new engineering: ticker->CIK mapping, XBRL parsing,
+quarterly-refresh caching) were weighed, with the added finding that
+Finnhub's profile endpoint is a live-only snapshot -- it cannot supply a
+point-in-time historical market-cap series at all, which is what a
+correct backtest actually needs (SEC EDGAR's quarterly filings could).
+Given that engineering cost, market cap is **deferred, not built** -- this
+layer ships the 2-dimensional chgPct/avgVolume search now, consistent
+with this vault's existing pattern of shipping partial coverage honestly
+(the pre-existing `ENABLE_MARKET_CAP_IN_SCREEN` flag already documents
+the same open gap for the live formula itself).
+
+The user chose **auto-apply, not report-only** -- if a searched
+combination clears a real out-of-sample bar, the live formula updates
+itself automatically. This is a materially bigger scope than section 12's
+report-only layer: it can change what the live paper pilot actually
+trades on. The safety mechanism is to reuse the existing rigor rather
+than invent a weaker one:
+
+- **Chronological train/test split** (70/30) of the already-fetched
+  historical signal dates -- the grid search (`chgPct`/`avgVolume` in
+  steps of 10, 11 combinations, `marketCap` fixed at 0) picks its winner
+  using ONLY the train period, by the worst-of-three-horizons mean
+  cost-adjusted excess vs. benchmark (conservative -- avoids a combination
+  that only looks good on one lucky horizon).
+- That exact winner is re-scored on the held-out TEST period and checked
+  against `assetClassHasDefensibleEdge()` -- the **same** predeclared
+  function `backtest-screen-score-v2.js` already uses for its real daily
+  verdict (all three horizons' cost-adjusted, non-overlapping, paired 95%
+  CI entirely above zero vs. both the full universe and the benchmark). No
+  new, weaker bar was invented for this feature.
+- Only a combination that clears that bar out-of-sample is written to
+  `bus/scripts/screen-score-weights.json` (new, git-committed -- durable,
+  meaningful state, same category as `bus/memory.jsonl`/
+  `bus/paper-trades.jsonl`; its git history is the full audit trail of
+  every real formula change, when, and why). Given the formula currently
+  shows no edge at all, this is expected to apply nothing most weeks --
+  correct, honest behavior, not a bug. Declining is published exactly
+  like applying, never silently skipped.
+
+**Files:**
+- `bus/scripts/generate-pilot-tasks.js` -- `computeScreenScore(candidates,
+  weights)` gained an optional second parameter, defaulting to the exact
+  original 50/30/20 split (every caller that omits it is byte-for-byte
+  unaffected -- verified live, see below). New `loadScreenScoreWeights(pilot)`
+  reads the new weights file, falling back to the hardcoded default if
+  missing. The two live call sites (`generateFleetDataSnapshot`/
+  `generateCryptoDataSnapshot`) now pass `loadScreenScoreWeights(pilot)`
+  instead of relying on the default.
+- `bus/scripts/backtest-screen-score-v2.js` -- `replayAssetClass(config)`
+  (previously one ~110-line function) split into `fetchAssetClassData(config)`
+  (weight-independent: bar fetch, date alignment, per-date candidate
+  features -- the expensive part, done once) and `scoreAssetClassData(data,
+  weights, signalDatesSubset?)` (weight-dependent: scoring, shortlist,
+  horizon returns -- cheap, pure in-memory, the part a grid search re-runs
+  many times). `replayAssetClass()` is now a thin wrapper of both,
+  preserving its exact original behavior. Also gained `module.exports` and
+  a `require.main === module` guard -- previously `main()` ran
+  unconditionally on load, which would have silently re-run the entire
+  backtest as a side effect of the new `require()` this feature needed
+  (the exact class of bug `execute-portfolio-setup.js`'s own `main()` had
+  before its guard, this time caught before landing, not after).
+- `bus/scripts/backtest-parameter-search.js` (new) -- the grid search
+  itself, per pilot, as described above.
+- `bus/scripts/backtest-vault-writer.js` -- new
+  `publishWeightSearchNote()`, same dated/sourced/idempotent-ledger
+  pattern as this file's other publish functions, into a new
+  `06 - Markets & Trading Research/04 - Strategy Backtests/Weight Search
+  History/` subfolder.
+- `bus/scripts/backtest-supervisor.js` -- one more call in the existing
+  weekly Sunday block, right after the entry/exit batch generation, its
+  own try/catch so a search failure never blocks (or is blocked by) the
+  batch generation.
+
+**Verified live, the same day**: refactor safety -- saved the pre-refactor
+`backtest-screen-score-v2-results.md`, re-ran the script after splitting
+`replayAssetClass()`, diffed the two reports: every equity number and
+every non-overlapping crypto interval identical; the one 0.01-point
+difference was in crypto's live "daily/24-7" descriptive row, consistent
+with real-time price drift between two live API calls minutes apart (a
+still-forming candle), not a refactor defect. Ran
+`backtest-parameter-search.js` for real against both pilots: fleet
+(train=176/test=76 signals) and crypto (train=117/test=51 signals) each
+found an in-sample winner (chgPct=30/avgVolume=70 both times) that failed
+its out-of-sample check -- correctly declined, `screen-score-weights.json`
+left unchanged, `loadScreenScoreWeights()` confirmed still returning the
+exact original `{50, 30, 20}`, `bus/paper-trades.jsonl` SHA-256 identical
+before/after. Both facts and both vault notes confirmed present and
+consistent with the console output. Ran the full `backtest-supervisor.js`
+weekly path end-to-end with the new step wired in -- correct no-op on a
+same-day re-run.
+
+## 14. Continuous Codex backtesting + bi-daily Claude audit (added
+2026-09-14, supersedes part of section 12)
+
+**Why this was needed:** direct user pushback the same evening --
+section 12's weekly multi-agent batch (a small 5-stock/3-coin rotating
+sample, once a week) wasn't what they wanted. They asked for backtesting
+to run "constantly, every day all day" across every symbol in the
+documented universe, not a small weekly sample.
+
+**The real tension, surfaced and resolved before building anything**:
+continuous, full-universe backtesting with BOTH specialists (the section
+12 design) would have multiplied Claude usage roughly 10-50x past the
+low-frequency scope already agreed that same day -- `claude-agent` shares
+this interactive Claude Code session's own usage pool, and a real
+session-limit incident already happened once (see `generate-pilot-tasks.js`'s
+own header, section 9) from exactly this kind of high-frequency Claude
+use. The user's own resolution, given directly: **Codex runs constantly,
+alone**; **Claude's only role becomes a bi-daily (twice a day) audit** of
+what Codex has accumulated -- a periodic quality/sanity review, not a
+per-symbol parallel backtest. Cadence: every 30 minutes, matching
+`pilot-supervisor.js`'s own rhythm.
+
+**A real operational problem solved from the start, not patched in
+after**: a fresh task-file pair per symbol every 30 minutes across all 82
+symbols (50 equities + 32 crypto) would produce ~550+ new `.md` files/day
+-- the exact class of `tasks/` clutter section 3k already had to clean up
+once (`_archive_tests`). This design includes retention from day one.
+
+**Files:**
+- `bus/scripts/generate-backtest-tasks.js` -- new
+  `generateContinuousBacktestBatch(pilot, symbols, tickId)`, reusing the
+  same `writeDataTask()`/`writeBacktestTask()` helpers section 12 already
+  built (same real-bars-plus-walk-forward data, same strategy-rule text),
+  but writing only TWO files per symbol (a data task, one `to: codex`
+  backtest task) instead of four -- no `claude-agent` task, no per-symbol
+  synthesis, since there's only one specialist's reading now, nothing to
+  reconcile. The codex task carries `recordFact: continuous_backtest_<symbol>`,
+  captured automatically through the existing `recordFact`/
+  `writeTaskResult()` mechanism -- no new fact-recording code needed.
+  `writeBacktestTask()` gained an optional `recordFactKey` parameter to
+  support this (backward compatible -- the old weekly-batch caller doesn't
+  pass one, unaffected). `generateWeeklyBacktestBatch()` itself is kept,
+  just no longer auto-invoked by any scheduler -- still callable manually,
+  same additive-not-destructive precedent as `run-task.js` staying
+  alongside `run-task-generic.js`.
+- `bus/scripts/continuous-backtest-supervisor.js` (new) -- cron-driven
+  every 30 minutes, state in new `bus/continuous-backtest-rotation-state.json`
+  (gitignored, disposable cursor). Every wake: builds the combined
+  universe fresh (50 + 32 = 82 symbols, fixed order), takes the next
+  6-symbol slice via a deterministic wraparound rotation (reimplemented
+  locally rather than importing `backtest-supervisor.js`'s -- these two
+  supervisors stay intentionally independent, same separation as
+  `pilot-supervisor.js`/`backtest-supervisor.js`), generates that slice's
+  tasks. 6/tick means a full pass over all 82 symbols takes ~14 ticks
+  (~7 hours) -- the whole universe gets freshly re-tested ~3-4 times/day,
+  genuinely continuous without redundantly re-running the same daily bar
+  data every 30 minutes for no new information. Bi-daily (gated on
+  crossing the 00:00/12:00 UTC boundary since the last audit, same
+  `lastRunDate`-style idempotency as section 13): generates ONE
+  `to: claude-agent` audit task, its payload built from a new helper that
+  reads `bus/memory.jsonl` directly (already exported as
+  `memoryStore.MEMORY_PATH` -- no new bulk-read function needed in
+  `memory-store.js` itself) filtered to `continuous_backtest_*` keys
+  recorded since the last audit. Claude reviews for real inconsistencies/
+  error patterns/notable cross-symbol findings -- it is NOT asked to
+  re-backtest anything itself. Archive sweep, every wake: moves any
+  `continuous_backtest_*` task file older than 24 hours AND already
+  `status: done` (its fact is already durably recorded by then) into new
+  `tasks/_archive_continuous_backtest/` -- move, not delete, same
+  precedent as `_archive_tests`.
+- `bus/scripts/run-task.js` -- `_archive_continuous_backtest` added to
+  `listTaskIdsByStatus()`'s existing directory-exclusion list (alongside
+  `_archive_tests`/`verification_suite`), landed BEFORE any file was ever
+  moved there -- section 3k's own lesson (skipping this step makes
+  archived files "live again" to the daemon's scan) applied from the
+  start this time, not fixed after the fact.
+- `bus/scripts/backtest-vault-writer.js` -- new
+  `publishBiDailyAuditNote()`, same dated/sourced/idempotent-ledger
+  pattern as this file's other publish functions, into a new
+  `06 - Markets & Trading Research/04 - Strategy Backtests/Bi-Daily
+  Audits/` subfolder.
+- `bus/scripts/backtest-supervisor.js` -- the two
+  `generateWeeklyBacktestBatch()` calls removed from
+  `maybeRunWeeklyBacktest()` (this is what's being replaced); the weekly
+  parameter-search call (section 13) is untouched -- pure computation, no
+  LLM, not what the user's complaint was about. The now-unused rotation
+  constants/state fields (`fleetIndex`/`cryptoIndex`, `EQUITY_PER_WEEK`/
+  `CRYPTO_PER_WEEK`, the universe-path constants, the local `nextSlice()`)
+  were removed rather than left as dead code, confirmed via grep that
+  nothing else required this module's exports.
+- `bus/scripts/dashboard-status.js` -- `plainDescribeTask()` gained cases
+  for `continuous_backtest_*` and `bidaily_audit_*` task ids so the simple
+  dashboard's activity feed (added earlier the same day) describes what
+  is now the majority of real daily activity correctly instead of falling
+  back to its generic sentence.
+- New crontab line, `*/30 * * * *`, same explicit `PATH=` as every other
+  entry.
+
+**Honest cost note, stated plainly rather than glossed over**: this is a
+real increase in Codex usage, not free -- roughly 82 symbols x ~3.4 full
+passes/day is ~280 additional Codex dispatches/day on top of the existing
+daily pilot cycle's own usage, in exchange for avoiding the Claude
+shared-pool risk entirely.
+
+**Verified live, the same evening**: two manual runs of
+`continuous-backtest-supervisor.js` -- first run generated exactly 12
+task files (6 data + 6 codex, zero `claude-agent`/synthesis files) for
+the first 6 fleet symbols in rotation order, each codex task carrying the
+correct `recordFact`, plus a bi-daily audit task (0 verdicts -- correct
+and honest on a fresh store); second run correctly did NOT regenerate the
+audit (same window) and correctly advanced to the next 6-symbol slice.
+Archive sweep tested with synthetic aged/completed fixtures (an old
+tick-timestamped, `status: done` pair): both files moved into
+`tasks/_archive_continuous_backtest/`, and `listTaskIdsByStatus('done')`
+confirmed to no longer see them -- the exclusion-list fix verified to
+actually work, not just reviewed. `bus/paper-trades.jsonl` SHA-256
+confirmed identical across both real runs -- report-only holds.
+
+## 15. Closing the loop: edge-status.js (added 2026-09-14)
+
+**Why this was needed:** direct user pushback in conversation, not a bug
+report -- sections 12-14 wrote real backtest findings to vault notes and
+the fact store, but nothing fed them back into a live thesis, and nothing
+gave one honest, current answer to "do we have real edge yet" without
+manually piecing together several vault notes. The user summarized the
+pipeline as "documenting findings which get re-read the next time an
+agent trades" -- true for trade-outcome learning (`trading-journal.js`'s
+reflection loop), **not true** for the backtest layer, which was
+confirmed to be a dead end for the live decision loop before anything was
+built to fix it.
+
+**New module, `bus/scripts/edge-status.js`**, read-only, used two ways:
+- `getCurrentEdgeStatus(pilot, symbol)` -- the latest
+  `backtest_daily_screen_score_verdict` fact, the latest
+  `screen_score_weights_<pilot>` fact, and the latest
+  `continuous_backtest_<SYMBOL>` fact for this specific symbol if one
+  exists. `extractVerdictSnippet()` best-effort-extracts the sentence
+  containing "verdict" from a free-text backtest result (phrasing varies
+  by run/specialist, so this degrades to a truncated lead-in rather than
+  guessing) -- keeps the injected section short instead of dumping a full
+  multi-paragraph backtest result into every thesis prompt.
+- `getOverallEdgeSummary()` -- aggregates across ALL recorded
+  `continuous_backtest_*` facts (scanning `bus/memory.jsonl` directly, its
+  append-only order making "last line per key" the correct latest-value
+  read) into one plain-language line: how many symbols checked, how many
+  showed a real trigger by heuristic text match, combined with the daily
+  and weekly verdicts.
+
+**Wired into the live thesis generation**, closing the actual gap:
+`generate-pilot-tasks.js`'s new `formatEdgeStatusSection(pilot, symbol)`
+follows the exact same injection pattern `formatSymbolHistorySection()`
+already established (informational context appended to the round-1
+thesis payload, never a hard gate -- a thesis can disagree with this
+evidence, but has to reckon with it, not ignore it by omission). Verified
+live against real accumulated data (42 real `continuous_backtest_*`
+facts, NVDA's own real result) before considering this done -- the
+injected section correctly surfaced the live screen-score verdict, the
+weekly parameter-search result, and NVDA's own extracted verdict sentence
+("Overall verdict: inconclusive, with 0 genuine trigger events...").
+
+**Surfaced on the simple dashboard** (`bus/simple.html`,
+`dashboard-status.js`'s `getPlainSummary()`): a new "Do we have a real
+trading edge yet?" card showing `getOverallEdgeSummary()`'s plain-language
+line, explicitly labeled as answered honestly rather than optimistically
+-- "no" is a real, useful, expected result at this stage, not something to
+hide.
+
+**Deliberately NOT done as part of this**: this is informational only --
+no live trade is gated or resized based on this evidence, and no numeric
+threshold auto-flips a decision. That would be a materially bigger,
+riskier change than "make the evidence visible," and wasn't asked for.
+
+## 16. Continuous backtest freshness fix (added 2026-09-14)
+
+**Why this was needed:** direct user follow-up after being shown the
+real measured cadence of section 14's continuous track (a burst of 6
+symbols every 30 min, full universe covered ~3-4x/day). Daily bars only
+update once per real trading day, so most of those repeat passes were
+re-analyzing input data that had not actually changed -- real Codex spend
+for near-zero new information, flagged honestly rather than left as a
+hidden cost.
+
+**Fix, deliberately simple, not a live bar-date lookup:** a new
+`nextFreshSlice()` in `continuous-backtest-supervisor.js` tracks, per
+symbol, the last UTC calendar date it was tested
+(`state.lastTestedDate[symbol]`) and skips any candidate already tested
+today while scanning forward through the rotation -- wall-clock dedup
+achieves the same effect as fetching each candidate's live bar date (a
+symbol's daily-bar-derived series cannot have meaningfully changed within
+one calendar day regardless of intraday timing), with zero extra API
+calls. The cursor advances past every candidate EXAMINED (skipped or
+processed), so the rotation keeps moving instead of stalling on
+already-fresh-today symbols. Net effect: the full 82-symbol universe gets
+tested exactly once per UTC day (~14 ticks, ~7h), then the supervisor
+correctly goes idle -- cheap date comparisons only, zero new dispatches
+-- until the next day's data is available, instead of cycling the same
+symbols 3-4x for no new information. The old `nextSlice()` (blind,
+freshness-unaware rotation) was removed as genuinely dead code, not kept
+alongside -- nothing else in the file used it.
+
+**Verified live, the same session**: ran the supervisor for real, got a
+correct fresh batch (6 new symbols, `examined` count matching `picked`
+count exactly since none were previously tested). Then deliberately
+rewound the rotation cursor back onto that same just-tested batch and ran
+again: correctly skipped all 6 (already tested today), examined 12
+candidates total to find the next 6 genuinely fresh ones, and correctly
+rolled over from the tail of the equity universe into the crypto universe
+mid-scan -- proving the skip-and-continue logic, not just the happy path.
+`bus/paper-trades.jsonl` SHA-256 confirmed identical across both runs --
+still report-only.
+
+## 17. Fixed-split growing-test-set redesign for the parameter search
+(added 2026-09-14)
+
+**Why this was needed:** direct user request to run the parameter search
+every ~3 days instead of weekly. Flagged and confirmed together first:
+naively shrinking the cadence on the OLD design (fresh 70/30 split of
+"the most recent N days" recomputed every run) would make consecutive
+runs share most of their test window -- "cleared the bar 4 times in a
+row" would really be one real observation dressed up as four, the same
+autocorrelation trap this vault's own non-overlapping-trial statistics
+exist to avoid elsewhere.
+
+**The fix turned out simpler than the first design considered** (a
+many-small-fold walk-forward ledger, discussed and set aside).
+`metricForHorizon()`'s existing non-overlapping thinning
+(`observationsForSampling`, `backtest-screen-score-v2.js`: `index %
+horizon === 0`) already does correct non-overlapping sampling within
+whatever array it's given, stable as long as the array's start point
+doesn't move. The real bug was re-picking a brand-new split every run,
+sliding the start point forward each time. **Fix: stop re-splitting.**
+The train/test boundary is chosen ONCE per pilot and persisted; TRAIN
+stays fixed, TEST grows forward in place as real trading days accumulate
+(new dates append at the END of a fixed-start array, so the existing
+index-based thinning treats every future run's new days as correctly-
+phased new evidence, with zero changes needed to that thinning logic).
+This is also more rigorous than the old design in a second way: the
+winning weight combination is now selected once from a fixed historical
+window, rather than re-picked fresh against a sliding recent window every
+run -- arguably closer to data-snooping in the old design.
+
+**Honest limit, stated plainly, not hidden**: a horizon still needs real
+calendar time >= its own length to produce one new non-overlapping data
+point for that horizon -- 5 days for the 5-day horizon, 10 for the
+10-day, 20 for the 20-day. Running every 3 days means most runs add a
+new 5-day-horizon trial; 10- and 20-day evidence accumulates slower,
+automatically and correctly. Every run is still genuinely informative (a
+bigger, richer test set) even when only the 5-day horizon gained new
+evidence that particular run.
+
+**Deliberate scope limit**: the training window's start stays fixed
+indefinitely -- no periodic re-anchoring to recent market regimes. A
+real, known tradeoff, left for a future pass, kept out of this change to
+stay focused on the one problem it's for.
+
+**Files:**
+- `bus/scripts/backtest-screen-score-v2.js` -- `fetchAssetClassData(config,
+  extraHistoryDays = 0)` gained an optional second parameter. `0`
+  (default) is byte-identical to before -- every existing caller
+  (`replayAssetClass()`, the daily CLI verdict) unaffected. `> 0` (used
+  only by the parameter search) requests much deeper raw history (~750
+  trading days) and widens the candidate-feature loop to cover the full
+  uncapped `eligibleDates`, now also returned alongside the existing,
+  still-capped-at-252 `signalDates`.
+- `bus/scripts/backtest-parameter-search.js` (rewritten) -- new
+  `bus/scripts/backtest-search-split-state.json` (git-committed, durable,
+  same category as `screen-score-weights.json`) persists `{ splitDate }`
+  per pilot, set once. Every run: TRAIN = eligible dates up to
+  `splitDate` (fixed), TEST = eligible dates after it (grows). Grid
+  search and `assetClassHasDefensibleEdge()` check are otherwise
+  unchanged -- same predeclared bar, no new weaker one invented.
+- `bus/scripts/backtest-supervisor.js` -- the search moved off the
+  Sunday-only weekly gate onto the EXISTING daily 08:00 UTC cron trigger
+  (no new crontab entry) via a new `isSearchDue()` (>= `SEARCH_INTERVAL_DAYS`
+  = 3 days elapsed, replacing the old `isWeeklyBacktestDue()`/
+  `lastWeeklyRunWeek` check). `maybeRunWeeklyBacktest()` renamed to
+  `maybeRunParameterSearch()` to match -- it no longer runs weekly.
+- `bus/scripts/backtest-vault-writer.js` -- `publishWeightSearchNote()`
+  updated to report the fixed split date and how much the test set grew
+  since the last run, so notes honestly reflect a growing-in-place series
+  rather than implying a fresh split each time.
+
+**Verified live, the same session**: cold-start run correctly initialized
+`splitDate` for both pilots (fleet: 2025-07-30, giving an immediate 261-
+signal test set vs. the old design's ~76-116; crypto: 2026-07-06, 50
+signals -- less available history for that universe, a real data
+limitation, not a bug). Immediate re-run confirmed `splitDate` unchanged
+and test-set size stable (no new trading day had passed) rather than
+resetting. Full `backtest-supervisor.js` daily run confirmed the search
+fires correctly on a fresh `lastParameterSearchRun` state field and
+correctly no-ops on an immediate second run. `bus/paper-trades.jsonl`
+SHA-256 confirmed identical throughout -- still report-only.
+
+## 18. Tightened entry/exit sampling + machine-readable trigger count
+(added 2026-09-15)
+
+**Why this was needed:** the second half of a plan approved but deferred
+the day before (the user asked to talk through the bigger picture
+instead). Real evidence across dozens of live dispatches: the continuous
+entry/exit backtest's 10-trading-day sampling interval produced **zero
+genuine triggers found, ever**, across every symbol checked -- not
+because the strategy has no signal, but because a 10-day-coarse sample
+mostly misses the days a support/resistance level was actually touched.
+
+**Fix**: `bus/scripts/generate-backtest-tasks.js`'s `WALKFORWARD_STEP_DAYS`
+`10 -> 3`. Every prompt string already referenced this constant via
+template literals (confirmed via grep before changing it -- zero
+hardcoded "10" strings anywhere in the file), so this one-line change is
+the entire fix; no prompt text could drift out of sync. Real, stated
+tradeoff: roughly triples the injected walk-forward table's row count
+(~36 -> ~116 points over the same ~500-bar window) -- a real increase in
+prompt size/cost per dispatch, same single Alpaca fetch either way.
+
+**Also added**: `backtestPayload()` now asks for one more line, a
+machine-checkable `TRIGGER_COUNT: <integer>` on the final line of every
+response -- matching this vault's existing `SOURCE:`/`Lean:`-line
+convention instead of relying on fragile prose-parsing. `edge-status.js`'s
+`getAggregateContinuousStats()` updated to prefer this exact field when
+present, falling back to the original regex heuristic only for facts
+recorded before this change -- verified live: all 79 real facts in
+`bus/memory.jsonl` at the time of this change still parse correctly via
+the fallback path (one, CVX, already showing a real signal under the old
+heuristic).
+
+**Deliberately out of scope, named so it isn't silently dropped**: the
+dual-agent pitch/verify half of the original paused plan (Codex pitches,
+the other specialist verifies only when a real trigger is found) -- a
+named next step once this sampling fix's real effect on trigger-finding
+rate is observed, not bundled in here.
+
+## 19. The "survive" city-bank economy -- autonomous real-money growth, isolated branch (added 2026-09-15)
+
+**A deliberate, explicit, user-directed exception to section 7's real-money
+boundary, scoped to this branch only.** Direct user request, their own
+framing: "I am a drill sergeant, these are soldiers sent out with fixed
+supplies whose only goal is to survive and grow" -- inspired by viral
+"give an AI agent $100 and survive" experiments, but built on this
+project's existing multi-agent dispatch infrastructure rather than an
+ad-hoc single session. The goal evolved during design into a full
+self-funding economy: "an entire ecosystem with an overarching budget that
+all agents contribute to... like a city with a city bank. The residents
+and leaders are agents. The leaders manage funding for the citizens who go
+out to find or continue work and give their money to the bank."
+
+**This does NOT alter section 7 for the existing fleet/crypto pilots.**
+`alpaca-client.js`'s hard paper-only guard is untouched, unmodified, and
+never reused here. Everything below lives in new, separate files, with its
+own separate real-money live client (`survive-alpaca-live-client.js`), so
+the two domains can never be confused or cross-contaminated. Section 7's
+boundary remains fully binding for `fleet_pilot_*`/`crypto_pilot_*` --
+this section *is* the "separate, deliberate future decision" section 7
+itself anticipated, exercised only for this isolated branch.
+
+**The model.** One founding citizen ("C1") is funded with a real, hard
+$50 cap -- no re-supply from the human, ever. It pursues a real-money
+mechanism of its own choosing (live equity/ETF trading via Alpaca is the
+only mechanism built for v1; see below). If it earns real, realized
+surplus, it may deposit that surplus into the shared city bank and spawn a
+new citizen, becoming that citizen's leader -- the city grows recursively,
+bottom-up, from whoever actually succeeds and chooses to reinvest, not a
+fixed org chart. The bank only ever re-funds an existing struggling
+citizen from **real, already-realized surplus**, checked by a fail-closed
+solvency gate that can never let the bank's balance go negative.
+
+**Architectural decision made during final planning, not assumed by
+either research pass that fed the design**: every citizen shares **one
+real live Alpaca account** (one human KYC, one funded account) --
+spawning a citizen must never require a second identity-verification
+step, or the "city grows itself" premise breaks. Every citizen's balance
+and open position are software-enforced sub-ledgers over that one real
+account, keyed by `citizenId`, reusing the exact `lotId`-based
+multi-position-tracking pattern already proven in
+`execute-portfolio-setup.js`/`monitor-paper-trades.js` for tracking
+several simultaneous lots against one real account.
+
+**Not only a trading bot.** Citizens can research new revenue mechanisms
+for the city on their own (`survive-mechanism-research.js`), not just
+execute within the one pre-built mechanism -- trading is mechanism #1
+because it's the cleanest legal option with the most reusable infra, not
+a ceiling. This research-and-draft step is genuinely autonomous end to
+end (web research, legal/ToS evaluation against two hard boundaries, and
+drafting the actual new module's file content). One honest correction
+made during build, versus the original plan's more optimistic phrasing:
+`run-task-generic.js`'s write-mode dispatch is a manual `--write` CLI flag
+only, never automatically run by `run-queue-daemon.js` -- a deliberate,
+pre-existing safety boundary in this codebase this branch does not quietly
+work around. So a drafted new mechanism module is written to a
+`.proposed.js` file (never auto-loaded by `mechanism-registry.js`) with
+the exact manual activation command printed -- real autonomy for research
+and drafting, one small manual step to actually activate a brand-new
+mechanism, same honesty standard as everything else in this document.
+
+**The two hard boundaries, absolute regardless of "general autonomy,"
+decided after real web research (not guessed)**: no mechanism whose Terms
+of Service bans unsupervised automated action on every action, not just
+setup (ruled out Upwork/Fiverr-shaped platforms), and no mechanism that is
+illegal or geoblocked for a US-based account (ruled out Polymarket).
+Every mechanism, even the legal ones, needs a one-time human-completed
+identity-bound account setup that cannot be automated -- citizens can only
+ever choose among mechanisms for which the human has actually provisioned
+working credentials (`mechanism-registry.js`'s `listAvailableMechanisms()`,
+checking secret *existence* only via `secretsBroker.hasSecret()`, never a
+value).
+
+**Files** (all new, all additive -- `bus/scripts/`):
+`survive-budget-envelope.js` (the hard, never-reset per-citizen cap --
+pure `bus/survive-ledger.jsonl` ledger replay, zero live-client calls by
+design, since a shared account's raw equity can never be read as one
+citizen's number; once a `cap-breach-shutdown` event is written, no code
+path ever clears it), `survive-alpaca-live-client.js` (separate live
+client, long-only, refuses to run against a paper endpoint),
+`city-bank.js` + `bus/survive-city-bank.jsonl` (the shared pool --
+`checkBankSolvency()` never permits a negative balance),
+`city-registry.js` (citizen profiles as `memory-store.js` facts; "leader"
+is never stored, only computed on read from `foundedByLeaderId` links),
+`citizen-lifecycle.js` (the spawn mechanism -- written and unit-tested,
+deliberately NOT wired into `survive-supervisor.js`'s live wake until a
+founder has a real, audited surplus), `mechanism-registry.js` +
+`mechanisms/alpaca-live-equity.js` (auto-discovery, same pattern as
+`bus/scripts/agents/*.json`), `survive-executor.js` (the only thing that
+ever calls the live client's `submitOrder()` -- a citizen's decision task
+emits a structured JSON block, this file is the deterministic executor,
+mirroring `execute-portfolio-setup.js`'s "LLM decides, code executes"
+separation exactly), `survive-supervisor.js` (schedule-invoked cadence,
+mirrors `pilot-supervisor.js`'s shape -- one script drives every citizen,
+not one service per citizen), `survive-journal.js` (two-layer mechanical +
+batched-reflection pattern, batch size 1, mirroring `trading-journal.js`),
+`survive-mechanism-research.js` (weekly, city-level), `city-status.js` +
+`bus/economy.html` + `/economy-status.json` (deliberately not
+`bus/city.html`, which already means an unrelated 3D agent-roster view --
+a real naming collision caught during design).
+
+**Secrets**: `ALPACA_SURVIVE_LIVE_KEY`/`ALPACA_SURVIVE_LIVE_SECRET`/
+`ALPACA_SURVIVE_LIVE_ENDPOINT` in `bus/secrets.local.json` -- three new
+names, never the existing paper ones. `secrets.local.json.example`
+documents the shape.
+
+**Spawn autonomy, decided**: the first-ever real-money spawn requires a
+one-time human confirmation (`cityBank.recordSpawnConfirmedByHuman()`) --
+matching this project's established "prove a new, consequential
+real-money action once, supervised, before trusting it live" pattern used
+everywhere else (paper-before-live, `--rehearsal` mode). Every spawn after
+that first one may proceed fully autonomously
+(`citizen-lifecycle.executeSpawn({autoApprove: true, ...})`), no human
+step.
+
+**Human handoff steps, irreducible, cannot be scripted**: open and
+KYC-verify one real live (non-paper) Alpaca account; fund it with exactly
+$50, once; generate a live API key/secret pair; add the three
+`ALPACA_SURVIVE_LIVE_*` secrets to `bus/secrets.local.json` (local + the
+Pi); run the one-time genesis-funding step for the founder citizen after
+confirming the deposit landed; pick a real ntfy topic (the code default is
+`AgentVaultSurvive`, a placeholder, distinct from the fleet's `ClaudeTeam`
+topic); `sudo` install `bus/deploy/pi/survive-supervisor.service` +
+`.timer` once a supervised `--rehearsal` run has been reviewed end to
+end -- NOT installed by default.
+
+**Build status as of this writing**: every file listed above exists and
+is `node -c` syntax-verified; `city-status.js`/`/economy-status.json`/
+`bus/economy.html` verified live against a real (empty, not-yet-funded)
+state. No live credential has ever touched this code -- no real order has
+been placed. `citizen-lifecycle.js`'s spawn logic is written but not yet
+exercised against a real citizen with real surplus, since none exists
+yet. A full `--rehearsal` mission cycle (research -> decision -> execute
+-> journal) against the real, unmodified paper Alpaca API has not yet been
+run end to end -- the next real step before any live credential is added.
+
+**Named future work, not built now**: a 3D visualization of the city --
+a central hub for genesis, a new building per distinct kind of task/job a
+citizen works on (shared by any citizen doing the same kind of work, or a
+new one spun up), roads connecting buildings that agents are shown
+traveling. The data this would need largely already exists unmodified:
+`city-registry.js`'s `buildLineageTree()` is already the citizen/leader
+graph; `bus/survive-missions.jsonl`'s mission lifecycle events are already
+the "which building is this citizen in right now" feed. Deliberately a
+new page when built, not a rewrite of `bus/city.html` (the existing,
+unrelated subagent-roster visualization) or `bus/economy.html`.
+
+**Round 6 (2026-09-16): zero approval gates.** Direct, explicit user
+instruction, reversing round 2's/round 4's own decisions: "None I want 0
+approval gates. Once they have their money I want 0 approval gates they
+are their own entity." Removed entirely: the email send-approval gate
+(`survive-email.js`'s `requestSend`/`approveSend`/`rejectSend`/
+`hasApproval` machinery -- replaced by a single `sendEmail()` that drafts
+and sends in one call, still fully logged for audit, just never blocked
+on a human step) and the first-spawn human-confirmation gate
+(`cityBank.hasFirstSpawnBeenConfirmed()`/`recordSpawnConfirmedByHuman()`,
+and every `autoApprove` parameter across `citizen-lifecycle.js`/
+`city-leadership.js`/`survive-leader-council.js`, all deleted rather than
+left as unused dead code). **What this does NOT touch, and never was an
+approval gate in the human sense**: the hard per-citizen budget cap (no
+re-supply, ever), the bank's own solvency gate (can never go negative),
+and the runaway-spawn guards (max active spawns per leader, cooldown
+days) -- these are the system's actual financial/structural rules, not
+human checkpoints, and stay exactly as they were. Also confirmed
+explicitly with the user and worth recording: withdrawing real money from
+Alpaca was ALWAYS human-portal-only, by Alpaca's own design (no API
+exists for it) -- this was never something citizens could gate or block,
+before or after this round; the user's own access to their money was
+never mediated by any of this code.
+
+**Round 7 (2026-09-16): a security layer, structurally separate from the
+city.** Direct follow-on from round 6's zero-approval-gates change: the
+realistic risk isn't "the model goes rogue" (no session-to-session memory
+or autonomous initiative exists to make that coherent) -- it's prompt
+injection, a citizen's own web research or an email reply containing
+content designed to hijack its next decision. User's own framing: "a
+security team for the city... separate from the city so [it] can attack
+and remove whatever is causing problems," without limiting citizens'
+normal abilities (round 6's zero-gate decision is unchanged).
+
+New `bus/scripts/city-security.js`, DETERMINISTIC-FIRST/LLM-SECOND by
+design -- cheap rule-based code that only checks numbers and patterns
+(never reasons about arbitrary text) can't itself be prompt-injected, so
+it's the primary detector; an isolated LLM review is a secondary
+escalation only for cases the rules flag as ambiguous. Six rules, each
+`severe` (auto-quarantine immediately, no LLM round-trip needed to
+freeze) or `moderate` (flag for LLM review, quarantine only if
+confirmed): `RAPID_LOSS_PCT` (>50% of pre-trade cash lost on one closed
+trade -- severe), `SPEND_SPIKE_MULTIPLE` (an order >3x this citizen's own
+historical average -- severe), `EMAIL_SEND_RATE_LIMIT` / `EMAIL_NEW_RECIPIENT_SPIKE`
+(unusually rapid sending or a burst of never-before-emailed recipients --
+moderate), `DECISION_RESEARCH_MISMATCH` (a decision's symbol never
+appears in its own dependency research task's output -- a cheap,
+non-gameable string check, moderate), `REPEATED_GUARD_TRIP` (a leader
+hitting `checkBankSpawnGuards()`'s refusal repeatedly within 24h --
+moderate).
+
+Quarantine is the one, narrow response power: `city-registry.js` gained a
+`quarantined` field plus `quarantineCitizen()` (callable by
+`city-security.js`) and `unquarantineCitizen()` (**human-CLI-only**,
+called from exactly one place -- `city-security.js`'s own
+`node city-security.js unquarantine <citizenId> "note"` command --
+verified by grep, same discipline as `city-reserve.js`'s withdrawal
+function). It's a freeze, not a deletion: all ledger/mission/email
+history stays intact, and every money-moving/email-sending function
+checks it as its first line -- `survive-executor.js`'s
+`executeEntry`/`executeExit`, `citizen-lifecycle.js`'s
+`executeCloneAndPromote`/`executeBankFundedSpawn` (via
+`checkBankSpawnGuards()`)/`executeTopup`, `survive-email.js`'s
+`sendEmail()`. `survive-supervisor.js` runs the security sweep FIRST in
+every wake, before any money-moving step, and skips quarantined citizens
+in mission-authoring. A quarantine event is ntfy priority 5, matching the
+existing "permanent shutdown" severity.
+
+**Structural separation from the city's own chain of command**: not
+managed by any leader, not part of the leader council, its own
+append-only audit log (`bus/survive-city-security.jsonl`, separate from
+every other survive ledger); one-directional -- `city-security.js` reads
+every citizen's ledger/mission/email data, and nothing in
+`citizen-lifecycle.js`/`survive-leader-council.js` ever calls into it
+except to record its own guard-trip audit events (not a write to any
+citizen's record) -- a compromised citizen or leader has no code path to
+disable or influence detection.
+
+**Verified via an isolated integration test** (real code executed, temp
+paths only): a simulated 5x spend spike correctly auto-quarantined a
+citizen with zero LLM dispatch involved; quarantine enforcement confirmed
+across `executeTopup()` and `sendEmail()`, both refusing with the
+specific quarantine reason; a simulated email-rate-limit burst correctly
+flagged as moderate WITHOUT auto-quarantining; a mocked LLM review
+returning `quarantineRecommended:false` correctly left the citizen
+unquarantined, and a second review returning `true` correctly quarantined
+it; confirmed `unquarantineCitizen()` has no caller anywhere in the
+codebase except `city-security.js`'s own CLI block.
+
+**Round 8 (2026-09-16): the real-time 3D city page.** Direct user
+request, designed and built under Fable: the plain `bus/economy.html`
+cards stay exactly as they were ("I like the basic and easy to read UI");
+this is a SEPARATE page, `bus/survive-city-3d.html`, served at
+`/survive-city-3d.html` with its own feed `/survive-city-3d-status.json`
+(`city-status.js`'s new `getCity3DStatus()`; `getCityPlainSummary()` is
+untouched). Same rendering approach as the unrelated `bus/city.html`
+(Three.js 0.160 via CDN import map, OrbitControls, bloom, poll-moves-
+targets/render-loop-eases separation, `Map<id,entry>` diff-sync) --
+deliberately reused, not reinvented.
+
+What it shows, all from real data: **one building per mechanism** (every
+`bus/scripts/mechanisms/*.js` module, lit only if its credentials exist,
+plus any mechanism a citizen is recorded using -- an honest capacity view,
+not just occupancy); the **bank** as a central vault whose height tracks
+the pooled balance; **every citizen as a figure** that walks to the
+building it's working in and glows by `activityState`, derived
+deterministically from `survive-missions.jsonl` (`researching` = at the
+door, `in-position` = on the roof with its symbol, `blocked` = turned
+away, `idle` = in the plaza, leaders on a purple council dais, crowned
+and taller); a **quarantine pen** and a **KIA memorial** on the
+perimeter, visible only when occupied; faint **lineage lines** from each
+leader to the citizens it manages; and a live roster/HUD.
+
+Verified: isolated integration test of `getCity3DStatus()` across all
+six activity states, two mechanisms (one empty), lineage edges; every
+dashboard route returns 200 after a server restart; a real headless
+Chromium render on the Pi of both the live (not-yet-funded) page and a
+fixture-fed populated city with zero JS errors. `bus/city.html` and
+`bus/economy.html` untouched.
+
+**Round 10 (2026-09-16): how citizens spend money on non-trading work.**
+Direct user question: "how will agents get the money out of alpaca to do
+what they want that doesnt involve trading." The honest answer, confirmed
+and permanent: they can't, ever -- Alpaca's self-directed retail account
+has no withdrawal/ACH API at all, only a human-portal transfer, the same
+fact already established for the reserve. So money never needs to leave
+Alpaca through code, because non-trading spend never needs to touch
+Alpaca in the first place.
+
+Two additive pieces:
+
+1. **`city-bank.js` gained `recordHumanCapitalInjection(amountUsd, note)`**
+   (CLI: `node city-bank.js fund <amountUsd> ["note"]`) -- a second, direct
+   way real money enters the bank's pooled balance, independent of any
+   citizen ever realizing trading profit. This is how the user seeded the
+   bank with real capital ("I will provide 50 bucks to the bank") before
+   Alpaca/mechanism #1 was even set up. Repeatable (unlike genesis-
+   funding's once-per-citizen rule); `getBankBalanceUsd()` and
+   `auditBankLedgerIntegrity()` both updated to include it.
+
+2. **New `bus/scripts/city-spending.js`** -- a leader authorizes a real,
+   spend-capped virtual card against the bank's pooled balance. Originally
+   built on Privacy.com (agent-native, no business entity); the user
+   rejected that design outright -- "No I do not want to link my card I
+   just want a flat balance that I can put in there" -- since Privacy.com
+   cards pull live against a linked personal bank account rather than
+   drawing from a genuinely isolated, capped pool. Rebuilt on **Stripe
+   Issuing's v2 FinancialAccount** instead, after researching non-crypto
+   options specifically: a sole-proprietor/individual Stripe account (SSN,
+   no LLC/EIN) has a real, isolated `type: "storage"` FinancialAccount --
+   an actual stored balance, not a pull-through -- that you fund with a
+   flat amount whenever you choose; cards can never spend more than what's
+   actually in it.
+
+   **Empirically confirmed against the user's real Stripe test-mode
+   account this round (not assumed from docs)**: this account is on
+   Stripe's v2 Financial Accounts architecture, so
+   `POST /v1/issuing/cards` REQUIRES `financial_account_v2` pointing at a
+   real FinancialAccount id (the "classic" single-Issuing-balance model
+   some docs describe does not apply here); a default `storage`
+   FinancialAccount already exists per account; a cardholder needs real
+   completion before a card can be issued
+   (`individual[first_name]`/`individual[last_name]`, `phone_number`,
+   `individual[card_issuing][user_terms_acceptance]`) -- found by
+   iterating against real Stripe 400 errors, not guessed. One real bug
+   caught and fixed this way too: the module's own GET requests were
+   sending a `Content-Type` header Stripe's v2 API rejects outright for
+   GET (`415`) -- fixed, verified via a real `fa-status` CLI call against
+   the live account.
+
+   **Blocked on one real, human-only step, named honestly**: the
+   account's FinancialAccount currently shows `status: "pending"` and
+   Stripe refuses to issue a card against it until it's `"open"` -- this
+   looks like standard one-time Stripe account activation (the account
+   also shows `charges_enabled: false`), the same category of irreducible
+   human step as Alpaca's KYC or AgentMail's signup. Check the Stripe
+   Dashboard for outstanding account/Issuing requirements before trusting
+   this live. Funding the FinancialAccount via the inbound-transfer API
+   also isn't verified working yet (404'd in its current state) --
+   confirm via the Dashboard's "Add funds" flow first.
+
+   `checkSpendGuards()` mirrors `citizen-lifecycle.js`'s
+   `checkBankSpawnGuards()` exactly (leader-role + quarantine + bank
+   solvency, and calls `citySecurity.recordGuardTrip()` on refusal --
+   feeds `city-security.js`'s existing `REPEATED_GUARD_TRIP` rule for
+   free). `issueSpendCard()` debits the bank via `city-bank.js`'s existing
+   `recordBankAllocation()` with a new `allocationKind: 'spend-card'`,
+   only after the real Stripe call succeeds. **Whatever card data Stripe
+   returns goes to the caller once and is NEVER persisted** -- only the
+   card id, last4, and spend limit are written to
+   `bus/survive-city-spending.jsonl`. Worth naming as a real (and more
+   conservative) difference from Privacy.com's design: Stripe does not
+   return a card's full PAN/CVV in a plain response by default (PCI
+   scoping) -- `issueSpendCard()` requests the `expand` params for it, but
+   this hasn't been exercised end to end yet, blocked on the
+   pending-FinancialAccount issue above. Pausing/closing a card needs no
+   leader gate (the safe direction, same asymmetry as everywhere else in
+   this codebase).
+
+   **What this does NOT solve, named plainly**: a card is a real payment
+   instrument, not a checkout flow. Actually spending it against an
+   arbitrary website still needs either that merchant's own API (when a
+   non-trading mechanism integrates one) or live browser automation --
+   explicitly out of scope, same reasoning as round 2.
+
+Verified: a direct $50 human injection correctly raises the bank balance
+with zero citizens or trading involved. `issueSpendCard()`'s guard logic
+verified via an isolated integration test (real code, mocked `fetch`,
+temp paths) -- refuses a non-leader, a quarantined target, and an
+over-balance request, bank balance provably unchanged after every
+refusal, each refusal recording a real `guard-trip` event; a mocked
+successful issuance correctly referenced the discovered FinancialAccount,
+sent the spend limit in cents with an `all_time` interval, debited the
+bank by exactly the card amount, and the ledger entry was confirmed to
+contain no card-number field at all; a second issuance for the same
+citizen reused the cached cardholder/FinancialAccount with zero repeat
+API calls. The read path (`getFinancialAccountId()`) was ALSO verified
+for real against the user's live Stripe test account via the `fa-status`
+CLI command, not just mocked. `bus/paper-trades.jsonl` unchanged; no real
+`bus/survive-*.jsonl` files exist yet.
+
+**Round 11 (2026-09-17): security guards, visible in the 3D city.**
+Direct user framing, worth quoting: "their display/presence in the city
+is essentially arbitrary since they are the second defense... it would
+be cool if they went after the rogue agent" -- and, separately, that this
+was worth building as a real first test specifically *because* it needs
+no funding, unlike a citizen. `bus/survive-city-3d.html` gained a small,
+FIXED guard population (`GUARD_COUNT = 2`) -- not tied to citizen count
+or the bank balance, mirroring `city-security.js`'s own structural
+separation from the economy (it reads every citizen, needs no money to
+exist or act). The security station building (previously conditionally
+grown only once a citizen was quarantined) is now always built alongside
+the bank/city hall from the start -- the security team is permanent city
+infrastructure, unlike the cemetery, which correctly still only appears
+once a citizen has actually died (a real, earned event, left unchanged).
+Guards patrol a short loop at the station's door when idle; when a
+citizen is quarantined, the nearest free guard's target becomes a spot
+beside that citizen in the security yard, so it visibly walks over and
+stands watch -- "goes after the rogue agent" in the literal, visual
+sense the user asked for. Assignment is 1:1 and stable by citizenId so
+the same guard sticks with the same citizen rather than swapping every
+poll.
+
+One real bug caught during verification, not just visual polish: guards
+initially had no starting position (defaulting to world origin/the town
+square), meaning on first load they'd need roughly a minute of simulated
+time to walk across town to their post before ever appearing near the
+security station -- fixed by stationing them at their post from the
+first frame, the same "always present, not something that has to arrive"
+principle the round is about. Verified via real headless Chromium
+renders (temp camera positioned at the security corner for the
+screenshot only, not a permanent change) against the fixture-populated
+demo: both guards render with correct navy-uniform/cap/shield-badge
+styling, stationed at the station door, with a quarantined citizen
+correctly present in the yard for them to respond to; zero console
+errors. Also re-verified against the real, live, not-yet-funded dashboard
+route: the security station now appears even with zero citizens, no
+regression to `/economy.html`, `/city.html`, or either JSON endpoint.
+
+**Reference material (2026-09-17, not part of the running system):**
+`reference/TradingAgents/` is a shallow clone of
+[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+(107k stars, Apache 2.0, actively maintained, backed by an arXiv paper) --
+pulled in as design reference after the user asked, before founding C1
+for real, whether this system's single research-pass-then-decide mission
+prompt was as rigorous as it could be. It isn't wired into anything;
+nothing here imports or depends on it. Worth knowing why it's a genuinely
+good reference, not just popular: its core loop is a structured multi-
+agent DEBATE (independent fundamental/sentiment/technical analysts ->
+a bull researcher and bear researcher arguing opposing cases -> a risk-
+management team and portfolio manager making the final call), a more
+rigorous process than this branch's current one-research-pass/one-
+decision-pass mission authoring. If `authorNewMission()` is ever revised
+to add an adversarial bull/bear step before a citizen's decision task,
+this is the reference that prompted it -- named here so the connection
+isn't lost.
+
+**Round 12 (2026-09-17): sizing discipline, and the first real execution
+proof.** Direct user concern, exact words: "50 dollars is not enough for
+it to learn from" -- with no sizing rule, a citizen's very first decision
+could deploy most of a lifetime stake on one trade. `survive-budget-envelope.js`
+gained `MAX_POSITION_FRACTION_OF_LIFETIME_ALLOCATION = 0.4`, enforced
+inside `checkLifetimeBudgetEnvelope()` (structural, not prompt-only --
+the decision task's prompt states the rule too, so the LLM doesn't waste
+a cycle proposing something that will be refused, but the code is what
+actually stops it). Anchored to `lifetimeAllocationUsd` (genesis +
+topups) deliberately, not current/shrinking cash and not current/growing
+balance -- a fraction-of-remainder rule spirals toward ever-smaller
+trades as cash depletes, and a fraction-of-current-balance rule would
+quietly raise the risk ceiling after a lucky streak. This cap never
+moves just because a citizen won or lost. Verified: a $20 order on a $50
+allocation passes (exactly 40%), $21 is refused with a reason naming the
+cap specifically, a $45 order (well within available cash) is still
+refused, and after a simulated loss the cap stays anchored to the
+original $50, not the smaller remaining cash.
+
+**Also this round**: the first-ever real exercise of `survive-executor.js`'s
+order-submission path (research/decision/journal have all been unit-
+tested at the function level all session, but nothing had ever actually
+called `submitOrder()` for real, not even once) -- a throwaway test
+citizen, isolated ledger/registry paths (so C1's real future history
+stays untouched), a hand-written decision task (the point was proving
+execution mechanics, not testing LLM judgment), run for real against the
+unmodified paper Alpaca API. Found and fixed a real bug this way:
+Alpaca auto-cancels a plain market order it can't queue (market closed
+at the time of the test) about 11-12 seconds after submission -- just
+past the original 10-second fill-poll window -- and the executor was
+reporting this as a generic "entry did not fill within the retry window
+(fill-timeout)", which is honestly wrong; nothing timed out, Alpaca made
+a real, final decision on the order. Fixed: a terminal
+canceled/rejected/expired status (re-checked once, ~1s after the
+executor's own cancel request, since the terminal state can land just
+after the original poll window) is now named for what it is, with the
+likely cause stated plainly, rather than mislabeled as a timeout.
+
+**Honestly incomplete, not glossed over**: this proves order submission
+end-to-end for real (authentication, payload shape, symbol/notional
+handling, client-order-id, reaching the real paper account) -- it does
+NOT yet prove a real fill, protective-stop placement after a fill, or
+the exit path, since the market was closed for this entire test session.
+That remains the one piece to verify once markets are open before
+trusting this live.
+
+**Round 13 (2026-09-17): adversarial bull/bear debate before every
+decision.** Direct follow-through on the round-11 TradingAgents reference
+(`reference/TradingAgents/`) -- the mission pipeline was one research
+pass then one decision pass; now it's research -> two INDEPENDENT
+reviewers (a bull case arguing FOR acting, a bear case arguing AGAINST)
+dispatched in parallel, each seeing only the research, never each
+other's output -- then a final decision task that fans in on BOTH and is
+explicitly told to weigh them honestly rather than default to whichever
+it reads first. This is a real, direct upgrade to `authorNewMission()`
+in `survive-supervisor.js`, not a design note: `writeTaskFile()` gained
+`dependsOnTaskIds` support (the local helper only had the single-parent
+`dependsOnTaskId` before); `dependsOnTaskIds` itself is not new --
+`run-task.js`'s fan-in dependency resolution has existed since 2026-09-02
+for exactly this kind of multi-parent case, previously exercised by
+`survive-leader-council.js`'s synthesis pattern but never by an
+individual citizen's own mission. **Deliberately unchanged**: the
+decision task's OUTPUT shape is identical to before (same fenced JSON
+block, same fields), so `survive-executor.js`'s parsing and every
+existing safety gate (budget cap, the round-12
+`MAX_POSITION_FRACTION_OF_LIFETIME_ALLOCATION` sizing cap, protective
+stop placement, quarantine checks) are completely untouched -- this
+upgrade only makes the reasoning that PRODUCES the decision more
+rigorous, it does not touch how that decision gets executed or guarded.
+
+Bull and bear both get a real, honest out: `"stance": "no-real-case"` is
+a legitimate response if the research doesn't actually support a case in
+that direction -- the decision prompt explicitly treats two
+`"no-real-case"` reviews as real information (default toward hold/
+no-action), not a prompt-engineering failure to paper over.
+
+Verified against the REAL `run-task.js` dependency-resolution engine
+(not mocked): a throwaway test citizen's real mission was authored via
+the real `authorNewMission()`; confirmed bull and bear each declare
+`dependsOnTaskId` pointing ONLY at research (never at each other, and
+never both `dependsOnTaskId`/`dependsOnTaskIds` on the same task, which
+`run-task.js` itself refuses as ambiguous); confirmed the decision task's
+fan-in correctly stays unresolved with only one of bull/bear done, and
+resolves only once both are, with both real outputs verbatim in the
+injected context. One real mistake caught and fixed during this test:
+forgot to isolate `survive-executor.js`'s missions-log test hook, so the
+first run wrote one real line into `bus/survive-missions.jsonl` --
+caught immediately (only one line, from the throwaway test citizen,
+never any real one), deleted, confirmed no real `survive-*.jsonl` file
+exists again. `bus/paper-trades.jsonl` unchanged throughout.
+
+**Not yet exercised for real**: no bull/bear/decision task set has ever
+actually been dispatched through the live queue daemon to a real LLM --
+this proves the wiring is correct, not yet what the debate actually
+produces in practice. That happens the first time C1's supervisor wake
+authors a real mission.
+
+**Round 13b (2026-09-17): closing the stop-reconciliation gap named
+since Phase A.** `survive-executor.js`'s own header had flagged this
+honestly from the start: "unlike `monitor-paper-trades.js`'s continuous
+stop-reconciliation loop for the existing fleet, this file does not yet
+re-arm a 'day' stop that expires, or reconcile a position the log thinks
+is open but a stop already closed." Left unaddressed, this was a real,
+severe risk: a protective stop firing is Alpaca's own order engine acting
+server-side, completely independent of this code -- with nothing to
+reconcile it, a citizen's ledger would permanently believe the position
+is still open (`executeEntry()`'s "one position at a time" rule refuses
+to ever let it trade again), silently stalling the citizen forever even
+though the stop worked correctly and real settled cash is sitting in the
+account. Given fractional-share GTC-stop rejections falling back to a
+'day' order are the observed COMMON case on the existing fleet's own
+real trade log, this was a realistic, not theoretical, way for C1 to get
+permanently stuck on its very first loss.
+
+New `survive-executor.js` function `reconcilePosition({ client, citizenId })`:
+no-ops if the ledger has no open position; checks the real account's real
+`getPositions()` for that symbol -- still there, no-op (the normal case);
+gone, searches real closed orders for the matching filled sell and
+records the REAL fill price via the exact same `recordOrderFill()`/
+`recordRealizedProfitSplit()`/`maybeTripPermanentShutdown()` path
+`executeExit()` already uses, so a stop-closed loss still correctly
+triggers no profit split, and a stop-closed profit still correctly
+splits 65/20/15. If the account shows the position gone but genuinely no
+matching closed order can be found, it refuses to guess a price and
+fires a priority-5 ntfy alert instead -- the same "don't invent, alert a
+human" discipline used everywhere else real money is involved. Wired
+into `survive-supervisor.js`'s wake loop as the FIRST thing done for
+each active citizen, before anything else (a fresh decision, a mission
+being authored) can act on what might be a stale ledger.
+
+Verified: two paths (no open position; position genuinely still open)
+tested for real against `alpaca-client.js`'s real paper-account API,
+including a fake open lot the real account genuinely has no record of --
+confirmed it refuses to guess and alerts rather than inventing a close.
+The full happy path (a real externally-closed position gets correctly
+found and reconciled, including the correct P&L and the correct profit-
+split behavior on a loss) was verified with a mocked client, documented
+honestly as mocked -- the real paper account has no real filled sell
+order to correlate against while markets are closed tonight; its true
+first real exercise is whenever a real stop actually fires. Confirmed
+reconciling twice in a row is a safe no-op, not a double-reconcile.
+`bus/paper-trades.jsonl` unchanged; no real `bus/survive-*.jsonl` files
+exist yet.
+
+**Round 14 (2026-09-17): city founded for real; the Knowledge Vault
+building; a live mechanism-research reprocessing bug caught and fixed.**
+
+The city was founded for real this round via a clean, unbroken rehearsal
+proof (real entry/fill/stop/exit against the paper API) -- citizen C1,
+real $50, real live Alpaca account (`cash: $50, equity: $50, status:
+ACTIVE`). Two real bugs were found and fixed getting there: `executeExit`
+existed in `survive-executor.js` but was never added to `module.exports`
+(the rehearsal script crashed calling it directly); and
+`recordRealizedProfitSplit()` crashed on a sub-cent profit share (both
+20%/15% cuts rounding to exactly $0.00) by unconditionally calling
+`recordReserveDeposit()`/`recordBankDeposit()`, which correctly refuse a
+non-positive amount -- fixed by skipping a deposit write when its rounded
+cut is $0, not by loosening that refusal. C1's first three real missions
+all independently, correctly resolved `no-action` on the same SGOV idea
+(spread/execution costs would eat the tiny yield edge over cash) -- the
+bull/bear debate working exactly as designed, not stuck or broken.
+
+A second real bug was found live, unrelated to any of the above: the
+supervisor's wake cadence was tightened from 4h to 15min (so a resolved
+decision gets executed promptly instead of sitting for up to 4h -- see
+`isMissionDue()`'s in-flight-mission fix earlier this round, a real
+duplicate-mission bug also caught live and fixed the same way). At 15min
+cadence, `survive-mechanism-research.js`'s `checkResearchResults()` was
+observed re-recording the *identical* Kalshi proposal every ~16 minutes
+with a fresh timestamp -- it read `survive_mechanism_research_pending_task`,
+processed it if done, but never cleared it, so the same completed task
+was found "done" and reprocessed forever. Fixed by recording that fact as
+`null` once processed, and updating the guard to treat a null value the
+same as "nothing pending."
+
+**Knowledge Vault**: a new landmark building (`bus/survive-city-3d.html`,
+southwest corner, `park2`'s old meadow lot) representing the city's real
+recorded lessons/postmortems (`survive-journal.js`), planned in depth,
+independently cross-reviewed (two geometry bugs and three scope gaps
+caught before a line was written), then built and verified against the
+real, currently-empty data state. `city-status.js` gained `getVaultStats()`
+(lesson/postmortem counts + latest timestamps, sourced from
+`getJournalEntriesWithLessons()`/a new `getAllPostmortems()`) and a
+per-citizen `vaultConsultCount` (a real count of `mission-started` events
+-- the exact moment `authorNewMission()` already, unconditionally,
+consults the journal). `survive-journal.js` gained a
+`_setJournalPathForTesting()` hook (the one survive-*.jsonl module that
+didn't have one yet). The building is always-present (like the Bank/City
+Hall, not conditionally grown like the Cemetery -- every mission-authoring
+wake already consults the journal, lesson or no lesson) with a shell built
+once and tablets appended incrementally as real records accrue, mirroring
+the Cemetery's headstone pattern exactly.
+
+**Two more real bugs caught by actually rendering the result, not just
+reading the code** (the cross-review's own code-level check missed both,
+since neither is visible without a real screenshot): a solid single-box
+body (copied from `makeBank()`'s pattern) buried the shelf/tablet rack
+inside opaque geometry with zero line of sight to it from any angle, ever
+-- confirmed by literally placing the camera inside the building and
+getting pure black. Fixed by rebuilding the body as a genuine hollow shell
+(floor/ceiling/back/front/right walls + an interior light, mirroring
+`makeTower()`'s lobby technique) with the left wall deliberately left open
+for the glass pane. Separately, that glass pane itself was invisible from
+outside because it sat 0.02 units *inside* the opaque wall's own surface,
+fully occluded by it -- fixed by moving it just outside instead. Verified
+after both fixes: a fixture-populated demo (7 lessons, 2 postmortems)
+shows real glowing tablets through the window at night, matching this
+city's existing "buildings read via lit windows after dark" visual
+language exactly, not a special case.
+
+Verified: isolated test for `getVaultStats()`/`getAllPostmortems()` (empty
+baseline, lesson/postmortem counts, exclusion of an un-reflected mission,
+real timestamps) and for the mechanism-research reprocessing fix (the
+exact live bug scenario reproduced and confirmed fixed) -- both against
+real functions with isolated fixture paths, zero real file writes.
+Module syntax (`node --check` on the extracted `<script type="module">`)
+clean after every edit. Live route confirmed: `vault:
+{lessonCount:0, postmortemCount:0, ...}`, C1's real `vaultConsultCount`
+(3) exactly matching its real historical mission count. Every existing
+route (`/economy.html`, `/city.html`, `/simple.html`, etc.) still 200;
+`bus/economy.html`/`bus/city.html` byte-unchanged; no real
+`bus/survive-journal.jsonl` created by any test; `bus/scratch-demo/`
+mirrors kept in sync.
+
+**Round 15 (2026-09-18): grounding trading decisions in real, verified
+data; genuine multi-candidate comparison.**
+
+C1's first four real missions all resolved `no-action` on the same idea
+(SGOV), each citing "unverified" cash yield / spread / fractionability --
+a technicality, not analysis. Root causes, both fixed: (1) the research
+prompt injected zero market data (only ledger numbers + prior lessons +
+a local vault-search snippet), so every market fact was an LLM guess;
+(2) even facts research DID have were lost downstream -- `run-task.js`'s
+`resolveDependency()` relays only a parent's *output*, decision only ever
+sees bull+bear outputs, and their JSON shapes had no field to carry real
+numbers, so real transcripts show decision calling "available cash" and
+"current holdings" *not supplied* when research's own payload stated
+both plainly.
+
+Built (plan cross-reviewed with live read-only API calls before a line
+was written -- the review reproduced a real ~6% after-hours SCHD spread
+that the first draft would have labeled "verified, not an estimate"):
+`getAsset(symbol)` (`GET /v2/assets/{sym}` -> tradable/fractionable/
+status) and `getClock()` added to both Alpaca clients, mirrored
+independently per their no-shared-helper policy, plus `asset`/`clock`
+CLI subcommands. `survive-supervisor.js`: `SURVIVE_CANDIDATE_UNIVERSE`
+(SGOV, BIL, SHY, VOO, SCHD -- two risk tiers so "stay defensive" must
+win an honest comparison), `fetchCandidateUniverseData(client)` (real
+quote+asset per candidate through the existing `loadClient({rehearsal})`
+seam, per-symbol failure isolation, a 12s bound because neither client's
+`fetch()` has any timeout, a single ntfy alert on total failure) and
+`formatCandidateUniverseTable()` (deterministic markdown, honest
+market-closed caveat from the real clock, n/a guard on a zero mid).
+`authorNewMission` is now `async`, takes `{rehearsal}`, pre-fetches and
+injects the table; research is asked to compare the candidates and say
+why the losers lost, with an explicit escape hatch for an outside idea
+flagged as unverified; the recurring cash-yield objection is settled as
+a stated assumption (near-zero idle yield for a small non-margin retail
+account -- which argues FOR a T-bill ETF, the opposite of what four
+decisions assumed; live-tested `GET /v2/account/activities?activity_types=INT`
+returns `[]`, so a yield function would only manufacture a new dead end).
+The relay fix: bull and bear output shapes gain a required
+`verifiedFacts` object (bid/ask/spreadPct/fractionable/tradable/
+availableCashUsd) so the exact numbers reach decision through the
+unchanged multi-parent fan-in; decision is told to prefer those and never
+call a figure "not supplied" that appears there. Task graph, `isMissionDue`,
+`findLatestUnresolvedDecision`, `run-task.js` all untouched.
+
+Verified: all 5 universe symbols real/tradable/fractionable/active on
+both live and paper (parity confirmed, rehearsal is a true stand-in); a
+bad symbol throws a real 404 as the failure path requires; isolated
+tests cover per-symbol failure isolation, null-mid guard, timeout
+bounding (12.0s measured), exactly-one total-failure alert, ntfy-down
+resilience, a rehearsal `authorNewMission` dry run for a scratch citizen
+(real table in the written research task, `verifiedFacts` in bull/bear,
+unchanged dependency wiring, isolated mission log, in-flight block holds,
+files cleaned up), and the relay itself -- fixture bull/bear outputs
+carrying `verifiedFacts` reach a decision task's injected context
+byte-for-byte through the real `resolveTaskDependencies()`. Full
+`main() --rehearsal` completes after the async change. Zero test
+citizens leaked into real `bus/memory.jsonl`/`survive-missions.jsonl`.
+First real exercise: C1's mission005, on its normal cadence.
+
+**Round 16 (2026-09-18): citizens live in the city -- free-roam + real-data
+thought bubbles.** Asked for idle citizens to explore the whole town
+(not pace a tiny loop near home) and for a small over-the-head status
+bubble, visible only up close, showing what a working citizen is really
+doing -- never invented text. Planned, cross-reviewed (the review ran the
+new logic against citizen C1's real task files and computed the real
+camera/sprite geometry, not the plan's arithmetic), then built.
+
+`bus/survive-city-3d.html`: `idlePoiCategories()` returns front-slot
+generators for every currently-built landmark and house (city hall,
+bank, vault, security, every `res:N`) -- deliberately not `mech:*`
+buildings, since an idle citizen at a mechanism door would read as the
+researching citizen actually working there. The wander block gains one
+branch for `state === 'idle'` only: pick a category, then a slot, and
+`findPath` there -- the lattice already routes anywhere in town, no
+pathfinding change. `researching`/`blocked` keep the tight 1.5-6 unit
+loop; `in-position`/`quarantined` stay pinned as before. New
+`bubbleSprite()` (same camera-facing sprite pattern as the hover name
+label) at local `y=3.8`, clear of the badge (top 2.525) and name label
+(top 3.3); shown only for `BUBBLE_STATES` (researching/in-position),
+faded by `camera.position.distanceTo()` between 22 and 38 units; texture
+rebuilt only when the string changes.
+
+`bus/scripts/city-status.js`: `deriveWorkStatusText()` derives the stage
+from which of the mission's four real task files is `done` (via
+`run-task.js`'s `readTaskFile`, DI'd for tests): "Researching
+options..." -> "Weighing the case..." -> "Deciding on {symbol}..."
+(symbol only from bull's own structured output when it went bullish,
+never guessed) -> then branches on the decision's REAL `decision` field:
+"Ready to enter/exit {symbol}..." or "Wrapping up -- staying put for
+now". That last branch is a cross-review fix: the draft keyed on
+`symbol` alone, and during the real ~13-minute window between a
+decision task finishing (05:59:12Z on mission005) and its
+`mission-resolved` event (06:11:57Z), it would have shown "Ready to act
+on SGOV..." for a decision that was `no-action`. `in-position` uses only
+already-free data ("Holding {symbol}") -- no live Alpaca call was added
+to the 2-second poll path, by design. `statusText` is `null` for every
+other state.
+
+Verified: 15 isolated checks (all four pipeline stages, all four
+decision outcomes, the no-real-case honesty gap, undefined task ids, no
+events) plus the real mission005 files through the real `readTaskFile`
+-> "Wrapping up -- staying put for now"; module syntax clean; real
+endpoint returns `statusText: null` for idle C1; fixture-populated demo
+screenshots show "Weighing the case..." over the researching citizen up
+close and no bubbles at the default camera; all 7 routes 200;
+`bus/economy.html`/`bus/city.html` unchanged; no real mission/task
+files touched; demo copy kept in sync, temporary close-up page removed.
 
 ## Related Notes
 

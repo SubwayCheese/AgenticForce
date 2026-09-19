@@ -1,0 +1,10 @@
+{
+  "_comment": "Human-edited. Advisory caps for the discretionary dispatchers WE own (swarm now, improvers later). The shared queue daemon and the paper fleet are not gated by this file. City decision tasks (class 'city') are never gated.",
+  "caps": {
+    "swarm": { "daily": 30 },
+    "improver": { "daily": 10 }
+  },
+  "discretionaryCeiling24h": 160,
+  "healthMaxAgeHours": 6,
+  "minLogCoverageHours": 24
+}

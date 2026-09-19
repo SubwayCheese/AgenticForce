@@ -486,12 +486,20 @@ function readTaskFile(taskId) {
 // tasks/ top level -- archive_pre_daemon/'s six files were folded into
 // this same folder, so the exclusion below now names _archive_tests/
 // instead (archive_pre_daemon/ no longer exists as a separate directory).
+// Exported so any other tasks/-tree walker (bus-status.js's
+// getStatusCounts(), for one -- confirmed 2026-09-15 to have its own,
+// independently drifted copy of this list missing
+// '_archive_continuous_backtest', silently counting 242 archived files
+// into the live dashboard) imports this instead of hand-copying it, so
+// the two lists can't drift apart again.
+const EXCLUDED_TASK_DIR_NAMES = new Set(['verification_suite', 'UNVERIFIED_Cl', '_archive_tests', '_archive_continuous_backtest']);
+
 function listTaskIdsByStatus(status) {
   if (!fs.existsSync(TASKS_DIR)) return [];
   const matches = [];
   function walk(dir, relBase) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'verification_suite' || entry.name === 'UNVERIFIED_Cl' || entry.name === '_archive_tests') continue;
+      if (EXCLUDED_TASK_DIR_NAMES.has(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full, path.join(relBase, entry.name));
@@ -960,6 +968,7 @@ module.exports = {
   taskFilePath,
   listPendingTaskIds,
   listTaskIdsByStatus,
+  EXCLUDED_TASK_DIR_NAMES,
   MANDATORY_SUFFIX,
   LIVE_FILE_READ_CAPABLE,
   WEB_SEARCH_CAPABLE,

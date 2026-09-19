@@ -5,9 +5,21 @@ bus/inbox-check-state.json
 bus/continuous-run.log
 bus/queue-daemon.log
 bus/pilot-supervisor.log
+bus/backtest-supervisor.log
+bus/cron-backtest-supervisor.log
+bus/backtest-rotation-state.json
+bus/dashboard-server.log
+bus/continuous-backtest-supervisor.log
+bus/cron-continuous-backtest-supervisor.log
+bus/continuous-backtest-rotation-state.json
+bus/survive-supervisor.log
 # bus/memory.jsonl is deliberately NOT ignored -- it's the durable fact
 # store (Phase 3 piece 3), a meaningful record closer in character to
 # bus/log.md than to the disposable operational logs above.
+# bus/survive-ledger.jsonl, bus/survive-missions.jsonl,
+# bus/survive-journal.jsonl, and bus/survive-city-bank.jsonl are
+# deliberately NOT ignored either, same reasoning -- durable, meaningful
+# real-money records, not disposable operational logs.
 .graph/
 tasks/verification_suite/
 bus/secrets.local.json

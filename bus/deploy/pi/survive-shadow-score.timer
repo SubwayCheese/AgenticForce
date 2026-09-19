@@ -1,0 +1,12 @@
+# Companion timer for survive-shadow-score.service -- daily, after the US
+# close plus data settling (ET evening ~ 23:00 UTC), no dependence on codex.
+[Unit]
+Description=Run survive-shadow-score.service once a day
+
+[Timer]
+OnCalendar=*-*-* 23:30:00 UTC
+Persistent=true
+Unit=survive-shadow-score.service
+
+[Install]
+WantedBy=timers.target

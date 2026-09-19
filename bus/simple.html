@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trading Agents Status</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --card-bg: #ffffff;
+    --border: #e4e4e0;
+    --text: #1f1f1f;
+    --text-dim: #6b6b66;
+    --green: #1a7f37;
+    --green-bg: #e6f4ea;
+    --yellow: #9a6700;
+    --yellow-bg: #fff8e1;
+    --red: #c0362c;
+    --red-bg: #fdecea;
+    --accent: #6d4fd6;
+    --accent-bg: #efeafc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 60px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 20px; }
+  .banner {
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .banner .dot { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
+  .banner .headline { font-size: 19px; font-weight: 600; }
+  .banner .sub { font-size: 14px; color: var(--text-dim); margin-top: 2px; }
+  .banner.running { background: var(--green-bg); }
+  .banner.running .dot { background: var(--green); }
+  .banner.running .headline { color: var(--green); }
+  .banner.checking { background: var(--yellow-bg); }
+  .banner.checking .dot { background: var(--yellow); }
+  .banner.checking .headline { color: var(--yellow); }
+  .banner.stopped { background: var(--red-bg); }
+  .banner.stopped .dot { background: var(--red); }
+  .banner.stopped .headline { color: var(--red); }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .row:last-child { border-bottom: none; }
+  .row .label { color: var(--text-dim); }
+  .row .value { font-weight: 500; text-align: right; }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+  .skill-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .skill-level { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .skill-points { font-size: 13px; color: var(--text-dim); }
+  .skill-bar-track { background: var(--accent-bg); border-radius: 999px; height: 14px; overflow: hidden; }
+  .skill-bar-fill { background: var(--accent); height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+  .skill-breakdown { font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+  ul.feed { list-style: none; margin: 0; padding: 0; }
+  ul.feed li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    display: flex;
+    gap: 10px;
+  }
+  ul.feed li:last-child { border-bottom: none; }
+  ul.feed li .mark { flex-shrink: 0; }
+  ul.feed li.ok .mark { color: var(--green); }
+  ul.feed li.warn .mark { color: var(--yellow); }
+  .empty { color: var(--text-dim); font-size: 14px; padding: 8px 0; }
+  .footer-note { color: var(--text-dim); font-size: 13px; text-align: center; margin-top: 24px; }
+  a.detail-link { color: var(--text-dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Trading Agents Status</h1>
+
+  <div class="banner checking" id="banner">
+    <div class="dot"></div>
+    <div>
+      <div class="headline" id="headline">Checking…</div>
+      <div class="sub" id="subline"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What's happening right now</h2>
+    <div class="row"><span class="label">Trading check-ins</span><span class="value" id="pilot-line">–</span></div>
+    <div class="row"><span class="label">Weekly backtest</span><span class="value" id="backtest-line">–</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Do we have a real trading edge yet?</h2>
+    <div id="edge-status"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Agent experience</h2>
+    <div id="skill"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Current positions</h2>
+    <div id="positions"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent activity</h2>
+    <ul class="feed" id="feed"><li class="empty">Loading…</li></ul>
+  </div>
+
+  <div class="footer-note">
+    Updates automatically every 15 seconds &middot; <a class="detail-link" href="/dashboard.html">technical view</a>
+  </div>
+</div>
+
+<script>
+function fmtMinutesAgo(mins) {
+  if (mins === null || mins === undefined) return "never";
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 minute ago";
+  if (mins < 60) return mins + " minutes ago";
+  const hrs = Math.floor(mins / 60);
+  return hrs + (hrs === 1 ? " hour ago" : " hours ago");
+}
+function fmtEta(mins) {
+  if (mins === null || mins === undefined) return "soon";
+  const remaining = Math.max(0, mins);
+  if (remaining < 1) return "any moment";
+  if (remaining === 1) return "in about 1 minute";
+  return "in about " + remaining + " minutes";
+}
+function fmtDateTime(iso) {
+  if (!iso) return "not yet";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function fmtMoney(n) {
+  const sign = n >= 0 ? "+" : "-";
+  return sign + "$" + Math.abs(n).toFixed(2);
+}
+
+async function refresh() {
+  let data;
+  try {
+    const res = await fetch("/plain-status.json", { cache: "no-store" });
+    data = await res.json();
+    if (data.error) throw new Error(data.error);
+  } catch (e) {
+    document.getElementById("banner").className = "banner stopped";
+    document.getElementById("headline").textContent = "Can't reach the status service";
+    document.getElementById("subline").textContent = String(e.message || e);
+    return;
+  }
+
+  const banner = document.getElementById("banner");
+  banner.className = "banner " + data.overallStatus;
+  const headline = document.getElementById("headline");
+  const subline = document.getElementById("subline");
+  if (data.overallStatus === "running") {
+    headline.textContent = "Working normally";
+    subline.textContent = "The trading pipeline checked in " + fmtMinutesAgo(data.pilotLoop.minutesAgo) + ".";
+  } else if (data.overallStatus === "checking") {
+    headline.textContent = "Partially responding";
+    subline.textContent = "Something looks slow to check in -- see details below.";
+  } else {
+    headline.textContent = "Not responding";
+    subline.textContent = "The background service doesn't look active right now.";
+  }
+
+  document.getElementById("pilot-line").textContent =
+    "last checked " + fmtMinutesAgo(data.pilotLoop.minutesAgo) + ", next " + fmtEta(data.pilotLoop.cadenceMinutes - (data.pilotLoop.minutesAgo || 0));
+  document.getElementById("backtest-line").textContent =
+    (data.backtestLoop.lastRunAt ? "last ran " + fmtMinutesAgo(data.backtestLoop.minutesAgo) : "hasn't run yet") +
+    ", next around " + fmtDateTime(data.backtestLoop.nextRunAt);
+
+  const skillEl = document.getElementById("skill");
+  if (data.skillScore) {
+    const s = data.skillScore;
+    skillEl.innerHTML =
+      '<div class="skill-row"><span class="skill-level">Level ' + s.level + '</span>' +
+      '<span class="skill-points">' + s.pointsIntoLevel + ' / ' + s.pointsPerLevel + ' pts to next level</span></div>' +
+      '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + s.percentToNextLevel + '%"></div></div>' +
+      '<div class="skill-breakdown">' +
+        s.breakdown.continuousChecks + ' backtest checks &middot; ' +
+        s.breakdown.lessons + ' trade/cycle lessons &middot; ' +
+        s.breakdown.weeklySearchRuns + ' parameter searches &middot; ' +
+        s.breakdown.dailyRuns + ' daily backtests' +
+      '</div>' +
+      '<div class="empty" style="margin-top:8px;">Arbitrary activity score, not a measure of proven trading skill or edge -- see the card above for that honest answer. This only ever goes up; it tracks how much real work has accumulated, not whether it\'s working yet.</div>';
+  } else {
+    skillEl.innerHTML = '<div class="empty">Couldn\'t compute this right now.</div>';
+  }
+
+  const edgeEl = document.getElementById("edge-status");
+  if (data.edgeSummary && data.edgeSummary.plainLine) {
+    edgeEl.innerHTML = '<div style="font-size:15px;line-height:1.5;">' + data.edgeSummary.plainLine + '</div>' +
+      '<div class="empty" style="margin-top:8px;">Answered honestly, not optimistically -- \"no\" is a real, useful result here, not a bug.</div>';
+  } else {
+    edgeEl.innerHTML = '<div class="empty">No backtest evidence recorded yet.</div>';
+  }
+
+  const posEl = document.getElementById("positions");
+  if (data.openPositions === null) {
+    posEl.innerHTML = '<div class="empty">Couldn\'t reach the broker just now.</div>';
+  } else if (!data.openPositions.length) {
+    posEl.innerHTML = '<div class="empty">No open positions right now.</div>';
+  } else {
+    posEl.innerHTML = data.openPositions.map(function(p) {
+      const cls = p.unrealizedPnl >= 0 ? "pnl-pos" : "pnl-neg";
+      return '<div class="row"><span class="label">' + p.symbol + ' (' + p.side + ')</span>' +
+        '<span class="value ' + cls + '">' + fmtMoney(p.unrealizedPnl) + ' (' + p.unrealizedPnlPct.toFixed(1) + '%)</span></div>';
+    }).join("");
+  }
+
+  const feed = document.getElementById("feed");
+  if (!data.recentEvents.length) {
+    feed.innerHTML = '<li class="empty">No recent activity yet.</li>';
+  } else {
+    feed.innerHTML = data.recentEvents.slice(0, 12).map(function(e) {
+      const failed = e.status === "blocked" || e.status === "error" || e.status === "unverified";
+      return '<li class="' + (failed ? "warn" : "ok") + '"><span class="mark">' + (failed ? "!" : "✓") + '</span><span>' + e.text + '</span></li>';
+    }).join("");
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

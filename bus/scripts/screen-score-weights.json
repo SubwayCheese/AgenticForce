@@ -1,0 +1,5 @@
+{
+  "_comment": "Live weights for computeScreenScore() (generate-pilot-tasks.js), per pilot. Both entries below are today's original hardcoded default (50/30/20) -- unmodified until a real backtest-parameter-search.js run clears its out-of-sample bar (ARCHITECTURE.md section 13). Edited ONLY by that script; git history on this file is the full audit trail of every real formula change, when, and why (see the linked vault note each entry's update produces).",
+  "fleet": { "chgPct": 50, "avgVolume": 30, "marketCap": 20, "lastUpdated": null, "appliedBy": null },
+  "crypto": { "chgPct": 50, "avgVolume": 30, "marketCap": 20, "lastUpdated": null, "appliedBy": null }
+}

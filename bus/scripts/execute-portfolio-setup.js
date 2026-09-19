@@ -404,9 +404,25 @@ function findLatestUnexecutedRound3(pilot) {
   const task = runTask.readTaskFile(latest.taskId);
   if (!task || task.status !== 'done' || !task.output) return null;
 
+  // Per-candidate, not per-task: this used to be
+  // `entries.some((r) => r.sourceTask === latest.taskId)`, which treats ANY
+  // log row referencing the taskId as "the whole batch already ran." If an
+  // earlier candidate in a multi-candidate batch threw inside executeOne()
+  // (uncaught -- see runForTaskMicro()), every later candidate in that same
+  // batch was permanently skipped on every future --auto wake, with no
+  // retry. Now the task is only treated as fully executed once every
+  // approved candidate in it has a matching log row.
+  let candidates;
+  try {
+    candidates = extractApprovedCandidates(latest.taskId);
+  } catch (_) {
+    return null; // can't determine candidates -- nothing to do, same as the no-candidates path below
+  }
+  if (!candidates.length) return null;
   const entries = readTradeLog();
-  const alreadyRun = entries.some((r) => r.sourceTask === latest.taskId);
-  if (alreadyRun) return null; // today's cycle already executed -- --auto is safe to call every supervisor wake
+  const executedSymbols = new Set(entries.filter((r) => r.sourceTask === latest.taskId).map((r) => r.symbol));
+  const allExecuted = candidates.every((c) => executedSymbols.has(c.conditionalSetup.symbol));
+  if (allExecuted) return null; // today's cycle already fully executed -- --auto is safe to call every supervisor wake
 
   return latest.taskId;
 }
@@ -769,12 +785,31 @@ async function computeMicroSizing(symbol, direction, isCrypto) {
 
 async function runForTaskMicro(taskId) {
   const candidates = extractApprovedCandidates(taskId);
+  const entries = readTradeLog();
+  const executedSymbols = new Set(entries.filter((r) => r.sourceTask === taskId).map((r) => r.symbol));
   console.log(`[--auto] Found ${candidates.length} approved candidate(s) in ${taskId}, sizing each as a ~$${AUTO_MICRO_NOTIONAL_PER_LEG} micro trade.`);
   for (const candidate of candidates) {
     const setup = candidate.conditionalSetup;
-    const isCrypto = cryptoSymbols.isCryptoSymbol(setup.symbol);
-    const sizing = await computeMicroSizing(setup.symbol, setup.direction, isCrypto);
-    await executeOne(candidate, taskId, sizing);
+    if (executedSymbols.has(setup.symbol)) {
+      console.log(`[--auto] ${setup.symbol}: already has a log entry for ${taskId}, skipping (resuming a partially-executed batch).`);
+      continue;
+    }
+    try {
+      const isCrypto = cryptoSymbols.isCryptoSymbol(setup.symbol);
+      const sizing = await computeMicroSizing(setup.symbol, setup.direction, isCrypto);
+      await executeOne(candidate, taskId, sizing);
+    } catch (err) {
+      // One candidate throwing must not silently drop every remaining
+      // candidate in this batch -- findLatestUnexecutedRound3()'s
+      // per-candidate check above means this one gets retried on the next
+      // --auto wake instead of being permanently stuck.
+      console.error(`[--auto] ${setup.symbol}: executeOne FAILED -- ${err.message}`);
+      ntfy.sendNtfy({
+        title: `execute-portfolio-setup.js --auto: ${setup.symbol} failed`,
+        message: `Candidate ${setup.symbol} in ${taskId} threw during executeOne(): ${err.message}. Other candidates in this batch were still attempted; this one will be retried on the next --auto wake.`,
+        priority: 4,
+      }).catch(() => {});
+    }
   }
 }
 

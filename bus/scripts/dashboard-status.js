@@ -13,12 +13,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const busStatus = require('./bus-status.js');
 const runTask = require('./run-task.js');
 const engine = require('./agent-engine.js');
 const cycleDateUtils = require('./cycle-date-utils.js');
 const fleetStatus = require('./fleet-status.js');
 const journal = require('./trading-journal.js');
+const alpaca = require('./alpaca-client.js');
+const edgeStatus = require('./edge-status.js');
+const memoryStore = require('./memory-store.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
 const DAEMON_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon.log');
@@ -126,7 +130,20 @@ const DOMAIN_PATTERNS = [
   { id: 'fleet', label: 'Equity Fleet', prefix: /^fleet_pilot_/, cyclePrefix: 'fleet_pilot_' },
   { id: 'crypto', label: 'Crypto Fleet', prefix: /^crypto_pilot_/, cyclePrefix: 'crypto_pilot_' },
 ];
+// Short-TTL memoization for getDomainActivity()/getLearningActivity() --
+// both do a full, uncached tasks/ directory scan + per-file read/parse,
+// and both are called (via buildAgentGraph()/getSkillScore()) on every
+// /agent-graph.json poll, which city.html/agents.html hit every 2s. With
+// 600+ real task files, that's real repeated work for data that can't
+// meaningfully change faster than this TTL.
+const ACTIVITY_CACHE_TTL_MS = 1500;
+let domainActivityCache = null;
+let domainActivityCacheAt = 0;
+let learningActivityCache = null;
+let learningActivityCacheAt = 0;
+
 function getDomainActivity() {
+  if (domainActivityCache && (Date.now() - domainActivityCacheAt) < ACTIVITY_CACHE_TTL_MS) return domainActivityCache;
   const files = fs.existsSync(runTask.TASKS_DIR) ? fs.readdirSync(runTask.TASKS_DIR).filter((f) => f.endsWith('.md')) : [];
   const now = Date.now();
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
@@ -162,7 +179,9 @@ function getDomainActivity() {
     if (ts && now - ts <= sevenDaysMs) bucket.last7Days += 1;
   }
 
-  return [...domains, otherDomain];
+  domainActivityCache = [...domains, otherDomain];
+  domainActivityCacheAt = Date.now();
+  return domainActivityCache;
 }
 
 // Real "how much has this domain learned" count for city.html's 3D
@@ -178,6 +197,7 @@ function getDomainActivity() {
 //      ...) counts separately -- each is a real completed synthesis with
 //      its own real keyLearnings, not a superseded draft to skip.
 function getLearningActivity() {
+  if (learningActivityCache && (Date.now() - learningActivityCacheAt) < ACTIVITY_CACHE_TTL_MS) return learningActivityCache;
   const counts = { fleet: 0, crypto: 0 };
 
   for (const entry of journal.getJournalEntriesWithLessons()) {
@@ -198,7 +218,56 @@ function getLearningActivity() {
     if (parsed && Array.isArray(parsed.keyLearnings)) counts[bucket] += parsed.keyLearnings.length;
   }
 
-  return counts; // { fleet, crypto } -- vault-ops has no learning concept, stays 0 by omission
+  learningActivityCache = counts; // { fleet, crypto } -- vault-ops has no learning concept, stays 0 by omission
+  learningActivityCacheAt = Date.now();
+  return learningActivityCache;
+}
+
+// ---------- "Skill" bar (added 2026-09-14, explicitly arbitrary) ----------
+//
+// Direct user request for a growing progress bar representing "skill" --
+// the user called it "arbitrary" themselves, which matters: this is a
+// composite ACTIVITY score (real counts, weighted by an arbitrary point
+// scale below), not a claim of validated trading skill or proven edge.
+// It must never be allowed to read as contradicting the honest "Do we
+// have a real trading edge yet?" card on the same page -- that stays the
+// only place this vault claims anything about actual performance. This
+// only ever measures how much real work has accumulated: backtest
+// checks, trade-outcome lessons, and completed search/reflection cycles.
+// Monotonically non-decreasing by construction (every input is a
+// cumulative count, nothing here can go down), which is fine and correct
+// for an activity meter, unlike a performance metric.
+const SKILL_POINTS = {
+  continuousBacktestCheck: 1,
+  dailyBacktestRun: 2,
+  tradeOrCycleLesson: 5,
+  weeklyParameterSearchRun: 10,
+};
+const SKILL_POINTS_PER_LEVEL = 100;
+
+function getSkillScore() {
+  const continuousChecks = edgeStatus.getAggregateContinuousStats().totalChecked;
+  const dailyRuns = memoryStore.getFactHistory('backtest_daily_screen_score_verdict').length;
+  const weeklySearchRuns = memoryStore.getFactHistory('screen_score_weights_fleet').length + memoryStore.getFactHistory('screen_score_weights_crypto').length;
+  const learning = getLearningActivity();
+  const lessons = learning.fleet + learning.crypto;
+
+  const totalPoints = continuousChecks * SKILL_POINTS.continuousBacktestCheck
+    + dailyRuns * SKILL_POINTS.dailyBacktestRun
+    + weeklySearchRuns * SKILL_POINTS.weeklyParameterSearchRun
+    + lessons * SKILL_POINTS.tradeOrCycleLesson;
+
+  const level = Math.floor(totalPoints / SKILL_POINTS_PER_LEVEL) + 1;
+  const pointsIntoLevel = totalPoints % SKILL_POINTS_PER_LEVEL;
+
+  return {
+    totalPoints,
+    level,
+    pointsIntoLevel,
+    pointsPerLevel: SKILL_POINTS_PER_LEVEL,
+    percentToNextLevel: Math.round((pointsIntoLevel / SKILL_POINTS_PER_LEVEL) * 100),
+    breakdown: { continuousChecks, dailyRuns, weeklySearchRuns, lessons },
+  };
 }
 
 function buildAgentGraph() {
@@ -279,4 +348,212 @@ function buildAgentGraph() {
   };
 }
 
-module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph, getDomainActivity, getLearningActivity };
+// ---------- Plain-language summary (added 2026-09-14) ----------
+//
+// Direct user request: the existing dashboard/agents.html/city.html are
+// all real, but every one of them shows raw task ids, JSON-shaped
+// counts, and a dark-terminal aesthetic -- the user said it was
+// "confusing" and asked for something simpler that answers one question
+// plainly: are the 24/7 agents actually still working right now? This is
+// a NEW, separate summary (not a replacement for the detailed views,
+// which stay available for anyone who wants the raw detail) built
+// specifically to answer that in plain English.
+
+const PILOT_SUPERVISOR_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'pilot-supervisor.log');
+const BACKTEST_SUPERVISOR_LOG_PATH = path.join(VAULT_ROOT, 'bus', 'backtest-supervisor.log');
+const PILOT_CADENCE_MINUTES = 30; // matches the crontab entry
+const PILOT_HEALTHY_GRACE_MINUTES = 5; // buffer above the cadence before calling it stalled
+const BACKTEST_CADENCE_MINUTES = 1440; // daily, matches backtest-supervisor.js's 08:00 UTC crontab entry
+const BACKTEST_HEALTHY_GRACE_MINUTES = 120; // 2h buffer -- the daily backtest can legitimately run a bit late
+
+function lastLogTimestamp(logPath) {
+  if (!fs.existsSync(logPath)) return null;
+  // Read only the tail -- these logs can grow large over weeks, and only
+  // the last real "[timestamp] ..." line is needed.
+  const stat = fs.statSync(logPath);
+  const readFrom = Math.max(0, stat.size - 8000);
+  const fd = fs.openSync(logPath, 'r');
+  const buf = Buffer.alloc(stat.size - readFrom);
+  fs.readSync(fd, buf, 0, buf.length, readFrom);
+  fs.closeSync(fd);
+  const lines = buf.toString('utf8').split('\n').filter((l) => l.trim());
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(/^\[([^\]]+)\]/);
+    if (m) {
+      const ts = new Date(m[1]);
+      if (!Number.isNaN(ts.getTime())) return ts.toISOString();
+    }
+  }
+  return null;
+}
+
+// Best-effort, read-only -- `systemctl is-active` needs no sudo. Returns
+// 'unknown' rather than throwing if systemd/the unit isn't present (e.g.
+// a dev machine that isn't the Pi), same "degrade, don't crash" posture
+// as everything else in this file.
+function getQueueDaemonSystemdStatus() {
+  try {
+    return execSync('systemctl is-active agentvault-queue-daemon.service', { encoding: 'utf8' }).trim();
+  } catch (err) {
+    // systemctl exits non-zero for "inactive"/"failed" too -- stdout on
+    // the thrown error still carries the real state.
+    const out = (err.stdout || '').toString().trim();
+    return out || 'unknown';
+  }
+}
+
+// Translates a real task id + status into one plain-English sentence, no
+// jargon (no "task", "dispatch", "synthesis", raw ids). Falls back to a
+// generic sentence for anything unrecognized rather than showing nothing.
+// Short, non-technical clause per status -- deliberately never includes
+// the raw `reason` text (dependency chains/error messages are real but
+// far too long/technical for this simple view; the detailed view at
+// /dashboard.html and bus/log.md still have the exact wording).
+function statusClause(status) {
+  if (status === 'blocked') return 'waiting on a related task to finish first';
+  // Verified live 2026-09-15: unlike 'blocked' (which retryBlocked() really
+  // does auto-retry once its dependency resolves), nothing in this
+  // codebase ever auto-retries 'error' or 'unverified' -- 38 real tasks
+  // are currently stuck permanently in these two statuses. This card was
+  // telling users they'd self-resolve when they never do.
+  if (status === 'error') return 'ran into a technical problem -- needs a human to look at it';
+  if (status === 'unverified') return "didn't pass a quality check -- needs a human to look at it";
+  return null;
+}
+
+function plainDescribeTask(entry) {
+  const { taskId, status } = entry;
+  const failed = status === 'blocked' || status === 'error' || status === 'unverified';
+
+  let subject = null;
+  let symbol = null;
+  const stratMatch = taskId.match(/^strategy_backtest_\d+_(fleet|crypto)?_?(data|codex|claude|synthesis)_([a-z0-9]+)$/);
+  const pilotMatch = taskId.match(/^(fleet_pilot|crypto_pilot)_\d+_(data_snapshot|thesis|challenge|synthesis|research_company|rescan)_?([a-z0-9]*)/);
+  const continuousMatch = taskId.match(/^continuous_backtest_\d{12}_(fleet|crypto)_(data|codex)_([a-z0-9]+)$/);
+  const auditMatch = /^bidaily_audit_/.test(taskId);
+
+  if (/^trading_journal_reflection/.test(taskId)) {
+    subject = 'Reviewed a closed trade and wrote down what it learned';
+  } else if (auditMatch) {
+    subject = "Reviewed the last several hours of Codex's backtest findings for anything unusual";
+  } else if (continuousMatch) {
+    symbol = continuousMatch[3].toUpperCase();
+    subject = continuousMatch[2] === 'data' ? `Pulled fresh price history for ${symbol}` : `Backtested the trading rule on ${symbol}`;
+  } else if (pilotMatch) {
+    const isCrypto = pilotMatch[1] === 'crypto_pilot';
+    const kind = pilotMatch[2];
+    symbol = pilotMatch[3] ? pilotMatch[3].toUpperCase() : null;
+    const domain = isCrypto ? 'crypto' : 'stock';
+    if (kind === 'data_snapshot') subject = `Pulled today's real ${domain} market data`;
+    else if (kind === 'thesis') subject = `Wrote an initial case for ${symbol || `a ${domain}`}`;
+    else if (kind === 'challenge') subject = `Pressure-tested the case for ${symbol || `a ${domain}`}`;
+    else if (kind === 'research_company') subject = `Looked up recent news on ${symbol || `a ${domain}`}`;
+    else if (kind === 'synthesis') subject = `Finished today's ${domain} research and made a decision`;
+    else if (kind === 'rescan') subject = `Re-checked a watched ${domain} price trigger`;
+  } else if (stratMatch) {
+    const kind = stratMatch[2];
+    symbol = stratMatch[3].toUpperCase();
+    if (kind === 'data') subject = `Pulled historical price history for ${symbol}`;
+    else if (kind === 'codex' || kind === 'claude') subject = `Backtested the trading rule on ${symbol}`;
+    else if (kind === 'synthesis') subject = symbol === 'BATCH' || symbol === 'PORTFOLIO' ? 'Combined this week\'s backtest results' : `Compared two independent backtests of ${symbol}`;
+  }
+
+  if (!subject) subject = 'Worked on a background research task';
+  if (failed) return `${subject} -- ${statusClause(status)}`;
+  return subject;
+}
+
+async function getOpenPositionsPlain() {
+  try {
+    const positions = await alpaca.getPositions();
+    return positions.map((p) => ({
+      symbol: p.symbol,
+      side: p.side,
+      unrealizedPnl: Number(p.unrealized_pl),
+      unrealizedPnlPct: Number(p.unrealized_plpc) * 100,
+      marketValue: Number(p.market_value),
+    }));
+  } catch (err) {
+    return null; // surfaced as "couldn't reach the broker" by the caller, not thrown
+  }
+}
+
+function minutesAgo(iso) {
+  if (!iso) return null;
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+}
+
+function nextUtc8am() {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 8, 0, 0));
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString();
+}
+
+async function getPlainSummary() {
+  const lastPilotCheck = lastLogTimestamp(PILOT_SUPERVISOR_LOG_PATH);
+  const pilotMinutesAgo = minutesAgo(lastPilotCheck);
+  const pilotHealthy = pilotMinutesAgo !== null && pilotMinutesAgo <= (PILOT_CADENCE_MINUTES + PILOT_HEALTHY_GRACE_MINUTES);
+  const queueDaemonStatus = getQueueDaemonSystemdStatus();
+
+  const lastBacktestCheck = lastLogTimestamp(BACKTEST_SUPERVISOR_LOG_PATH);
+  const backtestMinutesAgo = minutesAgo(lastBacktestCheck);
+  // Was entirely missing: unlike pilotLoop, backtestLoop had no
+  // healthy/cadence-check field at all, so a silently-stopped daily
+  // backtest cron would show as routine on the dashboard forever -- no
+  // signal anywhere that it had stopped.
+  const backtestHealthy = backtestMinutesAgo !== null && backtestMinutesAgo <= (BACKTEST_CADENCE_MINUTES + BACKTEST_HEALTHY_GRACE_MINUTES);
+
+  const activity = busStatus.getRecentActivity(15).slice().reverse();
+  const recentEvents = activity.map((entry) => ({
+    taskId: entry.taskId,
+    status: entry.status,
+    text: plainDescribeTask(entry),
+  }));
+
+  const openPositions = await getOpenPositionsPlain();
+
+  const overallStatus = queueDaemonStatus === 'active' && pilotHealthy && backtestHealthy ? 'running' : (queueDaemonStatus === 'active' || pilotHealthy || backtestHealthy) ? 'checking' : 'stopped';
+
+  // Closes the loop the user flagged 2026-09-14: one always-current,
+  // honest answer to "do we have real edge yet" instead of piecing it
+  // together from several vault notes -- see edge-status.js.
+  let edgeSummary = null;
+  try {
+    edgeSummary = edgeStatus.getOverallEdgeSummary();
+  } catch (err) {
+    edgeSummary = { plainLine: `Couldn't compute edge status: ${err.message}` };
+  }
+
+  let skillScore = null;
+  try {
+    skillScore = getSkillScore();
+  } catch (err) {
+    skillScore = null;
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    overallStatus, // 'running' | 'checking' | 'stopped'
+    queueDaemonStatus,
+    pilotLoop: {
+      lastCheckedAt: lastPilotCheck,
+      minutesAgo: pilotMinutesAgo,
+      cadenceMinutes: PILOT_CADENCE_MINUTES,
+      healthy: pilotHealthy,
+    },
+    backtestLoop: {
+      lastRunAt: lastBacktestCheck,
+      minutesAgo: backtestMinutesAgo,
+      nextRunAt: nextUtc8am(),
+      cadenceMinutes: BACKTEST_CADENCE_MINUTES,
+      healthy: backtestHealthy,
+    },
+    edgeSummary,
+    skillScore,
+    openPositions,
+    recentEvents,
+  };
+}
+
+module.exports = { buildSnapshot, getInFlightTasks, getBacklogRunStatus, buildAgentGraph, getDomainActivity, getLearningActivity, getSkillScore, getPlainSummary };

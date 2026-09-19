@@ -48,6 +48,7 @@ const path = require('path');
 const alpaca = require('./alpaca-client.js');
 const cryptoSymbols = require('./crypto-symbols.js');
 const { placeProtectiveStop, openLots, deriveExitClientOrderId } = require('./execute-portfolio-setup.js');
+const { sendNtfy } = require('./ntfy.js');
 
 const LOG_PATH = path.join(__dirname, '..', 'paper-trades.jsonl');
 
@@ -191,6 +192,7 @@ async function main() {
   console.log('');
 
   for (const entry of entries) {
+    try {
     if (!openLotKeys.has(lotKey(entry))) {
       console.log(`${entry.symbol}: lot ${lotKey(entry)} already has a matching exit record, skipping.`);
       continue;
@@ -253,10 +255,17 @@ async function main() {
     // every --execute pass, not just once at entry time -- the durable fix,
     // not a one-time patch.
     const hasLiveStop = openOrders.some((o) => o.symbol === entry.symbol && (o.type === 'stop' || o.type === 'stop_limit') && o.status !== 'canceled');
-    if (!hasLiveStop) {
+    // If a time-based exit is ALSO firing this same pass, skip the re-arm
+    // entirely and let the flatten branch below handle it directly --
+    // re-arming here would place a fresh stop order against `openOrders`
+    // (fetched once, before this loop started), then the flatten branch
+    // would go looking for "the associated stop" in that same stale list
+    // and miss the one just placed, cancelling nothing and leaving an
+    // orphaned stop order pointing at a position about to be closed.
+    if (!hasLiveStop && !(timeHit || sameDayHit)) {
       console.log(`  WARNING: ${entry.symbol} is open with NO live stop order -- attempting to re-arm now.`);
       if (execute) {
-        const filledQty = Math.abs(Number(live.qty));
+        const filledQty = isCrypto ? Number(live.qty_available || live.qty) : Math.abs(Number(live.qty));
         // Prefer the real fill price from the entry record over the live
         // current price for the fallback-percentage-stop case (matches
         // execute-portfolio-setup.js's own call site) -- falls back to the
@@ -289,7 +298,7 @@ async function main() {
         // branch below is intentionally unreachable for crypto rows, not
         // dead code by accident.
         const closingDirection = entry.direction === 'short' ? 'long' : 'short';
-        const qty = Math.abs(Number(live.qty));
+        const qty = isCrypto ? Number(live.qty_available || live.qty) : Math.abs(Number(live.qty));
         // Crypto rejects "day" (equity-only value, confirmed live: 422
         // "invalid crypto time_in_force") -- crypto closes use "gtc".
         const closeTimeInForce = isCrypto ? 'gtc' : 'day';
@@ -318,6 +327,18 @@ async function main() {
       } else {
         console.log(`  (dry run -- would cancel any related stop order, close the position, and log the exit; re-run with --execute)`);
       }
+    }
+    } catch (err) {
+      // One symbol's Alpaca lookup/order call throwing must not abort
+      // monitoring for every remaining open position in this pass -- that
+      // was the real bug: a single bad response silently dropped stop-order
+      // re-arm/exit checks for every position after the one that threw.
+      console.error(`${entry.symbol}: FAILED this pass -- ${err.message}`);
+      sendNtfy({
+        title: `monitor-paper-trades.js: ${entry.symbol} failed`,
+        message: `Error while monitoring ${entry.symbol} (lot ${lotKey(entry)}): ${err.message}. Other positions still processed this pass.`,
+        priority: 4,
+      }).catch(() => {});
     }
   }
 }

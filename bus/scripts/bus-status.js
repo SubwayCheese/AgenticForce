@@ -26,7 +26,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { listAgentConfigs } = require('./agent-engine.js');
 const { validate: validateAgentConfig } = require('./validate-agent-config.js');
-const { listPendingTaskIds, TASKS_DIR } = require('./run-task.js');
+const { listPendingTaskIds, TASKS_DIR, EXCLUDED_TASK_DIR_NAMES } = require('./run-task.js');
 const memoryStore = require('./memory-store.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
@@ -55,7 +55,19 @@ function reportAgentConfigs() {
 // --- Recent task activity (last N dispatch entries from bus/log.md) ---
 function getRecentActivity(limit = 8) {
   if (!fs.existsSync(LOG_PATH)) return [];
-  const text = fs.readFileSync(LOG_PATH, 'utf8');
+  // Tail-read only, same technique as dashboard-status.js's
+  // lastLogTimestamp() -- bus/log.md is confirmed 13MB (not the ~500KB
+  // ARCHITECTURE.md claims) and this is polled every 2s by two dashboard
+  // routes; a 2MB window comfortably covers far more than `limit` entries
+  // without reading and splitting the entire file on every poll.
+  const TAIL_WINDOW_BYTES = 2 * 1024 * 1024;
+  const stat = fs.statSync(LOG_PATH);
+  const readFrom = Math.max(0, stat.size - TAIL_WINDOW_BYTES);
+  const fd = fs.openSync(LOG_PATH, 'r');
+  const buf = Buffer.alloc(stat.size - readFrom);
+  fs.readSync(fd, buf, 0, buf.length, readFrom);
+  fs.closeSync(fd);
+  const text = buf.toString('utf8');
   // Each entry starts with "## <task_id> (<script>...)" -- split on that.
   const entries = text.split(/\n(?=## )/).filter((e) => e.trim().startsWith('##'));
   const recent = entries.slice(-limit);
@@ -63,14 +75,23 @@ function getRecentActivity(limit = 8) {
   for (const entry of recent) {
     const headerMatch = entry.match(/^## (\S+)\s*\(([^)]*)\)/);
     const statusMatch = entry.match(/status -> (\w+)/);
-    const reasonMatch = entry.match(/^(?:Dependency resolution|Secret resolution|VERIFICATION) FAILED: (.+)$/m);
+    const explicitReasonMatch = entry.match(/^(?:Dependency resolution|Secret resolution|VERIFICATION) FAILED: (.+)$/m);
+    // Fallback for status:error entries with no explicit "... FAILED:"
+    // line above -- these always had real diagnostic text via "Exit code:
+    // N", but it was never looked at, so every one of these showed
+    // reason:null in the activity feed. Only surfaced for a genuinely
+    // non-zero exit, so a normal done task's "Exit code: 0" never gets
+    // mistaken for a reason.
+    const exitCodeMatch = entry.match(/^Exit code: (\d+)$/m);
+    let reason = explicitReasonMatch ? explicitReasonMatch[1] : null;
+    if (!reason && exitCodeMatch && exitCodeMatch[1] !== '0') reason = `dispatch exited non-zero (exit code ${exitCodeMatch[1]})`;
     if (headerMatch) {
       const [, taskId, via] = headerMatch;
       out.push({
         taskId,
         via,
         status: statusMatch ? statusMatch[1] : '(unknown)',
-        reason: reasonMatch ? reasonMatch[1] : null,
+        reason,
       });
     }
   }
@@ -108,18 +129,21 @@ function reportPendingTasks() {
 // `status:` string each file actually has -- not a hardcoded list of
 // known statuses, so a future status value still counts correctly
 // without this needing an update. Same exclusion list as
-// `listTaskIdsByStatus()` in run-task.js (verification_suite/,
-// UNVERIFIED_Cl/, _archive_tests/, the two template files) -- kept as a
-// separate small walk rather than calling listTaskIdsByStatus() once
-// per known status, since this doesn't know the status vocabulary in
-// advance and a single pass is cheaper than N passes anyway.
+// `listTaskIdsByStatus()` in run-task.js -- imported as
+// EXCLUDED_TASK_DIR_NAMES instead of hand-copied, after the two lists
+// were confirmed to have drifted (this one was missing
+// '_archive_continuous_backtest', silently counting 242 archived files
+// into the live dashboard's status panel). Kept as a separate small walk
+// rather than calling listTaskIdsByStatus() once per known status, since
+// this doesn't know the status vocabulary in advance and a single pass is
+// cheaper than N passes anyway.
 function getStatusCounts() {
   const counts = {};
   let total = 0;
   if (!fs.existsSync(TASKS_DIR)) return { counts, total };
   function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'verification_suite' || entry.name === 'UNVERIFIED_Cl' || entry.name === '_archive_tests') continue;
+      if (EXCLUDED_TASK_DIR_NAMES.has(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);

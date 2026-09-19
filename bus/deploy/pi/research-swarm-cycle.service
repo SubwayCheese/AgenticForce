@@ -1,0 +1,26 @@
+# research-swarm-cycle.service -- Round 17. Oneshot unit for the
+# isolated, genuinely-concurrent research swarm (research-swarm-cycle.js).
+# Completely separate from run-queue-daemon.js / survive-supervisor.js --
+# reads/writes only tasks-research-swarm/ and bus/research-swarm-events.jsonl,
+# never touches tasks/ or bus/queue-daemon.pid.
+#
+# Installed on this Pi as a --user unit (not system-wide/sudo):
+#   mkdir -p ~/.config/systemd/user
+#   cp research-swarm-cycle.service research-swarm-cycle.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now research-swarm-cycle.timer
+#
+# TimeoutStartSec and Environment=PATH are NOT optional -- both were real,
+# cross-review-caught bugs that would have silently broken the very first
+# real run under systemd (default TimeoutStartSec is 90s, far under a
+# real ~15-25min cycle; systemd units do not inherit the interactive
+# shell PATH that ~/.local/bin/codex depends on).
+[Unit]
+Description=AgentVault survive research swarm -- one concurrent research cycle
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TimeoutStartSec=1800
+ExecStart=/usr/bin/node bus/scripts/research-swarm-cycle.js

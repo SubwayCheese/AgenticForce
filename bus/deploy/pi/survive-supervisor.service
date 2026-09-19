@@ -1,0 +1,30 @@
+# survive-supervisor.service -- oneshot unit triggered by the companion
+# .timer file (ARCHITECTURE.md section 19, the "survive" city-bank
+# branch). Runs survive-supervisor.js: mission cadence/authoring,
+# execution of resolved decisions, journaling, and the weekly
+# mechanism-research check, all in one run that then exits.
+#
+# NOT installed by default -- this is written now, per the approved plan's
+# Phase A, so it exists and is reviewable, but only actually gets enabled
+# once the real human handoff (KYC, funding, live API key, secrets) is
+# done and one supervised foreground run has been watched end to end. See
+# ARCHITECTURE.md section 19's "Human handoff steps."
+#
+# Install (as root, or with sudo) -- install BOTH this file and the .timer
+# file, then enable the TIMER (not this service directly):
+#   sudo cp survive-supervisor.service survive-supervisor.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now survive-supervisor.timer
+#
+# EDIT User=/WorkingDirectory=/ExecStart= to match the real Pi setup if it
+# differs from the values below.
+[Unit]
+Description=AgentVault survive city-bank supervisor (survive-supervisor.js), one run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=subwaycheese
+WorkingDirectory=/home/subwaycheese/AgentVault
+ExecStart=/usr/bin/node bus/scripts/survive-supervisor.js

@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Survive City</title>
+<style>
+  :root{
+    --paper:#fbfaf7; --paper-2:#f2efe8; --line:rgba(30,35,45,0.10); --line-2:rgba(30,35,45,0.18);
+    --ink:#22262e; --ink-2:#5b6270; --ink-3:#8a90a0;
+    --green:#3f8f5a; --amber:#c98a1b; --teal:#2f8f96; --red:#c4473e; --purple:#6f5bb5; --orange:#d07a2f;
+    --shadow:0 6px 24px rgba(30,35,45,0.12), 0 1px 2px rgba(30,35,45,0.08);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0;background:#cfe3f5;color:var(--ink);font-family:"Inter","Segoe UI",system-ui,-apple-system,Helvetica,Arial,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+  header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 22px;background:var(--paper);border-bottom:1px solid var(--line);flex-shrink:0;}
+  h1{font-size:16px;font-weight:600;letter-spacing:0.01em;margin:0;}
+  .subtitle{color:var(--ink-2);font-size:12.5px;margin-top:3px;max-width:900px;}
+  .nav{display:flex;gap:8px;flex-shrink:0;}
+  .navlink{color:var(--ink-2);font-size:12px;border:1px solid var(--line-2);background:#fff;padding:5px 10px;border-radius:6px;text-decoration:none;white-space:nowrap;}
+  .navlink:hover{color:var(--ink);border-color:var(--ink-3);}
+  .main{flex:1;position:relative;overflow:hidden;}
+  canvas{display:block;width:100%;height:100%;}
+  .panel{position:absolute;background:var(--paper);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);font-size:12px;color:var(--ink-2);}
+  .legend{top:14px;left:14px;padding:10px 12px;display:flex;flex-direction:column;gap:5px;max-width:250px;pointer-events:none;}
+  .legend .row{display:flex;align-items:center;gap:8px;}
+  .legend .ic{width:16px;height:16px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0;font-weight:700;}
+  .roster{top:14px;right:14px;padding:10px 12px;min-width:220px;max-width:290px;max-height:calc(100% - 100px);overflow:auto;pointer-events:none;}
+  .roster h2{font-size:11px;font-weight:600;color:var(--ink-3);margin:0 0 6px;text-transform:uppercase;letter-spacing:.06em;}
+  .roster .stat{display:flex;justify-content:space-between;gap:12px;padding:2px 0;}
+  .roster .stat b{color:var(--ink);font-weight:600;}
+  .roster .cit{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-top:1px solid var(--line);}
+  .roster .cit .id{color:var(--ink);font-weight:500;}
+  .st-idle{color:var(--ink-3);} .st-researching{color:var(--amber);} .st-in-position{color:var(--teal);} .st-blocked{color:var(--orange);} .st-kia{color:var(--ink-3);} .st-quarantined{color:var(--red);}
+  .pos{color:var(--green);} .neg{color:var(--red);}
+  .timebar{left:50%;bottom:16px;transform:translateX(-50%);padding:8px 12px;display:flex;align-items:center;gap:10px;pointer-events:auto;}
+  .timebar .clock{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink);min-width:58px;}
+  .timebar input[type=range]{width:220px;accent-color:var(--amber);}
+  .timebar button{font:inherit;font-size:11.5px;border:1px solid var(--line-2);background:#fff;color:var(--ink-2);border-radius:6px;padding:4px 9px;cursor:pointer;}
+  .timebar button.live{border-color:var(--green);color:var(--green);font-weight:600;}
+  .note{position:absolute;right:14px;bottom:16px;max-width:300px;font-size:11px;color:var(--ink-2);background:rgba(251,250,247,0.85);padding:5px 9px;border-radius:6px;pointer-events:none;}
+  .banner{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:var(--paper);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:7px 13px;font-size:12.5px;color:var(--ink-2);pointer-events:none;white-space:nowrap;}
+  @media (max-width:760px){ .roster,.subtitle{display:none;} .timebar input[type=range]{width:130px;} }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Survive City</h1>
+    <div class="subtitle">The city-bank economy as a real town. One landmark building per revenue mechanism, a house for every citizen, the Bank on the square. Citizens walk the streets to wherever they're working right now. Lighting follows your local time of day.</div>
+  </div>
+  <div class="nav">
+    <a class="navlink" href="/economy.html" target="_blank">plain view →</a>
+    <a class="navlink" href="/" target="_blank">console →</a>
+  </div>
+</header>
+
+<div class="main">
+  <canvas id="c"></canvas>
+  <div class="panel legend" id="legend"></div>
+  <div class="panel roster" id="roster"></div>
+  <div class="banner" id="banner" hidden></div>
+  <div class="banner" id="follow" style="top:auto;bottom:64px" hidden></div>
+  <div class="panel timebar">
+    <span class="clock" id="clock">--:--</span>
+    <input type="range" id="scrub" min="0" max="1439" step="1" value="720" aria-label="time of day">
+    <button id="liveBtn" class="live" title="follow the real clock">live</button>
+  </div>
+  <div class="note" id="note"></div>
+</div>
+
+<script type="module">
+// Survive City -- round 9 rebuild (ARCHITECTURE.md section 19).
+// A bright, stylized low-poly town whose every visible thing is real data
+// from /survive-city-3d-status.json. Two loops, as everywhere in this
+// dashboard: poll() only updates targets; renderLoop() runs every frame.
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('c');
+
+// ============================================================ CONFIG
+const CFG = {
+  latitudeDeg: 37,            // assumed viewer latitude for the sun path (mid-latitude US)
+  terrainSize: 420, terrainSegs: 160,
+  flatHalf: 92,               // ground is flat inside this square half-size (the town), hills begin beyond flatHalf+40
+  shadowMap: 2048,
+};
+const PAL = {
+  grass: [0x8fb573, 0x9dbd7c, 0x84ad6c, 0xa3c286],
+  grassDry: 0xb5bd7a,
+  hill: 0x8aa86e,
+  skyDay: 0xcfe3f5, skyDusk: 0xf4b98a, skyNight: 0x0f1626,
+  fogDay: 0xd6e6f4, fogDusk: 0xe8b08f, fogNight: 0x131b2c,
+  sunWarm: 0xfff1d6, sunLow: 0xffb070, moon: 0x9fb4d8,
+  hemiSky: 0xbfdcff, hemiGround: 0x9a8f6e,
+};
+
+// ============================================================ TIME ENGINE
+// Real local clock by default; the scrubber or ?t=HH:MM overrides it.
+const timeEngine = {
+  override: null, // minutes since midnight, or null = live
+  minutesNow() {
+    if (this.override != null) return this.override;
+    const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  },
+  dayOfYear() { const d = new Date(); return Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000); },
+  // Simple solar model: declination from day-of-year, hour angle from local
+  // clock (equation-of-time/longitude offsets ignored on purpose -- this is
+  // a town, not an almanac). Returns elevation/azimuth in radians and a
+  // unit direction vector pointing FROM the scene TOWARD the sun.
+  sun() {
+    const lat = THREE.MathUtils.degToRad(CFG.latitudeDeg);
+    const decl = THREE.MathUtils.degToRad(23.44) * Math.sin(2 * Math.PI * (284 + this.dayOfYear()) / 365);
+    const H = THREE.MathUtils.degToRad(15 * (this.minutesNow() / 60 - 12));
+    const sinEl = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(H);
+    const el = Math.asin(THREE.MathUtils.clamp(sinEl, -1, 1));
+    const cosAz = (Math.sin(decl) - Math.sin(el) * Math.sin(lat)) / (Math.cos(el) * Math.cos(lat) || 1e-6);
+    let az = Math.acos(THREE.MathUtils.clamp(cosAz, -1, 1));
+    if (H > 0) az = 2 * Math.PI - az; // afternoon: west of south
+    const dir = new THREE.Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), -Math.cos(el) * Math.cos(az));
+    return { el, az, dir };
+  },
+};
+{
+  const m = /[?&]t=(\d{1,2}):(\d{2})/.exec(location.search);
+  if (m) timeEngine.override = Number(m[1]) * 60 + Number(m[2]);
+}
+const scrub = $('scrub'), clockEl = $('clock'), liveBtn = $('liveBtn');
+scrub.addEventListener('input', () => { timeEngine.override = Number(scrub.value); liveBtn.classList.remove('live'); });
+liveBtn.addEventListener('click', () => { timeEngine.override = null; liveBtn.classList.add('live'); });
+if (timeEngine.override != null) { liveBtn.classList.remove('live'); scrub.value = Math.floor(timeEngine.override); }
+function fmtClock(mins) { const h = Math.floor(mins / 60) % 24, m = Math.floor(mins % 60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
+
+// ============================================================ RENDERER / CAMERA
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.6;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(PAL.fogDay, 120, 260);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 900);
+camera.position.set(52, 24, 72);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 4, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.07;
+controls.autoRotate = false; // was a fixed ambient rotation around the town center -- fought against actually exploring the town, removed
+controls.minPolarAngle = 1.0; controls.maxPolarAngle = 1.47; // low, grounded: never top-down, never below the ground
+controls.minDistance = 10; controls.maxDistance = 170;
+controls.enablePan = true; controls.screenSpacePanning = false; // ground-plane panning: drag up/down always moves forward/back across the town, independent of camera tilt (screen-space panning tilts the pan vector with the view angle instead -- not what you want when looking down at an angle)
+// Drag-to-explore, not orbit-around-a-fixed-point: left-drag PANS across
+// the town (so any corner, e.g. the security office, is reachable by
+// dragging), right-drag rotates the view, scroll/pinch zooms. This is the
+// direct fix for "click and drag doesn't let me see the security office"
+// -- the old default (left-drag orbits around a pinned target at the
+// town center) couldn't get a far corner into frame without zooming out
+// so far the town became tiny.
+controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+
+function resize() {
+  const w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
+}
+window.addEventListener('resize', resize);
+
+// ============================================================ SKY, SUN, MOON, STARS
+const sky = new Sky();
+sky.scale.setScalar(4000);
+scene.add(sky);
+const skyU = sky.material.uniforms;
+skyU.turbidity.value = 6; skyU.rayleigh.value = 2.2; skyU.mieCoefficient.value = 0.006; skyU.mieDirectionalG.value = 0.8;
+
+const hemi = new THREE.HemisphereLight(PAL.hemiSky, PAL.hemiGround, 0.9);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(PAL.sunWarm, 2.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(CFG.shadowMap, CFG.shadowMap);
+sun.shadow.camera.near = 10; sun.shadow.camera.far = 400;
+sun.shadow.camera.left = -105; sun.shadow.camera.right = 105; sun.shadow.camera.top = 105; sun.shadow.camera.bottom = -105;
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02;
+scene.add(sun); scene.add(sun.target);
+
+const moon = new THREE.DirectionalLight(PAL.moon, 0);
+moon.castShadow = true;
+moon.shadow.mapSize.set(1024, 1024);
+moon.shadow.camera.near = 10; moon.shadow.camera.far = 400;
+moon.shadow.camera.left = -90; moon.shadow.camera.right = 90; moon.shadow.camera.top = 90; moon.shadow.camera.bottom = -90;
+moon.shadow.bias = -0.0006;
+scene.add(moon); scene.add(moon.target);
+const moonDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 12), new THREE.MeshBasicMaterial({ color: 0xe9eef7, fog: false }));
+scene.add(moonDisc);
+
+const stars = (() => {
+  const n = 900, p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const r = 700, th = Math.random() * Math.PI * 2, ph = Math.acos(Math.random() * 0.95);
+    p[i*3] = r * Math.sin(ph) * Math.cos(th); p[i*3+1] = r * Math.cos(ph); p[i*3+2] = r * Math.sin(ph) * Math.sin(th); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  const m = new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, transparent: true, opacity: 0, fog: false, sizeAttenuation: true, depthWrite: false });
+  return new THREE.Points(g, m);
+})();
+scene.add(stars);
+
+// Smooth keyframes on sun elevation (radians): night < -0.14, dusk band around 0, full day > 0.35.
+const lerpColor = (a, b, t, out) => out.copy(a).lerp(b, t);
+const cA = new THREE.Color(), cB = new THREE.Color(), cTmp = new THREE.Color();
+const K = { day: new THREE.Color(PAL.fogDay), dusk: new THREE.Color(PAL.fogDusk), night: new THREE.Color(PAL.fogNight) };
+const lighting = { dayFactor: 1, nightFactor: 0, duskFactor: 0 };
+function updateSkyAndLights() {
+  const { el, dir } = timeEngine.sun();
+  const day = THREE.MathUtils.smoothstep(el, -0.05, 0.3);      // 0 at/below horizon -> 1 in full day
+  const night = 1 - THREE.MathUtils.smoothstep(el, -0.2, -0.02); // 1 deep night -> 0 by civil dawn
+  const dusk = Math.max(0, 1 - Math.abs(el) / 0.22) * (1 - night); // peaks at the horizon
+  lighting.dayFactor = day; lighting.nightFactor = night; lighting.duskFactor = dusk;
+
+  // Sky shader: keep the sun at/above a tiny elevation so the shader's horizon glow reads at dusk;
+  // hand over to a flat night tint via exposure + fog once fully dark.
+  const skySun = dir.clone(); if (skySun.y < 0.012) skySun.y = 0.012; skySun.normalize();
+  skyU.sunPosition.value.copy(skySun);
+  skyU.turbidity.value = 4 + dusk * 8;
+  skyU.rayleigh.value = 1.4 + dusk * 2.5;
+  skyU.mieCoefficient.value = 0.004 + dusk * 0.02;
+  renderer.toneMappingExposure = 0.34 + day * 0.32 + dusk * 0.05 - night * 0.06;
+
+  // Fog/horizon color
+  lerpColor(K.night, K.dusk, 1 - night, cA); lerpColor(cA, K.day, day, cTmp);
+  scene.fog.color.copy(cTmp);
+  scene.fog.near = 110 + day * 30; scene.fog.far = 240 + day * 60;
+
+  // Sun
+  sun.position.copy(dir).multiplyScalar(220);
+  sun.intensity = 2.6 * day;
+  sun.color.set(PAL.sunWarm).lerp(new THREE.Color(PAL.sunLow), THREE.MathUtils.clamp(1 - el / 0.5, 0, 1) * 0.8);
+  sun.visible = el > -0.02;
+
+  // Moon: opposite the sun in azimuth, always up at night
+  const moonDir = new THREE.Vector3(-dir.x, Math.max(0.35, -dir.y + 0.3), -dir.z).normalize();
+  moon.position.copy(moonDir).multiplyScalar(220);
+  moon.intensity = 0.7 * night;
+  moon.visible = night > 0.02;
+  moonDisc.position.copy(moonDir).multiplyScalar(650);
+  moonDisc.material.opacity = 1; moonDisc.visible = night > 0.05;
+
+  // Ambient bounce
+  hemi.intensity = 0.4 + day * 0.6 + dusk * 0.1;
+  hemi.color.set(PAL.hemiSky).lerp(new THREE.Color(0x4a5878), night);
+  hemi.groundColor.set(PAL.hemiGround).lerp(new THREE.Color(0x2a3040), night);
+
+  stars.material.opacity = 0.9 * night;
+}
+
+// ============================================================ TERRAIN
+// Gently rolling low-poly ground, flattened under the town, vertex-colored grass.
+function hash2(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x, y) { return vnoise(x, y) * 0.6 + vnoise(x * 2.1 + 5, y * 2.1 + 3) * 0.28 + vnoise(x * 4.3 + 9, y * 4.3 + 7) * 0.12; }
+function terrainHeight(x, z) {
+  const r = Math.max(Math.abs(x), Math.abs(z));
+  const rise = THREE.MathUtils.smoothstep(r, CFG.flatHalf, CFG.flatHalf + 70); // flat under the town, gentle hills beyond
+  const n = fbm(x * 0.016, z * 0.016);
+  return rise * (n * 7.5 + 0.8) - (1 - rise) * 0.0;
+}
+const terrain = (() => {
+  const g = new THREE.PlaneGeometry(CFG.terrainSize, CFG.terrainSize, CFG.terrainSegs, CFG.terrainSegs);
+  g.rotateX(-Math.PI / 2);
+  const pos = g.attributes.position, colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const y = terrainHeight(x, z); pos.setY(i, y);
+    const t = vnoise(x * 0.06 + 11, z * 0.06 + 17);
+    c.set(PAL.grass[Math.floor(t * PAL.grass.length) % PAL.grass.length]);
+    if (y > 4) c.lerp(new THREE.Color(PAL.hill), THREE.MathUtils.clamp((y - 4) / 5, 0, 0.6));
+    if (t > 0.72 && Math.max(Math.abs(x), Math.abs(z)) > CFG.flatHalf) c.lerp(new THREE.Color(PAL.grassDry), 0.4);
+    colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: true }));
+  m.receiveShadow = true;
+  return m;
+})();
+scene.add(terrain);
+
+// ============================================================ MATERIALS & HELPERS
+const matCache = new Map();
+function mat(color, { rough = 0.92, flat = false, emissive = 0x000000, ei = 0 } = {}) {
+  const k = `${color}|${rough}|${flat}|${emissive}|${ei}`;
+  if (!matCache.has(k)) matCache.set(k, new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, flatShading: flat, emissive, emissiveIntensity: ei }));
+  return matCache.get(k);
+}
+function box(w, h, d, color, opts) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, opts)); m.castShadow = true; m.receiveShadow = true; return m; }
+function at(mesh, x, y, z) { mesh.position.set(x, y, z); return mesh; }
+function seeded(seed) { let s = seed >>> 0 || 1; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+function strHash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+
+// Text on a physical sign board (a plane, mounted on a facade -- not a billboard sprite).
+function makeTextTexture(text, { fg = '#22262e', bg = '#fbfaf7', px = 64, pad = 28, font = '600 %dpx Inter, "Segoe UI", system-ui, sans-serif' } = {}) {
+  const c = document.createElement('canvas'); const ctx = c.getContext('2d');
+  ctx.font = font.replace('%d', px);
+  const w = Math.ceil(ctx.measureText(text).width) + pad * 2, h = px + pad * 1.4;
+  c.width = w; c.height = h;
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  ctx.font = font.replace('%d', px); ctx.fillStyle = fg; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  ctx.fillText(text, w / 2, h / 2 + 2);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return { texture: t, aspect: w / h };
+}
+function makeSignBoard(text, { height = 0.9, fg, bg = '#2b3040', frame = 0xe8dcc0, glow = false } = {}) {
+  const { texture, aspect } = makeTextTexture(text, { fg: fg || '#fbf6ea', bg, px: 64 });
+  const w = height * aspect;
+  const g = new THREE.Group();
+  const back = box(w + 0.3, height + 0.3, 0.16, frame); back.position.z = -0.02; g.add(back);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(w, height), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.6, emissive: 0xffffff, emissiveMap: texture, emissiveIntensity: 0 }));
+  face.position.z = 0.07; g.add(face);
+  g.userData.signFace = face; g.userData.width = w + 0.3;
+  signFaces.push(face);
+  return g;
+}
+const signFaces = []; // lit at night
+
+// ============================================================ CITY PLAN
+const PLAN = {
+  BLOCK: 20, SW: 2.6, ROAD: 7.4, N: 2, // buildable block, sidewalk width, asphalt width, grid extent (-N..N)
+};
+PLAN.P = PLAN.BLOCK + 2 * PLAN.SW + PLAN.ROAD;   // block pitch
+PLAN.S = PLAN.BLOCK + 2 * PLAN.SW;               // pavement plate size
+PLAN.EDGE = (PLAN.N + 0.5) * PLAN.P;             // centerline of the outer ring road
+const blockCenter = (bx, bz) => new THREE.Vector3(bx * PLAN.P, 0, bz * PLAN.P);
+
+// Fixed civic core + growth lots. Mechanisms take the west avenue (closest to the square first);
+// residential blocks fill east/south in order; cemetery and security sit at the far corners.
+const LOTS = {
+  square: [0, 0], bank: [0, -1], cityHall: [1, 0],
+  mechanism: [[-1, 0], [-1, -1], [-1, 1], [-2, 0], [-2, -1], [-2, 1]],
+  residential: [[0, 1], [1, 1], [1, -1], [2, 0], [0, -2], [2, 1], [2, -1], [1, -2], [-1, -2], [-1, 2], [0, 2], [1, 2]],
+  cemetery: [-2, 2], security: [2, 2], park2: [-2, -2], park3: [2, -2],
+};
+const Y = { asphalt: 0.10, curb: 0.26, plate: 0.24 }; // heights: road surface, top of sidewalk
+
+// ============================================================ STREETS
+const streets = new THREE.Group(); scene.add(streets);
+function buildStreets() {
+  const C = { asphalt: 0x596070, sidewalk: 0xd4cfc4, curb: 0xbdb7aa, lane: 0xf0e8d6, center: 0xe2b74b, cross: 0xf4efe4 };
+  const len = 2 * PLAN.EDGE + PLAN.ROAD;
+  // Asphalt: one long slab per road line in each direction (intersections overlap harmlessly).
+  for (let i = -PLAN.N; i <= PLAN.N + 1; i++) {
+    const c = (i - 0.5) * PLAN.P;
+    const v = box(PLAN.ROAD, Y.asphalt * 2, len, C.asphalt); v.castShadow = false; at(v, c, Y.asphalt, 0); streets.add(v);
+    const h = box(len, Y.asphalt * 2, PLAN.ROAD, C.asphalt); h.castShadow = false; at(h, 0, Y.asphalt, c); streets.add(h);
+  }
+  // Pavement plates (sidewalk rings) per block -- the whole block sits on this; buildings inset from it.
+  for (let bx = -PLAN.N; bx <= PLAN.N; bx++) for (let bz = -PLAN.N; bz <= PLAN.N; bz++) {
+    const p = blockCenter(bx, bz);
+    const plate = box(PLAN.S, Y.plate, PLAN.S, C.sidewalk); plate.castShadow = false; at(plate, p.x, Y.plate / 2, p.z); streets.add(plate);
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(PLAN.S + 0.12, 0.05, PLAN.S + 0.12), mat(C.curb)); at(rim, p.x, Y.plate - 0.06, p.z); streets.add(rim);
+  }
+  // Lane markings between intersections: dashed yellow centerline + solid edge lines; crosswalks at every corner.
+  const dashGeo = new THREE.PlaneGeometry(0.16, 1.6), edgeGeo = new THREE.PlaneGeometry(0.12, PLAN.S - 2), crossGeo = new THREE.PlaneGeometry(0.55, PLAN.ROAD - 1.0);
+  const dashMat = mat(C.center, { rough: 0.8 }), edgeMat = mat(C.lane, { rough: 0.8 }), crossMat = mat(C.cross, { rough: 0.8 });
+  const dashes = [], edges = [], crosses = [];
+  for (let i = -PLAN.N; i <= PLAN.N + 1; i++) {
+    const c = (i - 0.5) * PLAN.P;
+    for (let j = -PLAN.N; j <= PLAN.N; j++) {
+      const s = j * PLAN.P; // segment centered on block j
+      for (let k = -4; k <= 4; k++) { dashes.push([c, s + k * 2.4, 0]); dashes.push([s + k * 2.4, c, Math.PI / 2]); }
+      edges.push([c - PLAN.ROAD / 2 + 0.35, s, 0], [c + PLAN.ROAD / 2 - 0.35, s, 0], [s, c - PLAN.ROAD / 2 + 0.35, Math.PI / 2], [s, c + PLAN.ROAD / 2 - 0.35, Math.PI / 2]);
+    }
+    for (let j = -PLAN.N; j <= PLAN.N + 1; j++) {
+      const c2 = (j - 0.5) * PLAN.P; // intersection (c, c2): crosswalk stripes on all four approaches
+      for (let k = -3; k <= 3; k++) {
+        const off = PLAN.ROAD / 2 + 1.1, kk = k * 1.0;
+        crosses.push([c + kk, c2 - off, 0], [c + kk, c2 + off, 0], [c - off, c2 + kk, Math.PI / 2], [c + off, c2 + kk, Math.PI / 2]);
+      }
+    }
+  }
+  const place = (geo, m, list) => {
+    const im = new THREE.InstancedMesh(geo, m, list.length); const o = new THREE.Object3D();
+    list.forEach(([x, z, rot], idx) => { o.position.set(x, Y.asphalt * 2 + 0.012, z); o.rotation.set(-Math.PI / 2, 0, rot); o.updateMatrix(); im.setMatrixAt(idx, o.matrix); });
+    im.receiveShadow = true; streets.add(im);
+  };
+  place(dashGeo, dashMat, dashes); place(edgeGeo, edgeMat, edges); place(crossGeo, crossMat, crosses);
+}
+
+// ============================================================ BUILDING GENERATOR
+const FACADES = [0xe9dfcd, 0xd8c39a, 0xc9705a, 0x9fb59a, 0x6b7d99, 0xb35a4a, 0xf1eee8, 0xc7a27c, 0x7f9bb3];
+const TRIM = 0xf3ecdc, PILASTER = 0x8e939c, GLASS_DAY = 0x7fa6c4, GLASS_LIT = 0xffd9a0, ROOF = 0x9a9ea8, ROOF_DARK = 0x6b6f78;
+// Pilasters take a darker shade of their own facade so each building reads as one material, not "colour + grey grid".
+function shade(hex, f) { const c = new THREE.Color(hex); c.multiplyScalar(f); return c.getHex(); }
+const nightWindows = []; // { mesh, material } toggled by time of day
+const windowGeo = new THREE.PlaneGeometry(1, 1);
+
+// A tower is a stack of tiers; each tier is a box with floor bands, pilasters, window bays, and a parapet.
+function makeTower({ w, d, tiers, facade, name, seed = 1, lobby = true, roofKind = 'mech', balconies = false }) {
+  const rnd = seeded(seed);
+  const g = new THREE.Group();
+  const FLOOR_H = 3.2, GROUND_H = 4.2;
+  let y = 0, curW = w, curD = d;
+  const litWins = [], darkWins = [];
+  tiers.forEach((tier, ti) => {
+    const floors = tier.floors, inset = tier.inset || 0;
+    curW = ti === 0 ? w : curW - inset * 2; curD = ti === 0 ? d : curD - inset * 2;
+    const h = (ti === 0 && lobby ? GROUND_H : FLOOR_H) + (floors - (ti === 0 && lobby ? 1 : 0)) * FLOOR_H;
+    if (ti === 0 && lobby) {
+      // Ground floor is an open, glass-fronted lobby with desks inside (citizens "in position" sit here, visible from the street).
+      const upper = box(curW, h - GROUND_H, curD, facade); at(upper, 0, y + GROUND_H + (h - GROUND_H) / 2, 0); g.add(upper);
+      const floorSlab = box(curW, 0.12, curD, 0xe6e1d6); floorSlab.castShadow = false; at(floorSlab, 0, 0.06, 0); g.add(floorSlab);
+      const ceiling = box(curW + 0.2, 0.3, curD + 0.2, facade); at(ceiling, 0, GROUND_H - 0.15, 0); g.add(ceiling);
+      const backWall = box(curW, GROUND_H, 0.3, facade); at(backWall, 0, GROUND_H / 2, -curD / 2 + 0.15); g.add(backWall);
+      const wallL = box(0.3, GROUND_H, curD, facade); at(wallL, -curW / 2 + 0.15, GROUND_H / 2, 0); g.add(wallL);
+      const wallR = box(0.3, GROUND_H, curD, facade); at(wallR, curW / 2 - 0.15, GROUND_H / 2, 0); g.add(wallR);
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(curW - 0.6, GROUND_H - 0.4), new THREE.MeshStandardMaterial({ color: 0xbfe0ee, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }));
+      at(glass, 0, GROUND_H / 2 - 0.1, curD / 2 - 0.02); g.add(glass);
+      const bays = Math.max(2, Math.floor((curW - 1.2) / 1.7));
+      for (let b = 0; b <= bays; b++) { const m = box(0.14, GROUND_H - 0.3, 0.14, PILASTER); m.castShadow = false; at(m, -curW / 2 + 0.6 + b * ((curW - 1.2) / bays), GROUND_H / 2 - 0.05, curD / 2 - 0.02); g.add(m); }
+      const light = box(curW * 0.5, 0.08, 0.5, 0xfff4dc, { emissive: 0xffe9b8, ei: 0 }); light.castShadow = false; at(light, 0, GROUND_H - 0.34, -0.5); g.add(light); lampHeads.push(light);
+      const desk = box(2.6, 0.9, 0.8, 0x8a6a48); at(desk, curW * 0.28, 0.45, curD / 2 - 2.4); g.add(desk); // reception
+      g.userData.deskSlots = [];
+      const cols = curW >= 14 ? 3 : 2, rows = curD >= 12 ? 2 : 1;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const dx = (c - (cols - 1) / 2) * 3.6, dz = -curD / 2 + 3.0 + r * 3.6;
+        const top = box(1.7, 0.08, 0.8, 0xd8c39a); at(top, dx, 0.78, dz); g.add(top);
+        for (const lx of [-0.75, 0.75]) { const leg = box(0.08, 0.72, 0.7, 0x5d5f66); at(leg, dx + lx, 0.4, dz); g.add(leg); }
+        const mon = box(0.62, 0.42, 0.06, 0x2b2f36); at(mon, dx, 1.05, dz - 0.25); g.add(mon);
+        const scr = box(0.54, 0.34, 0.02, 0x9fd3e0, { emissive: 0x9fd3e0, ei: 0.6 }); scr.castShadow = false; at(scr, dx, 1.05, dz - 0.21); g.add(scr);
+        const chair = box(0.52, 0.12, 0.52, 0x3b4256); at(chair, dx, 0.46, dz + 0.85); g.add(chair);
+        const chairBack = box(0.52, 0.55, 0.1, 0x3b4256); at(chairBack, dx, 0.78, dz + 1.1); g.add(chairBack);
+        g.userData.deskSlots.push([dx, 0, dz + 0.85]);
+      }
+    } else {
+      const body = box(curW, h, curD, facade); at(body, 0, y + h / 2, 0); g.add(body);
+    }
+    // Floor bands (thin light cornices) + parapet
+    for (let f = 1; f < floors; f++) {
+      const fy = y + (ti === 0 && lobby ? GROUND_H : FLOOR_H) + (f - 1) * FLOOR_H;
+      const band = box(curW + 0.24, 0.16, curD + 0.24, TRIM); band.castShadow = false; at(band, 0, fy, 0); g.add(band);
+    }
+    const parapet = box(curW + 0.4, 0.5, curD + 0.4, TRIM); at(parapet, 0, y + h - 0.1, 0); g.add(parapet);
+    const roofSlab = box(curW + 0.1, 0.2, curD + 0.1, ROOF); roofSlab.castShadow = false; at(roofSlab, 0, y + h + 0.05, 0); g.add(roofSlab);
+    // Faces: +z (front, faces the street), -z, +x, -x
+    const faces = [[0, 0, 1, 0], [0, 0, -1, Math.PI], [1, 0, 0, Math.PI / 2], [-1, 0, 0, -Math.PI / 2]];
+    faces.forEach(([nx, , nz, rot], fi) => {
+      const faceW = nx === 0 ? curW : curD;
+      const bays = Math.max(1, Math.floor((faceW - 1.2) / 1.7));
+      const bayW = (faceW - 1.2) / bays;
+      // pilasters between bays
+      for (let b = 0; b <= bays; b++) {
+        const along = -faceW / 2 + 0.6 + b * bayW;
+        const p = box(0.22, h - 0.3, 0.26, shade(facade, 0.78)); p.castShadow = false;
+        if (nx === 0) at(p, along, y + h / 2, nz * (curD / 2 + 0.08)); else at(p, nx * (curW / 2 + 0.08), y + h / 2, along);
+        g.add(p);
+      }
+      // windows per floor per bay (ground floor gets a taller storefront on the front face only)
+      for (let f = 0; f < floors; f++) {
+        const isGround = ti === 0 && f === 0 && lobby;
+        const fh = isGround ? GROUND_H : FLOOR_H;
+        const fy = y + (ti === 0 && lobby ? (f === 0 ? 0 : GROUND_H + (f - 1) * FLOOR_H) : f * FLOOR_H);
+        for (let b = 0; b < bays; b++) {
+          const along = -faceW / 2 + 0.6 + (b + 0.5) * bayW;
+          if (isGround && fi === 0) continue; // the front of the ground floor is the glass lobby wall
+          const ww = bayW - 0.62, wh = isGround ? fh - 1.0 : fh - 1.45;
+          const o = new THREE.Object3D();
+          if (nx === 0) o.position.set(along, fy + fh / 2 - (isGround ? 0.1 : 0.05), nz * (curD / 2 + 0.03)); else o.position.set(nx * (curW / 2 + 0.03), fy + fh / 2 - 0.05, along);
+          o.rotation.y = rot; o.scale.set(ww, wh, 1); o.updateMatrix();
+          (rnd() < 0.42 ? litWins : darkWins).push(o.matrix.clone());
+          if (balconies && !isGround && (fi === 0 || fi === 1) && f > 0) {
+            const slab = box(ww + 0.3, 0.12, 0.9, TRIM); const rail = box(ww + 0.3, 0.5, 0.06, PILASTER);
+            const bz = nz * (curD / 2 + 0.45), bx = nx * (curW / 2 + 0.45);
+            if (nx === 0) { at(slab, along, fy + 0.15, bz); at(rail, along, fy + 0.45, nz * (curD / 2 + 0.88)); } else { slab.rotation.y = Math.PI / 2; rail.rotation.y = Math.PI / 2; at(slab, bx, fy + 0.15, along); at(rail, nx * (curW / 2 + 0.88), fy + 0.45, along); }
+            g.add(slab); g.add(rail);
+          }
+        }
+      }
+    });
+    // Roof props on this tier's exposed roof area (setback ledge for lower tiers, full roof for the top)
+    const topTier = ti === tiers.length - 1;
+    const roofY = y + h + 0.15;
+    if (topTier) {
+      if (roofKind === 'mech' || roofKind === 'solar') {
+        const panel = new THREE.Group();
+        const pw = Math.min(curW * 0.45, 5), pd = Math.min(curD * 0.4, 4);
+        for (let r = 0; r < 3; r++) { const pl = box(pw, 0.08, pd / 3.4, 0x4f8f9c); pl.rotation.x = -0.35; at(pl, 0, 0.45, -pd / 2 + r * (pd / 3)); panel.add(pl); const leg = box(pw, 0.35, 0.08, ROOF_DARK); at(leg, 0, 0.18, -pd / 2 + r * (pd / 3) + 0.2); panel.add(leg); }
+        at(panel, -curW * 0.22, roofY, 0); g.add(panel);
+        const hvac = box(Math.min(curW * 0.3, 3), 1.1, Math.min(curD * 0.3, 2.6), 0xb9bcc4); at(hvac, curW * 0.25, roofY + 0.55, curD * 0.2); g.add(hvac);
+        for (let l = 0; l < 4; l++) { const lv = box(hvac.geometry.parameters.width * 0.8, 0.05, 0.05, ROOF_DARK); at(lv, hvac.position.x, roofY + 0.3 + l * 0.2, hvac.position.z + hvac.geometry.parameters.depth / 2 + 0.03); g.add(lv); }
+        const stair = box(2.2, 1.6, 1.8, facade); at(stair, curW * 0.28, roofY + 0.8, -curD * 0.3); g.add(stair);
+        const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.9, 10), mat(0xb9bcc4)); at(vent, -curW * 0.3, roofY + 0.45, curD * 0.32); g.add(vent);
+      } else if (roofKind === 'tank') {
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.6, 12), mat(0xc79a6b)); at(tank, curW * 0.25, roofY + 1.2, -curD * 0.2); g.add(tank);
+        for (let l = 0; l < 4; l++) { const leg = box(0.12, 0.8, 0.12, ROOF_DARK); at(leg, tank.position.x + (l % 2 ? 0.55 : -0.55), roofY + 0.4, tank.position.z + (l < 2 ? 0.55 : -0.55)); g.add(leg); }
+        const stair = box(2.0, 1.4, 1.6, facade); at(stair, -curW * 0.25, roofY + 0.7, curD * 0.25); g.add(stair);
+      }
+    } else {
+      // setback ledge garden: hedge boxes along the ledge front + a small tree
+      const ledge = inset;
+      if (tiers[ti + 1] && ledge >= 1.4) {
+        const nextW = curW - (tiers[ti + 1].inset || 0) * 2, nextD = curD - (tiers[ti + 1].inset || 0) * 2;
+        const hedge = box(nextW * 0.8, 0.5, 0.5, 0x5f9a5a); at(hedge, 0, roofY + 0.25, nextD / 2 + ledge * 0.55); g.add(hedge);
+        const bench = box(1.4, 0.12, 0.4, 0xa87b4f); at(bench, curW * 0.28, roofY + 0.4, curD / 2 - ledge * 0.5); g.add(bench);
+        addTreeAt(g, -curW * 0.3, roofY, curD / 2 - ledge * 0.5, 0.55, rnd);
+      }
+    }
+    y += h;
+  });
+  // Windows: two instanced meshes (a "lit at night" subset and an always-dark subset)
+  const mk = (list, lit) => {
+    if (!list.length) return;
+    const m = new THREE.MeshStandardMaterial({ color: GLASS_DAY, roughness: 0.25, metalness: 0.25, emissive: GLASS_LIT, emissiveIntensity: 0 });
+    const im = new THREE.InstancedMesh(windowGeo, m, list.length); list.forEach((mx, i) => im.setMatrixAt(i, mx)); im.castShadow = false; im.receiveShadow = true; g.add(im);
+    if (lit) nightWindows.push({ mesh: im, material: m });
+  };
+  mk(litWins, true); mk(darkWins, false);
+  // Entrance on the front (+z) face: recessed door, canopy, sign board above
+  if (lobby) {
+    const frame = box(2.8, 3.4, 0.16, TRIM); at(frame, 0, 1.7, d / 2 + 0.02); g.add(frame);
+    const doorL = box(1.1, 3.0, 0.08, 0x9fc6d8, { rough: 0.2 }); at(doorL, -0.62, 1.5, d / 2 + 0.1); g.add(doorL);
+    const doorR = box(1.1, 3.0, 0.08, 0x9fc6d8, { rough: 0.2 }); at(doorR, 0.62, 1.5, d / 2 + 0.1); g.add(doorR);
+    const canopy = box(4.6, 0.18, 1.8, PILASTER); at(canopy, 0, 3.45, d / 2 + 0.9); g.add(canopy);
+    for (const cx of [-1.9, 1.9]) { const post = box(0.12, 3.4, 0.12, PILASTER); at(post, cx, 1.7, d / 2 + 1.7); g.add(post); }
+    if (name) { const sign = makeSignBoard(name, { height: 0.85 }); at(sign, 0, GROUND_H - 0.3, d / 2 + 0.16); g.add(sign); }
+  }
+  g.userData.height = y; g.userData.footprint = { w, d };
+  return g;
+}
+
+// Under construction: steel frame, floor slabs, safety fence, a "coming soon" sign -- an honest "provisioned, not live" state.
+function makeConstructionSite({ w, d, floors, name }) {
+  const g = new THREE.Group();
+  const FLOOR_H = 3.2, STEEL = 0xd98b3a, SLAB = 0xcfcbc2;
+  const cols = 4, rows = 4;
+  for (let i = 0; i <= cols; i++) for (let j = 0; j <= rows; j++) {
+    const c = box(0.22, floors * FLOOR_H, 0.22, STEEL); at(c, -w / 2 + i * (w / cols), floors * FLOOR_H / 2, -d / 2 + j * (d / rows)); g.add(c);
+  }
+  for (let f = 1; f <= floors; f++) {
+    const y = f * FLOOR_H;
+    const slab = box(w + 0.2, 0.18, d + 0.2, SLAB); at(slab, 0, y, 0); g.add(slab);
+    for (let i = 0; i <= cols; i++) { const b = box(0.14, 0.14, d, STEEL); at(b, -w / 2 + i * (w / cols), y + 0.15, 0); g.add(b); }
+    for (let j = 0; j <= rows; j++) { const b = box(w, 0.14, 0.14, STEEL); at(b, 0, y + 0.15, -d / 2 + j * (d / rows)); g.add(b); }
+  }
+  // crane
+  const mast = box(0.5, floors * FLOOR_H + 9, 0.5, 0xe0c23a); at(mast, w / 2 + 1.6, (floors * FLOOR_H + 9) / 2, -d / 2 - 1.2); g.add(mast);
+  const jib = box(w + 6, 0.35, 0.35, 0xe0c23a); at(jib, w / 2 + 1.6 - (w + 6) / 2 + 1.5, floors * FLOOR_H + 8.6, -d / 2 - 1.2); g.add(jib);
+  const cab = box(1.2, 1.0, 1.0, 0x4b5563); at(cab, w / 2 + 1.6, floors * FLOOR_H + 7.9, -d / 2 - 1.2); g.add(cab);
+  // safety fence around the lot
+  const fenceC = 0xe08a2e;
+  const fN = box(w + 2, 1.0, 0.08, fenceC), fS = box(w + 2, 1.0, 0.08, fenceC), fE = box(0.08, 1.0, d + 2, fenceC), fW = box(0.08, 1.0, d + 2, fenceC);
+  at(fN, 0, 0.5, -d / 2 - 1); at(fS, 0, 0.5, d / 2 + 1); at(fE, w / 2 + 1, 0.5, 0); at(fW, -w / 2 - 1, 0.5, 0); g.add(fN, fS, fE, fW);
+  const sign = makeSignBoard(`${name} — coming soon`, { height: 0.7, bg: '#e08a2e', fg: '#1d1f24', frame: 0x8a5a1e }); at(sign, 0, 1.6, d / 2 + 1.06); g.add(sign);
+  const pallet = box(1.6, 0.6, 1.2, 0xb08a5a); at(pallet, -w * 0.3, 0.3, d * 0.3); g.add(pallet);
+  g.userData.height = floors * FLOOR_H + 0.2; g.userData.footprint = { w, d };
+  return g;
+}
+
+// ============================================================ LANDMARKS
+function makeBank() {
+  const g = new THREE.Group(), W = 15, D = 11, STONE = 0xe6dcc6, STONE2 = 0xd7cbb0;
+  const plinth = box(W + 2, 0.8, D + 4, STONE2); at(plinth, 0, 0.4, 0); g.add(plinth);
+  for (let s = 0; s < 3; s++) { const step = box(W - 2 - s * 0.6, 0.22, 1.2, STONE2); at(step, 0, 0.9 + s * 0.22, D / 2 + 2.6 - s * 0.55); g.add(step); }
+  const body = box(W, 7.5, D, STONE); at(body, 0, 0.8 + 3.75, -0.6); g.add(body);
+  // colonnade across the front
+  for (let i = 0; i < 6; i++) {
+    const x = -W / 2 + 1.5 + i * ((W - 3) / 5);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 7.0, 14), mat(0xf2eadb)); col.castShadow = true; at(col, x, 0.8 + 3.5, D / 2 + 1.0); g.add(col);
+    const cap = box(1.1, 0.3, 1.1, 0xf2eadb); at(cap, x, 0.8 + 7.05, D / 2 + 1.0); g.add(cap);
+  }
+  const entab = box(W + 0.6, 0.9, 3.2, 0xf2eadb); at(entab, 0, 0.8 + 7.6, D / 2 + 0.3); g.add(entab);
+  // pediment
+  const shape = new THREE.Shape(); shape.moveTo(-W / 2 - 0.3, 0); shape.lineTo(W / 2 + 0.3, 0); shape.lineTo(0, 2.6); shape.closePath();
+  const ped = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 3.0, bevelEnabled: false }), mat(0xf2eadb)); ped.castShadow = true; ped.position.set(0, 0.8 + 8.05, D / 2 - 1.2); g.add(ped);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(3.4, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), mat(0x8fa6a0)); dome.castShadow = true; at(dome, 0, 0.8 + 7.5, -2.0); g.add(dome);
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.6, 1.2, 24), mat(STONE)); at(drum, 0, 0.8 + 7.5 + 0.6 - 0.6, -2.0); g.add(drum);
+  // windows on the body sides/back
+  const wins = []; const o = new THREE.Object3D();
+  for (const [nx, nz, rot] of [[1, 0, Math.PI / 2], [-1, 0, -Math.PI / 2], [0, -1, Math.PI]]) {
+    const faceW = nx === 0 ? W : D; const n = Math.floor(faceW / 2.4);
+    for (let i = 0; i < n; i++) for (let f = 0; f < 2; f++) {
+      const along = -faceW / 2 + 1.2 + i * 2.4 + 1.2 - 1.2;
+      if (nx === 0) o.position.set(along, 0.8 + 2.0 + f * 3.2, nz * (D / 2 + 0.03) - 0.6); else o.position.set(nx * (W / 2 + 0.03), 0.8 + 2.0 + f * 3.2, along - 0.6);
+      o.rotation.y = rot; o.scale.set(1.2, 2.2, 1); o.updateMatrix(); wins.push(o.matrix.clone());
+    }
+  }
+  const m = new THREE.MeshStandardMaterial({ color: GLASS_DAY, roughness: 0.35, emissive: GLASS_LIT, emissiveIntensity: 0 });
+  const im = new THREE.InstancedMesh(windowGeo, m, wins.length); wins.forEach((mx, i) => im.setMatrixAt(i, mx)); g.add(im); nightWindows.push({ mesh: im, material: m });
+  const door = box(2.6, 4.2, 0.2, 0x5a4636); at(door, 0, 0.8 + 2.1, D / 2 + 0.02 - 0.6); g.add(door);
+  const sign = makeSignBoard('CITY BANK', { height: 0.8, bg: '#2b3040' }); at(sign, 0, 0.8 + 6.2, D / 2 + 1.35); g.add(sign);
+  g.userData.height = 12; g.userData.footprint = { w: W + 2, d: D + 4 };
+  return g;
+}
+const cityHallClock = { hour: null, minute: null };
+function makeCityHall() {
+  const g = new THREE.Group(), W = 16, D = 10, STONE = 0xd8c39a;
+  const body = makeTower({ w: W, d: D, tiers: [{ floors: 3 }], facade: STONE, name: 'CITY HALL', seed: 7, roofKind: 'none' });
+  g.add(body);
+  // clock tower rising from the center-back
+  const TW = 3.6, TH = 20;
+  const tower = box(TW, TH, TW, STONE); at(tower, 0, TH / 2, -1.5); g.add(tower);
+  for (let f = 1; f < 5; f++) { const band = box(TW + 0.2, 0.14, TW + 0.2, TRIM); band.castShadow = false; at(band, 0, f * 3.2, -1.5); g.add(band); }
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.8, 3.2, 4), mat(0x7f8f8a)); cap.rotation.y = Math.PI / 4; cap.castShadow = true; at(cap, 0, TH + 1.6, -1.5); g.add(cap);
+  const capBase = box(TW + 0.6, 0.5, TW + 0.6, TRIM); at(capBase, 0, TH + 0.2, -1.5); g.add(capBase);
+  // clock face on the front of the tower, with real hands
+  const face = new THREE.Mesh(new THREE.CircleGeometry(1.2, 32), mat(0xfbf6ea)); at(face, 0, TH - 3.0, -1.5 + TW / 2 + 0.03); g.add(face);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.4, 32), mat(0x6b5a3a)); at(ring, 0, TH - 3.0, -1.5 + TW / 2 + 0.035); g.add(ring);
+  const hour = box(0.12, 0.7, 0.04, 0x22262e); hour.geometry.translate(0, 0.3, 0); at(hour, 0, TH - 3.0, -1.5 + TW / 2 + 0.07);
+  const minute = box(0.08, 1.05, 0.04, 0x22262e); minute.geometry.translate(0, 0.48, 0); at(minute, 0, TH - 3.0, -1.5 + TW / 2 + 0.08);
+  g.add(hour, minute); cityHallClock.hour = hour; cityHallClock.minute = minute;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 5, 8), mat(0xe8e2d0)); at(pole, W / 2 - 2, body.userData.height + 2.5, D / 2 - 2); g.add(pole);
+  const flag = box(1.4, 0.8, 0.04, 0x2f8f96); at(flag, W / 2 - 2 + 0.7, body.userData.height + 4.6, D / 2 - 2); g.add(flag);
+  g.userData.height = TH + 3; g.userData.footprint = { w: W, d: D };
+  return g;
+}
+function makeApartmentBlock({ seed, name }) {
+  const rnd = seeded(seed);
+  const facade = FACADES[Math.floor(rnd() * FACADES.length)];
+  const floors = 4 + Math.floor(rnd() * 3);
+  return makeTower({ w: 15 + Math.floor(rnd() * 2), d: 13, tiers: [{ floors }], facade, name, seed, roofKind: 'tank', balconies: true });
+}
+function makeEmptyLot(seed) {
+  const g = new THREE.Group(), rnd = seeded(seed);
+  const lawn = box(PLAN.BLOCK - 1, 0.12, PLAN.BLOCK - 1, 0x93bd68); lawn.castShadow = false; at(lawn, 0, Y.plate + 0.06, 0); g.add(lawn);
+  // low hedge border + a couple of trees + survey stakes: "room to grow", pleasant not derelict
+  const hb = 0x5f9a5a, L = PLAN.BLOCK - 1.6;
+  for (const [x, z, w, d] of [[0, -L / 2, L, 0.5], [0, L / 2, L, 0.5], [-L / 2, 0, 0.5, L], [L / 2, 0, 0.5, L]]) { const h = box(w, 0.6, d, hb); at(h, x, Y.plate + 0.4, z); g.add(h); }
+  for (let i = 0; i < 3; i++) addTreeAt(g, (rnd() - 0.5) * 12, Y.plate + 0.1, (rnd() - 0.5) * 12, 0.8 + rnd() * 0.5, rnd);
+  for (let i = 0; i < 4; i++) { const st = box(0.1, 0.9, 0.1, 0xe8dcc0); at(st, (rnd() - 0.5) * 14, Y.plate + 0.5, (rnd() - 0.5) * 14); g.add(st); }
+  g.userData.height = 2; return g;
+}
+// Outer blocks: open meadow with wildflowers and a loose stand of trees -- the town's edge, not a checkerboard of lots.
+function makeMeadowLot(seed) {
+  const g = new THREE.Group(), rnd = seeded(seed), L = PLAN.BLOCK;
+  const lawn = box(L + 2 * PLAN.SW - 0.3, 0.1, L + 2 * PLAN.SW - 0.3, 0x9dbd7c); lawn.castShadow = false; at(lawn, 0, 0.05, 0); g.add(lawn);
+  const n = 5 + Math.floor(rnd() * 4);
+  for (let i = 0; i < n; i++) addTreeAt(g, (rnd() - 0.5) * (L - 2), 0.1, (rnd() - 0.5) * (L - 2), 1.2 + rnd() * 0.9, rnd, rnd() < 0.25 ? 'pine' : 'round');
+  for (let i = 0; i < 14; i++) { const fl = new THREE.Mesh(new THREE.SphereGeometry(0.16, 5, 4), mat([0xe4576b, 0xf1c04f, 0xffffff, 0xc96f9a][i % 4], { flat: true })); at(fl, (rnd() - 0.5) * (L - 1), 0.25, (rnd() - 0.5) * (L - 1)); g.add(fl); }
+  for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6 + rnd() * 0.4, 0), mat(0x6fae6a, { flat: true })); b.castShadow = true; at(b, (rnd() - 0.5) * (L - 2), 0.45, (rnd() - 0.5) * (L - 2)); g.add(b); }
+  g.userData.height = 2; return g;
+}
+function makeSquare() {
+  const g = new THREE.Group(), L = PLAN.BLOCK;
+  const lawn = box(L, 0.12, L, 0x8fbd66); lawn.castShadow = false; at(lawn, 0, Y.plate + 0.06, 0); g.add(lawn);
+  const PATH = 0xdcd3c1;
+  const pathNS = box(3.2, 0.06, L, PATH), pathEW = box(L, 0.06, 3.2, PATH); pathNS.castShadow = pathEW.castShadow = false;
+  at(pathNS, 0, Y.plate + 0.15, 0); at(pathEW, 0, Y.plate + 0.15, 0); g.add(pathNS, pathEW);
+  const ringPath = new THREE.Mesh(new THREE.RingGeometry(5.2, 7.2, 40), mat(PATH)); ringPath.rotation.x = -Math.PI / 2; at(ringPath, 0, Y.plate + 0.16, 0); g.add(ringPath);
+  // fountain
+  const basin = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.6, 0.9, 28), mat(0xcfc6b4)); basin.castShadow = true; at(basin, 0, Y.plate + 0.45, 0); g.add(basin);
+  const water = new THREE.Mesh(new THREE.CircleGeometry(3.1, 28), new THREE.MeshStandardMaterial({ color: 0x6fb7d6, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.9 })); water.rotation.x = -Math.PI / 2; at(water, 0, Y.plate + 0.86, 0); g.add(water); fountainWater = water;
+  const tier2 = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.5, 0.5, 20), mat(0xcfc6b4)); at(tier2, 0, Y.plate + 1.8, 0); g.add(tier2);
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 1.4, 12), mat(0xcfc6b4)); at(col, 0, Y.plate + 1.2, 0); g.add(col);
+  const jet = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.16, 1.6, 8), new THREE.MeshStandardMaterial({ color: 0xbfe6f5, transparent: true, opacity: 0.7 })); at(jet, 0, Y.plate + 2.8, 0); g.add(jet);
+  // flowerbeds in the quadrants, benches around the ring, trees at the corners
+  const rnd = seeded(42);
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const bed = box(3.6, 0.3, 2.2, 0x7a5b3f); at(bed, sx * 5.5, Y.plate + 0.3, sz * 5.5); g.add(bed);
+    for (let i = 0; i < 9; i++) { const fl = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 5), mat([0xe4576b, 0xf1c04f, 0xf28cb0, 0xffffff][i % 4], { flat: true })); at(fl, sx * 5.5 + (i % 3 - 1) * 1.0, Y.plate + 0.6, sz * 5.5 + (Math.floor(i / 3) - 1) * 0.6); g.add(fl); }
+    addTreeAt(g, sx * 8.3, Y.plate + 0.1, sz * 8.3, 1.7 + rnd() * 0.4, rnd);
+    const bench = box(1.6, 0.1, 0.5, 0xa87b4f); at(bench, sx * 6.4, Y.plate + 0.55, sz * 2.2); g.add(bench);
+    for (const lx of [-0.6, 0.6]) { const leg = box(0.1, 0.45, 0.45, 0x5d5f66); at(leg, sx * 6.4 + lx, Y.plate + 0.32, sz * 2.2); g.add(leg); }
+    const back = box(1.6, 0.45, 0.08, 0xa87b4f); at(back, sx * 6.4, Y.plate + 0.8, sz * 2.2 + sz * 0.22); g.add(back);
+  }
+  g.userData.height = 3; return g;
+}
+let fountainWater = null;
+function makeCemetery() {
+  const g = new THREE.Group(), rnd = seeded(99), L = PLAN.BLOCK;
+  const lawn = box(L, 0.12, L, 0x86b063); lawn.castShadow = false; at(lawn, 0, Y.plate + 0.06, 0); g.add(lawn);
+  for (const [x, z, w, d] of [[0, -L / 2 + 0.3, L, 0.6], [0, L / 2 - 0.3, L, 0.6], [-L / 2 + 0.3, 0, 0.6, L], [L / 2 - 0.3, 0, 0.6, L]]) { const wall = box(w, 0.9, d, 0xb8ad98); at(wall, x, Y.plate + 0.55, z); g.add(wall); }
+  const path = box(2.4, 0.06, L, 0xdcd3c1); path.castShadow = false; at(path, 0, Y.plate + 0.15, 0); g.add(path);
+  for (let i = 0; i < 5; i++) addTreeAt(g, -L / 2 + 2 + i * 4, Y.plate + 0.1, -L / 2 + 2.2, 1.1, rnd, 'pine');
+  g.userData.stoneSlots = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) g.userData.stoneSlots.push([-7 + c * 2.8 + (c >= 3 ? 1.2 : 0), Y.plate + 0.2, -3 + r * 2.6]);
+  g.userData.height = 3; return g;
+}
+function makeSecurityStation() {
+  const g = new THREE.Group();
+  const b = makeTower({ w: 9, d: 7, tiers: [{ floors: 1 }], facade: 0x7f9bb3, name: 'CITY SECURITY', seed: 5, roofKind: 'mech' });
+  at(b, -4.5, 0, -5); g.add(b);
+  // fenced yard on the east half
+  const yard = box(9.5, 0.08, 17, 0xc9c3b6); yard.castShadow = false; at(yard, 4.5, Y.plate + 0.04, 0); g.add(yard);
+  const postC = 0x8e939c;
+  for (let i = 0; i <= 8; i++) { const p = box(0.12, 1.8, 0.12, postC); at(p, 0.2 + i * 1.1, 0.9, 8.4); g.add(p); const p2 = box(0.12, 1.8, 0.12, postC); at(p2, 0.2 + i * 1.1, 0.9, -8.4); g.add(p2); }
+  for (let i = 0; i <= 15; i++) { const p = box(0.12, 1.8, 0.12, postC); at(p, 9.2, 0.9, -8.4 + i * 1.12); g.add(p); }
+  const mesh = new THREE.MeshStandardMaterial({ color: 0xaab0bb, transparent: true, opacity: 0.35, side: THREE.DoubleSide, roughness: 0.6 });
+  for (const [x, z, w, rot] of [[4.7, 8.4, 9, 0], [4.7, -8.4, 9, 0], [9.2, 0, 16.8, Math.PI / 2]]) { const pnl = new THREE.Mesh(new THREE.PlaneGeometry(w, 1.7), mesh); pnl.position.set(x, 0.9, z); pnl.rotation.y = rot; g.add(pnl); }
+  g.userData.yardSlots = []; for (let i = 0; i < 8; i++) g.userData.yardSlots.push([2.0 + (i % 4) * 1.8, 0, -3 + Math.floor(i / 4) * 4]);
+  g.userData.height = 6; return g;
+}
+
+// Round 14: the Knowledge Vault -- always-present, like the Bank/City Hall
+// (every mission-authoring wake already, unconditionally, consults the
+// journal, lesson or no lesson -- this isn't a possibly-never event like a
+// citizen dying, so it isn't gated the way the Cemetery is). The shell is
+// built once, statically; its interior fill (one tablet per real lesson/
+// postmortem) is added incrementally by syncVault(), mirroring exactly how
+// the Cemetery's headstones get added to an already-placed group.
+function makeVault() {
+  const g = new THREE.Group(), W = 13, D = 11, STONE = 0x9a8f78;
+  const plinth = box(W + 1.2, 0.7, D + 1.2, shade(STONE, 0.85)); at(plinth, 0, 0.35, 0); g.add(plinth);
+  // Genuine hollow shell (floor/ceiling/back/front/right walls), NOT one
+  // solid box like makeBank() -- mirrors makeTower()'s lobby technique.
+  // A single solid box here would bury the shelf rack inside opaque rock
+  // with zero line of sight to it from any angle, ever (confirmed live via
+  // an interior-camera screenshot during verification: pure black, camera
+  // literally inside the filled geometry). The left wall is deliberately
+  // left open -- the glass pane below fills that gap, the real "window."
+  const floorSlab = box(W - 0.2, 0.12, D - 0.2, 0xe6e1d6); floorSlab.castShadow = false; at(floorSlab, 0, 0.76, 0); g.add(floorSlab);
+  const ceiling = box(W + 0.1, 0.3, D + 0.1, STONE); at(ceiling, 0, 6.95, 0); g.add(ceiling);
+  const backWall = box(W, 6.4, 0.3, STONE); at(backWall, 0, 0.7 + 3.2, -D / 2 + 0.15); g.add(backWall);
+  const frontWall = box(W, 6.4, 0.3, STONE); at(frontWall, 0, 0.7 + 3.2, D / 2 - 0.15); g.add(frontWall);
+  const rightWall = box(0.3, 6.4, D, STONE); at(rightWall, W / 2 - 0.15, 0.7 + 3.2, 0); g.add(rightWall);
+  const light = box(W * 0.4, 0.08, 0.6, 0xfff4dc, { emissive: 0xffe9b8, ei: 0 }); light.castShadow = false; at(light, 0, 6.75, -D / 2 + 1.6); g.add(light); lampHeads.push(light);
+  const parapet = box(W + 0.3, 0.5, D + 0.3, shade(STONE, 0.8)); at(parapet, 0, 0.7 + 6.65, 0); g.add(parapet);
+  // Sits flush on top of the parapet (parapet top is at 0.7+6.9=7.6; a
+  // 0.4-tall skylight centered at 0.7+7.1=7.8 puts its bottom at 7.6).
+  const skylight = box(W * 0.4, 0.4, D * 0.35, 0x6fb7d6, { rough: 0.2 }); at(skylight, 0, 0.7 + 7.1, 0); g.add(skylight);
+
+  // circular vault-door motif set into the front facade -- reads as "vault" on sight
+  const frame = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 0.3, 24), mat(shade(STONE, 0.7))); frame.rotation.x = Math.PI / 2; at(frame, 0, 0.7 + 2.6, D / 2 + 0.02); g.add(frame);
+  const door = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, 0.35, 24), mat(0x9aa0ab, { rough: 0.4 })); door.rotation.x = Math.PI / 2; at(door, 0, 0.7 + 2.6, D / 2 + 0.18); g.add(door);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 16), mat(0x6b6f78)); hub.rotation.x = Math.PI / 2; at(hub, 0, 0.7 + 2.6, D / 2 + 0.4); g.add(hub);
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; const spoke = box(1.4, 0.14, 0.1, 0x6b6f78); spoke.rotation.z = a; at(spoke, Math.cos(a) * 0.8, 0.7 + 2.6 + Math.sin(a) * 0.8, D / 2 + 0.38); g.add(spoke); }
+  for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.12, 8), mat(0x4b4f57)); bolt.rotation.x = Math.PI / 2; at(bolt, Math.cos(a) * 1.75, 0.7 + 2.6 + Math.sin(a) * 1.75, D / 2 + 0.36); g.add(bolt); }
+
+  // glass side panel exposing the shelf hall (mirrors makeTower()'s lobby glass)
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(D - 2.4, 3.2), new THREE.MeshStandardMaterial({ color: 0xbfe0ee, roughness: 0.15, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
+  // Positioned just OUTSIDE the body's own solid wall face (-0.04, not
+  // +0.02) -- verified live via screenshot that a plane sitting inside an
+  // opaque box's surface is invisible from outside, fully occluded by the
+  // wall itself; the panel must sit proud of the wall to actually be seen.
+  glass.rotation.y = Math.PI / 2; at(glass, -W / 2 - 0.04, 0.7 + 2.4, 0); g.add(glass);
+
+  // interior shelf rack -- fixed structure + precomputed slots (mirrors the
+  // Cemetery's stoneSlots), empty until real records fill them via syncVault()
+  g.userData.shelfSlots = [];
+  const cols = 6, rows = 4;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    // Slot y-base is 1.2 (not 1.0) above the shelf-board base so a tablet's
+    // bottom (half its 0.9 height) rests flush on the shelf's top surface,
+    // not sunk into it -- shelf top = 0.7+0.7+r*1.15+0.05, tablet bottom
+    // needed = slot_y-0.45, so slot_y must be shelf_y+0.5.
+    g.userData.shelfSlots.push([-W / 2 + 2.2 + c * ((W - 4.4) / (cols - 1)), 0.7 + 1.2 + r * 1.15, -D / 2 + 1.6]);
+  }
+  for (let r = 0; r <= rows; r++) { const shelf = box(W - 3.6, 0.1, 0.9, 0x6b5a3a); at(shelf, 0, 0.7 + 0.7 + r * 1.15, -D / 2 + 1.6); g.add(shelf); }
+
+  // Honest empty state: real shelves, real vault door, nothing on them yet
+  // -- hidden (not removed) by syncVault() the moment the first real record arrives.
+  const plaque = makeSignBoard('AWAITING FIRST LESSON', { height: 0.55, bg: '#2b3040' });
+  at(plaque, 0, 0.7 + 3.6, -D / 2 + 1.2); g.add(plaque);
+  g.userData.emptyPlaque = plaque;
+
+  const sign = makeSignBoard('KNOWLEDGE VAULT', { height: 0.85 }); at(sign, 0, 0.7 + 6.0, D / 2 + 1.4); g.add(sign);
+  g.userData.height = 8.0; g.userData.footprint = { w: W + 1.2, d: D + 1.2 }; // topmost point: skylight top at 0.7+7.1+0.4/2... see skylight comment above
+  return g;
+}
+
+// ============================================================ TREES (instanced by archetype)
+const treeParts = { trunkMats: [], canopy: [] };
+const treeInstances = []; // pending {x,y,z,scale,kind,seed}
+function addTreeAt(parent, x, y, z, scale, rnd, kind = 'round') {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.scale.setScalar(scale);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.4, 7), mat(0x8a6a48)); trunk.castShadow = true; at(trunk, 0, 0.7, 0); g.add(trunk);
+  const greens = [0x5f9a5a, 0x6fae6a, 0x4f8a4e, 0x7db76c];
+  if (kind === 'pine') {
+    for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.ConeGeometry(1.0 - i * 0.22, 1.4, 7), mat(greens[(i + 2) % 4], { flat: true })); c.castShadow = true; at(c, 0, 1.6 + i * 0.9, 0); g.add(c); }
+  } else {
+    const c = new THREE.Mesh(new THREE.DodecahedronGeometry(1.15, 0), mat(greens[Math.floor(rnd() * greens.length)], { flat: true })); c.castShadow = true; c.rotation.set(rnd() * 3, rnd() * 3, 0); at(c, 0, 2.1, 0); g.add(c);
+    if (rnd() < 0.5) { const c2 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.75, 0), mat(greens[Math.floor(rnd() * greens.length)], { flat: true })); c2.castShadow = true; at(c2, 0.5, 2.7, 0.3); g.add(c2); }
+  }
+  parent.add(g); return g;
+}
+// Curbside planters with trees and streetlamps along every block edge (phase 4 fills these in more richly).
+const lampHeads = [];
+function addStreetFurniture() {
+  const rnd = seeded(2024);
+  const g = new THREE.Group(); scene.add(g);
+  for (let bx = -PLAN.N; bx <= PLAN.N; bx++) for (let bz = -PLAN.N; bz <= PLAN.N; bz++) {
+    const p = blockCenter(bx, bz), half = PLAN.S / 2 - PLAN.SW / 2;
+    for (let i = -1; i <= 1; i++) {
+      const along = i * (PLAN.S / 3.1);
+      for (const [x, z] of [[p.x + along, p.z + half], [p.x + along, p.z - half], [p.x + half, p.z + along], [p.x - half, p.z + along]]) {
+        if (rnd() < 0.5) {
+          const planter = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.6, 0.5, 10), mat(0xb9b2a4)); planter.castShadow = true; at(planter, x, Y.plate + 0.25, z); g.add(planter);
+          addTreeAt(g, x, Y.plate + 0.4, z, 1.25 + rnd() * 0.35, rnd);
+        } else {
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 4.2, 8), mat(0x4b5059)); pole.castShadow = true; at(pole, x, Y.plate + 2.1, z); g.add(pole);
+          const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), new THREE.MeshStandardMaterial({ color: 0xfff2d0, emissive: 0xffe0a0, emissiveIntensity: 0 })); at(head, x, Y.plate + 4.3, z); g.add(head);
+          lampHeads.push(head);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================ TOWN ASSEMBLY (data-driven)
+const town = new THREE.Group(); scene.add(town);
+const built = new Map(); // key -> { group, kind }
+function placeOnLot(key, bx, bz, group, { rotY = 0, yard = false } = {}) {
+  const p = blockCenter(bx, bz);
+  group.position.set(p.x, Y.plate, p.z); group.rotation.y = rotY;
+  if (yard) {
+    // Every building sits in a small landscaped lot: lawn, a paved path to the entrance, planting at the front corners.
+    const fp = group.userData.footprint || { w: 14, d: 12 }, rnd = seeded(strHash(key));
+    const lawn = box(PLAN.BLOCK - 0.4, 0.1, PLAN.BLOCK - 0.4, 0x9bc47a); lawn.castShadow = false; at(lawn, 0, 0.05, 0); group.add(lawn);
+    const pathLen = PLAN.BLOCK / 2 - fp.d / 2 + 0.6;
+    const path = box(3.2, 0.06, pathLen, 0xdcd3c1); path.castShadow = false; at(path, 0, 0.13, fp.d / 2 + pathLen / 2 - 0.3); group.add(path);
+    const apron = box(fp.w * 0.7, 0.06, 1.6, 0xdcd3c1); apron.castShadow = false; at(apron, 0, 0.13, fp.d / 2 + 0.8); group.add(apron);
+    for (const sx of [-1, 1]) {
+      addTreeAt(group, sx * (fp.w / 2 + 1.4), 0.1, fp.d / 2 + 1.0, 1.25 + rnd() * 0.4, rnd);
+      const bush = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55, 0), mat(0x5f9a5a, { flat: true })); bush.castShadow = true; at(bush, sx * 2.6, 0.45, fp.d / 2 + 0.9); group.add(bush);
+      if (rnd() < 0.7) addTreeAt(group, sx * (fp.w / 2 + 1.2), 0.1, -fp.d / 2 - 0.8, 1.1 + rnd() * 0.4, rnd);
+    }
+    // ground-floor lift: the lawn is a hair above the plate so it reads as a lot, not paint
+  }
+  town.add(group); built.set(key, { group, bx, bz });
+  return group;
+}
+// Mechanism archetypes by stable index -- so each mechanism keeps a distinct, intentional look.
+function makeMechanismBuilding(b, idx) {
+  const name = b.displayName.toUpperCase().replace(/LIVE ALPACA EQUITY\/ETF TRADING/, 'ALPACA TRADING');
+  if (!b.available) return makeConstructionSite({ w: 15, d: 13, floors: 4 + (idx % 2), name });
+  const archetypes = [
+    { w: 16, d: 14, tiers: [{ floors: 4 }, { floors: 4, inset: 1.8 }, { floors: 3, inset: 1.6 }], facade: 0x6b7d99, roofKind: 'mech' },   // office tower (glass-and-slate)
+    { w: 16, d: 14, tiers: [{ floors: 3 }, { floors: 2, inset: 2.4 }], facade: 0xb35a4a, roofKind: 'solar' },                             // brick studio with mast
+    { w: 16, d: 14, tiers: [{ floors: 4 }], facade: 0xd8c39a, roofKind: 'mech' },                                                        // stone exchange hall
+    { w: 16, d: 14, tiers: [{ floors: 2 }, { floors: 3, inset: 1.4 }], facade: 0xc7a27c, roofKind: 'tank' },                              // loft
+  ];
+  const a = archetypes[idx % archetypes.length];
+  const t = makeTower({ ...a, name, seed: strHash(b.mechanismId) });
+  if (idx % archetypes.length === 1) { const mast = box(0.18, 7, 0.18, 0x8e939c); at(mast, 4, t.userData.height + 3.5, -3); t.add(mast); const dish = new THREE.Mesh(new THREE.SphereGeometry(0.8, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0xe8e2d0)); dish.rotation.x = -0.9; at(dish, 4, t.userData.height + 6.2, -3); t.add(dish); }
+  return t;
+}
+function facingSquare(bx, bz) { // rotate a building so its front (+z) faces the central square
+  if (bz < 0) return 0; if (bz > 0) return Math.PI; if (bx < 0) return -Math.PI / 2; if (bx > 0) return Math.PI / 2; return 0;
+}
+function buildStaticTown() {
+  buildStreets();
+  placeOnLot('square', ...LOTS.square, makeSquare());
+  placeOnLot('bank', ...LOTS.bank, makeBank(), { rotY: 0, yard: true });
+  placeOnLot('cityhall', ...LOTS.cityHall, makeCityHall(), { rotY: Math.PI / 2, yard: true });
+  // Round 14: the Knowledge Vault, same "doesn't need data to exist"
+  // reasoning as the security station below -- every mission-authoring
+  // wake already, unconditionally, consults the journal.
+  placeOnLot('vault', ...LOTS.park2, makeVault(), { rotY: facingSquare(...LOTS.park2), yard: true });
+  placeOnLot('park3', ...LOTS.park3, makeMeadowLot(12));
+  // Round 11: the security team is a fixed, always-present part of city
+  // infrastructure -- "the second defense," structurally separate from
+  // the citizen economy and independent of any citizen ever being funded
+  // (mirrors city-security.js's own design: it doesn't need money to
+  // exist). Built here alongside the bank/city hall, not conditionally
+  // grown like the cemetery (which only appears once someone has
+  // actually died -- a real, earned event, unlike security's presence).
+  placeOnLot('security', ...LOTS.security, makeSecurityStation());
+  addStreetFurniture();
+}
+function syncTown(d) {
+  // Mechanism buildings on the west avenue, in stable data order
+  d.buildings.forEach((b, i) => {
+    const lot = LOTS.mechanism[i]; if (!lot) return;
+    const key = `mech:${b.mechanismId}:${b.available ? 'live' : 'construction'}`;
+    const stale = Array.from(built.keys()).find((k) => k.startsWith(`mech:${b.mechanismId}:`) && k !== key);
+    if (stale) { town.remove(built.get(stale).group); built.delete(stale); }
+    if (!built.has(key)) placeOnLot(key, lot[0], lot[1], makeMechanismBuilding(b, i), { rotY: facingSquare(lot[0], lot[1]), yard: b.available });
+  });
+  // Residential blocks: one apartment block per 6 citizens (stable order), first block appears with the first citizen
+  const blocksNeeded = Math.ceil(d.citizens.length / 6);
+  for (let i = 0; i < LOTS.residential.length; i++) {
+    const lot = LOTS.residential[i], key = `res:${i}`, emptyKey = `empty:res:${i}`;
+    if (i < blocksNeeded) {
+      if (built.has(emptyKey)) { town.remove(built.get(emptyKey).group); built.delete(emptyKey); }
+      if (!built.has(key)) placeOnLot(key, lot[0], lot[1], makeApartmentBlock({ seed: 100 + i, name: `${['MAPLE', 'CEDAR', 'HARBOR', 'ORCHARD', 'SUMMIT', 'MEADOW', 'RIVER', 'GRANITE', 'WILLOW', 'BEACON', 'LINDEN', 'ASPEN'][i]} COURT` }), { rotY: facingSquare(lot[0], lot[1]), yard: true });
+    } else if (!built.has(emptyKey) && !built.has(key)) {
+      const outer = Math.max(Math.abs(lot[0]), Math.abs(lot[1])) >= 2;
+      placeOnLot(emptyKey, lot[0], lot[1], outer ? makeMeadowLot(300 + i) : makeEmptyLot(300 + i));
+    }
+  }
+  // Mechanism lots not yet used stay pleasant empty plots (inner: surveyed lots; outer: meadow)
+  for (let i = d.buildings.length; i < LOTS.mechanism.length; i++) { const key = `empty:mech:${i}`, lot = LOTS.mechanism[i]; const outer = Math.max(Math.abs(lot[0]), Math.abs(lot[1])) >= 2; if (!built.has(key)) placeOnLot(key, lot[0], lot[1], outer ? makeMeadowLot(200 + i) : makeEmptyLot(200 + i)); }
+  // Cemetery: appears only once someone has actually died -- a real,
+  // earned event, otherwise the corner stays an empty plot. (Security is
+  // always present -- see buildStaticTown().)
+  const anyKia = d.citizens.some((c) => c.activityState === 'kia');
+  const ensure = (key, emptyKey, lot, cond, make) => {
+    if (cond) { if (built.has(emptyKey)) { town.remove(built.get(emptyKey).group); built.delete(emptyKey); } if (!built.has(key)) placeOnLot(key, lot[0], lot[1], make()); }
+    else if (!built.has(emptyKey) && !built.has(key)) placeOnLot(emptyKey, lot[0], lot[1], makeEmptyLot(strHash(key)));
+  };
+  ensure('cemetery', 'empty:cemetery', LOTS.cemetery, anyKia, makeCemetery);
+  syncVault(d);
+  syncCitizens(d);
+  syncGuards(d);
+}
+
+// Round 14: tablets are added incrementally into the already-placed vault
+// group and never removed/rebuilt -- same "real, earned, permanent" idiom
+// as the Cemetery's headstones. vaultTabletsPlaced only ever grows, so a
+// fresh page load with real records already existing backfills them all
+// on the very first call.
+let vaultTabletsPlaced = 0;
+function syncVault(d) {
+  const vault = built.get('vault');
+  if (!vault || !d.vault) return; // stale/old client mid-deploy -- no-op, not a crash
+  const slots = vault.group.userData.shelfSlots;
+  const total = Math.min(d.vault.lessonCount + d.vault.postmortemCount, slots.length); // 24 physical slots; beyond that the vault reads "full" -- an accepted, intentional cap at this city's scale, not a bug
+  for (let i = vaultTabletsPlaced; i < total; i++) {
+    const slot = slots[i];
+    const isLesson = i < d.vault.lessonCount; // lessons fill first, postmortems after -- a stable fill order, not a ranking
+    const color = isLesson ? 0xead9a0 : 0xc97a6a; // postmortems read as a distinct, more somber tablet color
+    const tablet = box(0.7, 0.9, 0.08, color, { emissive: color, ei: 0 });
+    at(tablet, slot[0], slot[1], slot[2]);
+    vault.group.add(tablet);
+    nightWindows.push({ mesh: tablet, material: tablet.material }); // glows after dark, like a lit window
+  }
+  vaultTabletsPlaced = Math.max(vaultTabletsPlaced, total);
+  if (vault.group.userData.emptyPlaque) vault.group.userData.emptyPlaque.visible = vaultTabletsPlaced === 0;
+}
+buildStaticTown();
+
+// ============================================================ FLORA & FURNITURE (phase 4)
+function makeCar(seed) {
+  const rnd = seeded(seed), g = new THREE.Group();
+  const color = [0xd9695f, 0xf1eee8, 0x3b4256, 0x4f7fc9, 0xe0a63a, 0x8fa6a0, 0xc96f9a][Math.floor(rnd() * 7)];
+  const body = box(1.8, 0.55, 3.9, color); at(body, 0, 0.55, 0); g.add(body);
+  const cabin = box(1.6, 0.5, 2.0, color); at(cabin, 0, 1.05, -0.2); g.add(cabin);
+  const glass = new THREE.MeshStandardMaterial({ color: 0x9fc6d8, roughness: 0.2, metalness: 0.2 });
+  const wsF = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.4), glass); wsF.position.set(0, 1.05, 0.81); g.add(wsF);
+  const wsB = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.4), glass); wsB.position.set(0, 1.05, -1.21); wsB.rotation.y = Math.PI; g.add(wsB);
+  for (const [x, z] of [[-0.85, 1.2], [0.85, 1.2], [-0.85, -1.2], [0.85, -1.2]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.25, 12), mat(0x2b2f36)); w.rotation.z = Math.PI / 2; w.castShadow = true; at(w, x, 0.32, z); g.add(w); }
+  const lightF = box(0.35, 0.14, 0.05, 0xfff2c0, { emissive: 0xfff2c0, ei: 0 }); at(lightF, -0.6, 0.6, 1.96); g.add(lightF); const lightF2 = lightF.clone(); at(lightF2, 0.6, 0.6, 1.96); g.add(lightF2);
+  return g;
+}
+function addParkedCars() {
+  const rnd = seeded(77), g = new THREE.Group(); scene.add(g);
+  // a handful of cars parked along the outer lanes of several blocks -- sparse, like a quiet town, not a traffic jam
+  for (let bx = -PLAN.N; bx <= PLAN.N; bx++) for (let bz = -PLAN.N; bz <= PLAN.N; bz++) {
+    if (bx === 0 && bz === 0) continue;
+    const p = blockCenter(bx, bz);
+    if (rnd() < 0.55) { const c = makeCar(bx * 31 + bz * 7 + 1); c.position.set(p.x + PLAN.S / 2 + 1.4, Y.asphalt * 2, p.z + (rnd() - 0.5) * 10); g.add(c); }
+    if (rnd() < 0.4) { const c = makeCar(bx * 13 + bz * 17 + 2); c.rotation.y = Math.PI / 2; c.position.set(p.x + (rnd() - 0.5) * 10, Y.asphalt * 2, p.z - PLAN.S / 2 - 1.4); g.add(c); }
+  }
+}
+function addBushesAndHills() {
+  const rnd = seeded(31), g = new THREE.Group(); scene.add(g);
+  // hillside tree clusters beyond the town edge, sitting on the real terrain height
+  for (let i = 0; i < 140; i++) {
+    const a = rnd() * Math.PI * 2, r = CFG.flatHalf + 18 + rnd() * 75;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r; if (Math.max(Math.abs(x), Math.abs(z)) > CFG.terrainSize / 2 - 10) continue;
+    addTreeAt(g, x, terrainHeight(x, z) - 0.1, z, 1.1 + rnd() * 0.9, rnd, rnd() < 0.3 ? 'pine' : 'round');
+  }
+  // bushes along the outer sidewalk rim of the civic blocks
+  for (const [bx, bz] of [LOTS.bank, LOTS.cityHall, LOTS.square]) {
+    const p = blockCenter(bx, bz), half = PLAN.S / 2 - PLAN.SW - 0.4;
+    for (let i = -3; i <= 3; i++) {
+      if (Math.abs(i) === 3 && rnd() < 0.5) continue;
+      const b1 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55, 0), mat([0x5f9a5a, 0x6fae6a, 0x4f8a4e][i % 3 + 1 >> 0] || 0x5f9a5a, { flat: true })); b1.castShadow = true;
+      at(b1, p.x + i * 2.6, Y.plate + 0.4, p.z + half); g.add(b1);
+      const b2 = b1.clone(); at(b2, p.x + i * 2.6, Y.plate + 0.4, p.z - half); g.add(b2);
+    }
+  }
+}
+addParkedCars(); addBushesAndHills();
+
+// ============================================================ SIDEWALK GRAPH (pathfinding)
+// Nodes are the corners of every block's sidewalk ring; consecutive lattice points connect along
+// sidewalk edges and across crosswalks. Citizens never cut through buildings or lawns.
+const walk = { xs: [], zs: [], nodes: new Map() };
+{
+  const half = PLAN.S / 2 - PLAN.SW / 2;
+  for (let i = -PLAN.N; i <= PLAN.N; i++) { walk.xs.push(i * PLAN.P - half, i * PLAN.P + half); walk.zs.push(i * PLAN.P - half, i * PLAN.P + half); }
+}
+const nodeKey = (i, j) => `${i},${j}`;
+function nearestNode(p) {
+  let bi = 0, bj = 0, bd = Infinity;
+  walk.xs.forEach((x, i) => walk.zs.forEach((z, j) => { const d = (x - p.x) ** 2 + (z - p.z) ** 2; if (d < bd) { bd = d; bi = i; bj = j; } }));
+  return { i: bi, j: bj };
+}
+function findPath(from, to) { // Dijkstra over the lattice; returns world-space waypoints (y = sidewalk top)
+  const a = nearestNode(from), b = nearestNode(to);
+  const dist = new Map(), prev = new Map(), open = [];
+  const start = nodeKey(a.i, a.j), goal = nodeKey(b.i, b.j);
+  dist.set(start, 0); open.push(start);
+  const posOf = (k) => { const [i, j] = k.split(',').map(Number); return new THREE.Vector3(walk.xs[i], Y.plate, walk.zs[j]); };
+  while (open.length) {
+    open.sort((u, v) => dist.get(u) - dist.get(v)); const k = open.shift(); if (k === goal) break;
+    const [i, j] = k.split(',').map(Number), pk = posOf(k);
+    for (const [ni, nj] of [[i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]]) {
+      if (ni < 0 || nj < 0 || ni >= walk.xs.length || nj >= walk.zs.length) continue;
+      const nk = nodeKey(ni, nj), nd = dist.get(k) + pk.distanceTo(posOf(nk));
+      if (nd < (dist.get(nk) ?? Infinity)) { dist.set(nk, nd); prev.set(nk, k); if (!open.includes(nk)) open.push(nk); }
+    }
+  }
+  const pts = []; let k = goal; while (k) { pts.unshift(posOf(k)); k = prev.get(k); }
+  const end = to.clone(); end.y = Y.plate; pts.push(end);
+  return pts;
+}
+
+// ============================================================ CITIZENS
+const STATE_COLOR = { idle: '#8a90a0', researching: '#c98a1b', 'in-position': '#2f8f96', blocked: '#d07a2f', quarantined: '#c4473e', kia: '#5b6270' };
+const STATE_GLYPH = { idle: '⌂', researching: '?', 'in-position': '▲', blocked: '✕', quarantined: '!', kia: '†' };
+// Round 16: thought bubbles only while genuinely working, and only up
+// close -- full-visible <= 22 units, gone >= 38. Working citizens stand at
+// mechanism buildings ~96 units from the default camera, so bubbles stay
+// hidden until you zoom in or follow someone (controls range 10..170).
+const BUBBLE_STATES = new Set(['researching', 'in-position']);
+const BUBBLE_FULL_DIST = 22, BUBBLE_HIDE_DIST = 38;
+const SHIRTS = [0xd9695f, 0x3f8f5a, 0x2f8f96, 0xe0a63a, 0x6f5bb5, 0x4f7fc9, 0xc96f9a, 0x8a9a3f];
+const badgeTex = new Map();
+function badgeTexture(state) {
+  if (badgeTex.has(state)) return badgeTex.get(state);
+  const c = document.createElement('canvas'); c.width = c.height = 96; const ctx = c.getContext('2d');
+  ctx.beginPath(); ctx.arc(48, 48, 40, 0, Math.PI * 2); ctx.fillStyle = STATE_COLOR[state] || '#8a90a0'; ctx.fill();
+  ctx.lineWidth = 6; ctx.strokeStyle = '#fbfaf7'; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = '700 46px Inter, "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(STATE_GLYPH[state] || '?', 48, 52);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; badgeTex.set(state, t); return t;
+}
+function nameSprite(text) {
+  const { texture, aspect } = makeTextTexture(text, { fg: '#22262e', bg: '#fbfaf7', px: 56, pad: 22 });
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  s.scale.set(1.1 * aspect, 1.1, 1); s.renderOrder = 10; return s;
+}
+const BUBBLE_TEXT_OPTS = { fg: '#22262e', bg: '#fbfaf7', px: 44, pad: 18 };
+function bubbleSprite(text) {
+  const { texture, aspect } = makeTextTexture(text, BUBBLE_TEXT_OPTS);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, opacity: 0 }));
+  s.scale.set(0.8 * aspect, 0.8, 1); s.renderOrder = 11; return s;
+}
+// States where standing dead-still doesn't mean anything real -- unlike
+// in-position (working at a desk), quarantined (being watched), or kia
+// (at rest), which stay pinned. These citizens wander a short loop
+// around their assigned spot instead of freezing there.
+const WANDER_STATES = new Set(['idle', 'researching', 'blocked']);
+const citizens = new Map(); // citizenId -> entry
+const citizensGroup = new THREE.Group(); scene.add(citizensGroup);
+const headstones = new Map();
+
+function makePerson(c) {
+  const g = new THREE.Group();
+  const isLeader = c.role === 'leader', rnd = seeded(strHash(c.citizenId));
+  const shirt = isLeader ? 0x6f5bb5 : SHIRTS[Math.floor(rnd() * SHIRTS.length)];
+  const skin = [0xf1c9a5, 0xd9a577, 0xb07a52, 0x8d5a3b][Math.floor(rnd() * 4)];
+  const pants = [0x3b4256, 0x5a6270, 0x6b4f3a][Math.floor(rnd() * 3)];
+  const torso = box(0.56, 0.62, 0.32, shirt); at(torso, 0, 1.05, 0); g.add(torso);
+  const head = box(0.34, 0.34, 0.32, skin); at(head, 0, 1.55, 0); g.add(head);
+  const hair = box(0.36, 0.12, 0.34, [0x2b2320, 0x6b4a2b, 0xc9a86a, 0x8a8a8a][Math.floor(rnd() * 4)]); at(hair, 0, 1.75, 0); g.add(hair);
+  const legL = box(0.2, 0.62, 0.22, pants), legR = box(0.2, 0.62, 0.22, pants);
+  legL.geometry.translate(0, -0.31, 0); legR.geometry.translate(0, -0.31, 0); at(legL, -0.14, 0.74, 0); at(legR, 0.14, 0.74, 0); g.add(legL, legR);
+  const armL = box(0.14, 0.56, 0.16, shirt), armR = box(0.14, 0.56, 0.16, shirt);
+  armL.geometry.translate(0, -0.26, 0); armR.geometry.translate(0, -0.26, 0); at(armL, -0.37, 1.3, 0); at(armR, 0.37, 1.3, 0); g.add(armL, armR);
+  if (isLeader) { const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 12), mat(0x2b2320)); at(brim, 0, 1.79, 0); g.add(brim); const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.22, 12), mat(0x2b2320)); at(crown, 0, 1.9, 0); g.add(crown); }
+  const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTexture(c.activityState), transparent: true, depthTest: false })); badge.scale.setScalar(0.55); at(badge, 0, 2.25, 0); badge.renderOrder = 9; g.add(badge);
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.0, 0.9), new THREE.MeshBasicMaterial({ visible: false })); at(hit, 0, 1.0, 0); hit.userData.citizenId = c.citizenId; g.add(hit);
+  const label = nameSprite(c.citizenId); at(label, 0, 2.75, 0); label.visible = false; g.add(label);
+  // Above the badge (top 2.525) and name label (top 3.3): bubble spans 3.4-4.2.
+  const bubble = bubbleSprite(' '); at(bubble, 0, 3.8, 0); bubble.visible = false; g.add(bubble);
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
+  citizensGroup.add(g);
+  return { g, legL, legR, armL, armR, badge, hit, label, bubble, bubbleText: null, phase: rnd() * 6, path: [], speed: 1.5 + rnd() * 0.5, seated: false, arrived: true, homeAnchor: null, wanderTimer: 0, wanderEligible: false };
+}
+
+// World-space slot lookups against the built town
+function lotWorld(key, local) { const b = built.get(key); if (!b) return null; return b.group.localToWorld(new THREE.Vector3(local[0], local[1], local[2])); }
+function frontSlots(key, n, spread = 1.6, depthOffset = 1.0) { // n points on the sidewalk in front of a lot's entrance
+  const b = built.get(key); if (!b) return [];
+  const fp = b.group.userData.footprint || { w: 12, d: 12 };
+  return Array.from({ length: n }, (_, i) => b.group.localToWorld(new THREE.Vector3((i - (n - 1) / 2) * spread, 0, fp.d / 2 + depthOffset)));
+}
+function curbSlot(key, i) { const b = built.get(key); if (!b) return null; const fp = b.group.userData.footprint || { w: 12, d: 12 }; return b.group.localToWorld(new THREE.Vector3((i % 3 - 1) * 2.2, 0, PLAN.BLOCK / 2 + PLAN.SW * 0.6)); }
+function mechKeyFor(mechanism) { return Array.from(built.keys()).find((k) => k.startsWith(`mech:${mechanism}:`)); }
+
+// Round 16: idle citizens' free-roam destination pool -- real, currently-
+// built landmarks and houses across the WHOLE town, not a bigger radius
+// around one anchor. Deliberately excludes mech:* buildings: an idle
+// citizen loitering at a mechanism door would read as the researching
+// citizen who is really working there (targetFor() puts them at that spot).
+function idlePoiCategories() {
+  const cats = [];
+  if (built.has('cityhall')) cats.push(() => frontSlots('cityhall', 5, 2.0, 1.6));
+  if (built.has('bank')) cats.push(() => frontSlots('bank', 6, 2.0, 2.4));
+  if (built.has('vault')) cats.push(() => frontSlots('vault', 3, 1.8, 1.3));
+  if (built.has('security')) cats.push(() => frontSlots('security', 3, 1.8, 1.4));
+  for (const key of built.keys()) { if (key.startsWith('res:')) cats.push(() => frontSlots(key, 6, 1.6, 1.3)); }
+  return cats;
+}
+
+function targetFor(c, index, d) {
+  const s = c.activityState;
+  const mechKey = c.mechanism ? mechKeyFor(c.mechanism) : null;
+  if (s === 'kia') return null;
+  if (s === 'quarantined') { const sec = built.get('security'); if (sec) { const slots = sec.group.userData.yardSlots; const sl = slots[index % slots.length]; return { pos: sec.group.localToWorld(new THREE.Vector3(sl[0], 0, sl[2])), seated: false }; } }
+  if (s === 'researching' && mechKey) { const slots = frontSlots(mechKey, 4, 1.7, 1.4); return { pos: slots[index % slots.length], seated: false }; }
+  if (s === 'in-position' && mechKey) {
+    const b = built.get(mechKey), desks = b.group.userData.deskSlots;
+    if (desks && desks.length) { const dsk = desks[index % desks.length]; return { pos: b.group.localToWorld(new THREE.Vector3(dsk[0], 0, dsk[2])), seated: true, faceLocalZ: -1, group: b.group }; }
+    const slots = frontSlots(mechKey, 4, 1.7, 1.4); return { pos: slots[index % slots.length], seated: false };
+  }
+  if (s === 'blocked' && mechKey) return { pos: curbSlot(mechKey, index), seated: false };
+  // idle: leaders at City Hall, everyone else at home
+  if (c.role === 'leader') { const slots = frontSlots('cityhall', 5, 2.0, 1.6); return { pos: slots[index % slots.length], seated: false }; }
+  const homeIdx = Math.floor(index / 6), homeKey = `res:${homeIdx}`;
+  if (built.has(homeKey)) { const slots = frontSlots(homeKey, 6, 1.6, 1.3); return { pos: slots[index % 6], seated: false }; }
+  const slots = frontSlots('bank', 6, 2.0, 2.4); return { pos: slots[index % slots.length], seated: false };
+}
+
+function syncCitizens(d) {
+  const seen = new Set();
+  const order = d.citizens.slice().sort((a, b) => a.citizenId.localeCompare(b.citizenId, undefined, { numeric: true }));
+  order.forEach((c, index) => {
+    seen.add(c.citizenId);
+    let e = citizens.get(c.citizenId);
+    if (e && e.role !== c.role) { citizensGroup.remove(e.g); citizens.delete(c.citizenId); e = null; }
+    if (c.activityState === 'kia') {
+      if (e) { citizensGroup.remove(e.g); citizens.delete(c.citizenId); }
+      const cem = built.get('cemetery');
+      if (cem && !headstones.has(c.citizenId)) {
+        const slot = cem.group.userData.stoneSlots[headstones.size % cem.group.userData.stoneSlots.length];
+        const st = new THREE.Group();
+        const stone = box(0.7, 0.9, 0.2, 0xb8b0a0); at(stone, 0, 0.45, 0); st.add(stone);
+        const top = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.2, 12, 1, false, 0, Math.PI), mat(0xb8b0a0)); top.rotation.z = Math.PI / 2; top.rotation.y = Math.PI / 2; at(top, 0, 0.9, 0); st.add(top);
+        const { texture, aspect } = makeTextTexture(c.citizenId, { fg: '#4a4640', bg: '#b8b0a0', px: 48, pad: 14 });
+        const face = new THREE.Mesh(new THREE.PlaneGeometry(0.5 * aspect, 0.5), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9 })); at(face, 0, 0.5, 0.11); st.add(face);
+        st.position.set(slot[0], slot[1], slot[2]); cem.group.add(st); headstones.set(c.citizenId, st);
+      }
+      return;
+    }
+    if (!e) { e = makePerson(c); e.role = c.role; e.id = c.citizenId; citizens.set(c.citizenId, e); const t = targetFor(c, index, d); if (t && t.pos) { e.g.position.copy(t.pos); e.g.position.y = Y.plate; } }
+    if (e.state !== c.activityState) { e.badge.material.map = badgeTexture(c.activityState); e.badge.material.needsUpdate = true; }
+    e.state = c.activityState; e.data = c;
+    e.wanderEligible = WANDER_STATES.has(c.activityState);
+    const t = targetFor(c, index, d);
+    if (t && t.pos) {
+      const key = `${t.pos.x.toFixed(1)},${t.pos.z.toFixed(1)}`;
+      if (e.targetKey !== key) {
+        e.targetKey = key; e.path = findPath(e.g.position, t.pos); e.arrived = false; e.seatedTarget = !!t.seated; e.faceGroup = t.group || null;
+        e.homeAnchor = t.pos.clone(); e.wanderTimer = 4 + Math.random() * 6; // a real state change resets the wander clock -- don't wander off mid-arrival
+      }
+    }
+  });
+  for (const id of Array.from(citizens.keys())) if (!seen.has(id)) { citizensGroup.remove(citizens.get(id).g); citizens.delete(id); }
+}
+
+// ---------- interaction: hover names, click to follow ----------
+const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+let followId = null, hoverId = null, downAt = null;
+function pick(ev) {
+  const r = canvas.getBoundingClientRect(); pointer.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(Array.from(citizens.values()).map((e) => e.hit), false);
+  return hits.length ? hits[0].object.userData.citizenId : null;
+}
+canvas.addEventListener('pointermove', (ev) => { const id = pick(ev); if (id !== hoverId) { hoverId = id; canvas.style.cursor = id ? 'pointer' : ''; } });
+canvas.addEventListener('pointerdown', (ev) => { downAt = [ev.clientX, ev.clientY]; });
+canvas.addEventListener('pointerup', (ev) => {
+  if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 6) return; // a drag, not a click
+  const id = pick(ev); followId = id;
+  noteFollow();
+});
+window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { followId = null; noteFollow(); } });
+function noteFollow() { const el = $('follow'); if (!el) return; el.hidden = !followId; el.textContent = followId ? `following ${followId} — Esc to release` : ''; }
+
+const _dir = new THREE.Vector3(), _delta = new THREE.Vector3();
+function updateCitizens(dt, t) {
+  citizens.forEach((e) => {
+    // movement along the path
+    if (e.path.length) {
+      const next = e.path[0]; _dir.subVectors(next, e.g.position); _dir.y = 0; const dist = _dir.length();
+      if (dist < 0.08) { e.path.shift(); if (!e.path.length) { e.arrived = true; e.seated = e.seatedTarget; if (e.faceGroup) { const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(e.faceGroup.quaternion); e.g.rotation.y = Math.atan2(fwd.x, fwd.z) + Math.PI; } } }
+      else { _dir.normalize(); const step = Math.min(dist, e.speed * dt); e.g.position.addScaledVector(_dir, step); e.g.rotation.y = Math.atan2(_dir.x, _dir.z); e.seated = false; }
+    }
+    // Free-roam: once arrived and settled, a wander-eligible citizen picks
+    // a new nearby point every several seconds and walks there, instead of
+    // freezing at its assigned spot -- real, meaningful placement (home,
+    // door, curb) stays the ANCHOR they wander around, not a single fixed
+    // point they're glued to. In-position/quarantined/kia never wander --
+    // working at a desk, being watched, and being at rest are real,
+    // deliberate constraints, not idle standing.
+    if (!e.path.length && e.wanderEligible && e.homeAnchor) {
+      e.wanderTimer -= dt;
+      if (e.wanderTimer <= 0) {
+        // Round 14: an occasional real vault visit, weighted by how many
+        // times this citizen has actually consulted the journal
+        // (vaultConsultCount, real data -- see city-status.js). Bounded at
+        // 0.4 so even a heavily-experienced citizen still spends most
+        // wander cycles at its normal anchor, not permanently orbiting the
+        // vault; /15 means a brand-new citizen (consult near 0) visits
+        // rarely and a proven one (consult >= 15) visits comparatively
+        // often -- both constants tunable, neither load-bearing.
+        const consult = (e.data && e.data.vaultConsultCount) || 0;
+        const visitVault = built.has('vault') && consult > 0 && Math.random() < Math.min(0.4, consult / 15);
+        if (visitVault) {
+          const slots = frontSlots('vault', 3, 1.8, 1.3);
+          const dest = slots[Math.floor(Math.random() * slots.length)];
+          if (dest) e.path = findPath(e.g.position, dest);
+        }
+        if (!e.path.length && e.state === 'idle') {
+          // Round 16: idle has no real job right now -- roam the whole
+          // town, a random real landmark or house (category first, then
+          // slot, so a town with many houses doesn't drown out City Hall).
+          const cats = idlePoiCategories();
+          if (cats.length) {
+            const slots = cats[Math.floor(Math.random() * cats.length)]();
+            const dest = slots.length ? slots[Math.floor(Math.random() * slots.length)] : null;
+            if (dest) e.path = findPath(e.g.position, dest);
+          }
+        }
+        if (!e.path.length) {
+          // researching/blocked (and idle's fallback before any landmark
+          // exists): a tight loop around the real job anchor, unchanged.
+          const ang = Math.random() * Math.PI * 2, r = 1.5 + Math.random() * 4.5;
+          const dest = new THREE.Vector3(e.homeAnchor.x + Math.cos(ang) * r, Y.plate, e.homeAnchor.z + Math.sin(ang) * r);
+          e.path = findPath(e.g.position, dest);
+        }
+        e.wanderTimer = 5 + Math.random() * 9;
+      }
+    }
+    const moving = e.path.length > 0;
+    // walk cycle: legs/arms swing while moving, settle when still; seated pose at a desk
+    e.phase += dt * (moving ? 9.5 : 0);
+    const sw = moving ? Math.sin(e.phase) * 0.6 : 0;
+    const targetLeg = e.seated ? -Math.PI / 2 : sw;
+    e.legL.rotation.x += (targetLeg - e.legL.rotation.x) * Math.min(1, dt * 10);
+    e.legR.rotation.x += ((e.seated ? -Math.PI / 2 : -sw) - e.legR.rotation.x) * Math.min(1, dt * 10);
+    e.armL.rotation.x += ((e.seated ? -0.9 : -sw * 0.8) - e.armL.rotation.x) * Math.min(1, dt * 10);
+    e.armR.rotation.x += ((e.seated ? -0.9 : sw * 0.8) - e.armR.rotation.x) * Math.min(1, dt * 10);
+    e.g.position.y += (((e.seated ? -0.3 : 0) + Y.plate + (moving ? Math.abs(Math.sin(e.phase)) * 0.06 : 0)) - e.g.position.y) * Math.min(1, dt * 8);
+    e.label.visible = hoverId === e.id || followId === e.id;
+    e.badge.material.opacity = e.state === 'idle' ? 0.55 : 1;
+    // Round 16: thought bubble -- real statusText from city-status.js,
+    // only while working, faded by camera distance; texture rebuilt only
+    // when the string actually changes, never per frame.
+    const bubbleText = e.data && e.data.statusText;
+    if (BUBBLE_STATES.has(e.state) && bubbleText) {
+      if (e.bubbleText !== bubbleText) {
+        e.bubbleText = bubbleText;
+        if (e.bubble.material.map) e.bubble.material.map.dispose();
+        const { texture, aspect } = makeTextTexture(bubbleText, BUBBLE_TEXT_OPTS);
+        e.bubble.material.map = texture; e.bubble.material.needsUpdate = true;
+        e.bubble.scale.set(0.8 * aspect, 0.8, 1);
+      }
+      const dist = camera.position.distanceTo(e.g.position);
+      const fade = 1 - THREE.MathUtils.clamp((dist - BUBBLE_FULL_DIST) / (BUBBLE_HIDE_DIST - BUBBLE_FULL_DIST), 0, 1);
+      e.bubble.visible = fade > 0.01;
+      e.bubble.material.opacity = fade;
+    } else {
+      e.bubble.visible = false;
+    }
+  });
+  if (followId && citizens.has(followId)) {
+    const p = citizens.get(followId).g.position;
+    _delta.set(p.x, p.y + 1.3, p.z).sub(controls.target).multiplyScalar(Math.min(1, dt * 3));
+    controls.target.add(_delta); camera.position.add(_delta);
+    if (camera.position.distanceTo(controls.target) > 40) { camera.position.lerp(controls.target, Math.min(1, dt * 0.8)); }
+  } else if (followId) { followId = null; noteFollow(); }
+}
+
+// ============================================================ SECURITY GUARDS (round 11)
+// Direct user framing: "their display/presence in the city is essentially
+// arbitrary since they are the second defense... it would be cool if they
+// went after the rogue agent." A small, FIXED population -- not tied to
+// citizen count or funding, mirroring city-security.js's own structural
+// separation from the economy (it has read access to every citizen, one
+// write power -- quarantine -- and needs no money to exist or act). When
+// a citizen is quarantined, the nearest free guard walks over and stands
+// watch beside them in the security yard; otherwise guards patrol a short
+// loop in front of the station. Deliberately simple: no name-hover UI, no
+// click-to-follow -- their presence matters more than their detail.
+const GUARD_COUNT = 2;
+const GUARD_DOOR_LOCAL = [-4.5, 0, -1.0]; // local to the security station group -- spawn point only, see makeGuard()
+const guardsGroup = new THREE.Group(); scene.add(guardsGroup);
+const guards = [];
+
+// The actual beat: a real loop through town (square, bank, city hall, a
+// mechanism building, back past the station), not three points a few
+// meters apart at their own door. Computed once real buildings exist
+// (called right after buildStaticTown() below) since it reads their real
+// world positions. Guards are staggered around this loop (see i0 in
+// makeGuard()) so they cover different parts of town at any given time,
+// not walk in lockstep.
+let GUARD_PATROL_WORLD = [];
+function computeGuardPatrolWorld() {
+  const pts = [];
+  const add = (v) => { if (v) pts.push(v); };
+  const sq = built.get('square'); if (sq) add(sq.group.localToWorld(new THREE.Vector3(7, 0, -7)));
+  add(frontSlots('bank', 1, 0, 3)[0]);
+  add(frontSlots('cityhall', 1, 0, 3)[0]);
+  const mechKey = Array.from(built.keys()).find((k) => k.startsWith('mech:'));
+  if (mechKey) add(frontSlots(mechKey, 1, 0, 3)[0]);
+  if (sq) add(sq.group.localToWorld(new THREE.Vector3(-7, 0, 7)));
+  const sec = built.get('security'); if (sec) add(sec.group.localToWorld(new THREE.Vector3(GUARD_DOOR_LOCAL[0], 0, GUARD_DOOR_LOCAL[2])));
+  GUARD_PATROL_WORLD = pts.length ? pts : [new THREE.Vector3(0, Y.plate, 0)];
+}
+const SHIELD_TEX = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 96; const ctx = c.getContext('2d');
+  ctx.beginPath(); ctx.moveTo(48, 6); ctx.lineTo(86, 20); ctx.lineTo(86, 48); ctx.bezierCurveTo(86, 76, 66, 90, 48, 92); ctx.bezierCurveTo(30, 90, 10, 76, 10, 48); ctx.lineTo(10, 20); ctx.closePath();
+  ctx.fillStyle = '#2b3040'; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = '#c9a15f'; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(28, 48); ctx.lineTo(42, 63); ctx.lineTo(70, 30); ctx.lineWidth = 8; ctx.strokeStyle = '#fbfaf7'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+function makeGuard(id, seed, i0) {
+  const g = new THREE.Group(), rnd = seeded(seed);
+  const uniform = 0x2b3040, dark = 0x1d2028, skin = [0xf1c9a5, 0xd9a577, 0xb07a52, 0x8d5a3b][Math.floor(rnd() * 4)];
+  const torso = box(0.58, 0.64, 0.34, uniform); at(torso, 0, 1.06, 0); g.add(torso);
+  const belt = box(0.6, 0.1, 0.36, dark); at(belt, 0, 0.78, 0); g.add(belt);
+  const head = box(0.34, 0.34, 0.32, skin); at(head, 0, 1.56, 0); g.add(head);
+  const cap = box(0.4, 0.14, 0.38, dark); at(cap, 0, 1.77, 0); g.add(cap);
+  const brim = box(0.44, 0.05, 0.18, dark); at(brim, 0, 1.71, 0.21); g.add(brim);
+  const legL = box(0.2, 0.62, 0.22, dark), legR = box(0.2, 0.62, 0.22, dark);
+  legL.geometry.translate(0, -0.31, 0); legR.geometry.translate(0, -0.31, 0); at(legL, -0.14, 0.75, 0); at(legR, 0.14, 0.75, 0); g.add(legL, legR);
+  const armL = box(0.14, 0.56, 0.16, uniform), armR = box(0.14, 0.56, 0.16, uniform);
+  armL.geometry.translate(0, -0.26, 0); armR.geometry.translate(0, -0.26, 0); at(armL, -0.38, 1.31, 0); at(armR, 0.38, 1.31, 0); g.add(armL, armR);
+  const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: SHIELD_TEX, transparent: true, depthTest: false })); badge.scale.setScalar(0.5); at(badge, 0, 2.15, 0); badge.renderOrder = 9; g.add(badge);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  // Station them at their post from the very first frame -- a fixed
+  // presence, not something that has to walk across town from an
+  // arbitrary spawn point before it means anything.
+  const post = blockCenter(...LOTS.security);
+  g.position.set(post.x + GUARD_DOOR_LOCAL[0], Y.plate, post.z + GUARD_DOOR_LOCAL[2]);
+  guardsGroup.add(g);
+  return { id, g, legL, legR, armL, armR, phase: rnd() * 6, path: [], targetKey: null, speed: 1.7, patrolIdx: i0, assignedCitizenId: null };
+}
+for (let i = 0; i < GUARD_COUNT; i++) guards.push(makeGuard(`G${i + 1}`, 500 + i, i));
+
+// Assigns up to GUARD_COUNT quarantined citizens to guards, 1:1, stable
+// by citizenId so the same guard sticks with the same citizen rather than
+// swapping targets every poll.
+function syncGuards(d) {
+  const quarantined = d.citizens.filter((c) => c.activityState === 'quarantined').sort((a, b) => a.citizenId.localeCompare(b.citizenId, undefined, { numeric: true }));
+  guards.forEach((guard, gi) => { guard.assignedCitizenId = quarantined[gi] ? quarantined[gi].citizenId : null; });
+}
+
+function updateGuards(dt) {
+  guards.forEach((guard) => {
+    let desired;
+    if (guard.assignedCitizenId && citizens.has(guard.assignedCitizenId)) {
+      const p = citizens.get(guard.assignedCitizenId).g.position;
+      desired = new THREE.Vector3(p.x + 1.3, Y.plate, p.z); // stand watch beside them
+    } else {
+      desired = GUARD_PATROL_WORLD[guard.patrolIdx % GUARD_PATROL_WORLD.length];
+    }
+    const key = `${desired.x.toFixed(1)},${desired.z.toFixed(1)}`;
+    // Sidewalk-based pathfinding, same as citizens -- a beat spanning the
+    // whole town needs to actually follow the streets, not cut straight
+    // through buildings the way a one-hop local shuffle could get away with.
+    if (guard.targetKey !== key) { guard.targetKey = key; guard.path = findPath(guard.g.position, desired); }
+
+    if (guard.path.length) {
+      const next = guard.path[0]; _dir.subVectors(next, guard.g.position); _dir.y = 0; const dist = _dir.length();
+      if (dist < 0.12) {
+        guard.path.shift();
+        if (!guard.assignedCitizenId && !guard.path.length) { guard.patrolIdx = (guard.patrolIdx + 1) % GUARD_PATROL_WORLD.length; guard.targetKey = null; }
+      } else {
+        _dir.normalize(); const step = Math.min(dist, guard.speed * dt); guard.g.position.addScaledVector(_dir, step); guard.g.rotation.y = Math.atan2(_dir.x, _dir.z);
+      }
+    }
+    const moving = guard.path.length > 0;
+    guard.phase += dt * (moving ? 9 : 0);
+    const sw = moving ? Math.sin(guard.phase) * 0.55 : 0;
+    guard.legL.rotation.x += (sw - guard.legL.rotation.x) * Math.min(1, dt * 10);
+    guard.legR.rotation.x += (-sw - guard.legR.rotation.x) * Math.min(1, dt * 10);
+    guard.armL.rotation.x += (-sw * 0.7 - guard.armL.rotation.x) * Math.min(1, dt * 10);
+    guard.armR.rotation.x += (sw * 0.7 - guard.armR.rotation.x) * Math.min(1, dt * 10);
+    guard.g.position.y = Y.plate + (moving ? Math.abs(Math.sin(guard.phase)) * 0.06 : 0);
+  });
+}
+
+// ============================================================ HUD
+const rosterEl = $('roster'), bannerEl = $('banner'), noteEl = $('note'), legendEl = $('legend');
+legendEl.innerHTML = [
+  ['#8a90a0', '⌂', 'idle — at home'],
+  ['#c98a1b', '?', 'researching — at the door'],
+  ['#2f8f96', '▲', 'in position — at work inside'],
+  ['#d07a2f', '✕', 'blocked — turned away'],
+  ['#c4473e', '!', 'quarantined — security yard'],
+  ['#5b6270', '†', 'kia — cemetery'],
+  ['#6f5bb5', '★', 'leader — at City Hall'],
+].map(([c, s, t]) => `<div class="row"><span class="ic" style="background:${c}">${s}</span>${t}</div>`).join('') +
+  '<div class="row" style="margin-top:6px;color:var(--ink-3)">navy-uniformed figures = city security, always on patrol — they escort anyone quarantined</div>' +
+  '<div class="row" style="margin-top:3px;color:var(--ink-3)">Knowledge Vault (southwest corner) holds every real lesson and postmortem citizens have recorded — bare shelves mean none exist yet, not decoration</div>' +
+  '<div class="row" style="margin-top:3px;color:var(--ink-3)">drag to move around · right-drag to look around · scroll to zoom · click a citizen to follow</div>';
+
+function money(n) { return (n < 0 ? '-' : '') + '$' + Math.abs(n).toFixed(2); }
+function renderRoster(d) {
+  const pnl = d.totalCityPnlSinceGenesisUsd;
+  const rows = d.citizens.slice().sort((a, b) => (b.role === 'leader') - (a.role === 'leader') || a.citizenId.localeCompare(b.citizenId))
+    .map((c) => `<div class="cit"><span class="id">${c.citizenId}${c.role === 'leader' ? ' ★' : ''}</span><span class="st-${c.activityState}">${c.activityState}${c.currentSymbol ? ' · ' + c.currentSymbol : ''}</span></div>`).join('');
+  rosterEl.innerHTML = `<h2>City</h2>
+    <div class="stat"><span>Bank</span><b>${money(d.bankBalanceUsd)}</b></div>
+    <div class="stat"><span>City P&amp;L</span><b class="${pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : ''}">${money(pnl)}</b></div>
+    <div class="stat"><span>Citizens</span><b>${d.citizens.filter((c) => c.status === 'active').length} active / ${d.citizens.length}</b></div>
+    <div class="stat"><span>Mechanisms</span><b>${d.buildings.length}</b></div>
+    <div class="stat"><span>Vault</span><b>${(d.vault ? d.vault.lessonCount : 0)} lesson${(d.vault ? d.vault.lessonCount : 0) === 1 ? '' : 's'}${(d.vault && d.vault.postmortemCount) ? ' · ' + d.vault.postmortemCount + ' postmortem' + (d.vault.postmortemCount === 1 ? '' : 's') : ''}</b></div>
+    <div style="height:4px"></div>${rows || '<div class="cit"><span class="st-idle">no citizens founded yet</span></div>'}`;
+  if (d.state === 'not-yet-funded') { bannerEl.hidden = false; bannerEl.textContent = 'Not yet founded — the town is built and waiting for its first citizen.'; }
+  else if (d.state === 'permanently-shut-down') { bannerEl.hidden = false; bannerEl.textContent = 'Every citizen\'s stake is exhausted — no automatic recovery exists.'; }
+  else bannerEl.hidden = true;
+}
+
+// ============================================================ POLL
+const cityState = { data: null };
+function syncScene(d) { cityState.data = d; syncTown(d); /* phase 5 adds citizens here */ }
+async function poll() {
+  try {
+    const res = await fetch('survive-city-3d-status.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json(); if (d.error) throw new Error(d.error);
+    syncScene(d); renderRoster(d);
+    noteEl.textContent = 'updated ' + new Date(d.generatedAt).toLocaleTimeString() + ' · ' + d.buildings.length + ' mechanism(s), ' + d.citizens.length + ' citizen(s)' + (d.lastCheckInAt ? ' · supervisor last woke ' + new Date(d.lastCheckInAt).toLocaleString() : ' · supervisor has never run');
+  } catch (err) { noteEl.textContent = 'poll failed: ' + err.message + ' (is serve-dashboard.js running?)'; }
+}
+
+// ============================================================ RENDER LOOP
+const clock = new THREE.Clock();
+let lastClockText = '';
+function renderLoop() {
+  requestAnimationFrame(renderLoop);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  updateSkyAndLights();
+  const mins = timeEngine.minutesNow();
+  // Night lighting: windows, lamps and sign boards come on as the sun drops (with the dusk band, not a hard switch)
+  const lit = THREE.MathUtils.clamp(1 - THREE.MathUtils.smoothstep(lighting.dayFactor, 0.15, 0.6), 0, 1);
+  for (const w of nightWindows) w.material.emissiveIntensity = 1.6 * lit;
+  for (const h of lampHeads) h.material.emissiveIntensity = 2.2 * lit;
+  for (const f of signFaces) f.material.emissiveIntensity = 0.9 * lit;
+  // City Hall clock shows the real (or scrubbed) time
+  if (cityHallClock.hour) { cityHallClock.hour.rotation.z = -((mins % 720) / 720) * Math.PI * 2; cityHallClock.minute.rotation.z = -((mins % 60) / 60) * Math.PI * 2; }
+  if (fountainWater) fountainWater.material.opacity = 0.82 + Math.sin(clock.elapsedTime * 2.1) * 0.06;
+  updateCitizens(dt, clock.elapsedTime);
+  updateGuards(dt);
+  const txt = fmtClock(mins);
+  if (txt !== lastClockText) { clockEl.textContent = txt; lastClockText = txt; if (timeEngine.override == null) scrub.value = Math.floor(mins); }
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+computeGuardPatrolWorld();
+resize(); poll(); setInterval(poll, 2000); renderLoop();
+</script>
+</body>
+</html>

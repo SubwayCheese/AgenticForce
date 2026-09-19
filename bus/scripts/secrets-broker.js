@@ -50,6 +50,14 @@ function loadSecret(name) {
   return Object.prototype.hasOwnProperty.call(secrets, name) ? secrets[name] : null;
 }
 
+// Existence-only check, deliberately distinct from loadSecret(name) !==
+// null -- added for mechanism-registry.js's isAvailable() checks, whose
+// result ends up rendered on a status page. "Does this exist" should never
+// require a caller to discard a value it technically had access to.
+function hasSecret(name) {
+  return Object.prototype.hasOwnProperty.call(loadAllSecrets(), name);
+}
+
 // Literal substring replacement, not regex -- safe against a secret
 // value containing regex-special characters (a real risk: API keys and
 // tokens routinely contain +, /, [, ], etc.). A no-op, cheap, when no
@@ -64,4 +72,4 @@ function redactSecrets(text) {
   return result;
 }
 
-module.exports = { loadSecret, loadAllSecrets, redactSecrets, SECRETS_PATH };
+module.exports = { loadSecret, hasSecret, loadAllSecrets, redactSecrets, SECRETS_PATH };

@@ -22,15 +22,19 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { buildSnapshot, buildAgentGraph } = require('./dashboard-status.js');
+const { buildSnapshot, buildAgentGraph, getPlainSummary } = require('./dashboard-status.js');
 const { buildFleetSnapshot } = require('./fleet-status.js');
 const { buildCryptoSnapshot } = require('./crypto-status.js');
 const { getClaudeAgentRoster } = require('./agent-roster.js');
+const { getCityPlainSummary, getCity3DStatus } = require('./city-status.js');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
+const SIMPLE_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'simple.html');
 const DASHBOARD_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'dashboard.html');
 const AGENTS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'agents.html');
 const CITY_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'city.html');
+const ECONOMY_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'economy.html');
+const SURVIVE_CITY_3D_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'survive-city-3d.html');
 const MARKETS_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'markets.html');
 const FLEET_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'fleet.html');
 const CRYPTO_HTML_PATH = path.join(VAULT_ROOT, 'bus', 'crypto.html');
@@ -48,7 +52,27 @@ function send(res, status, contentType, body) {
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
 
-  if (url === '/' || url === '/dashboard.html') {
+  // Simple plain-English status page (added 2026-09-14, direct user
+  // request for something less "cody" that answers one question --
+  // are the 24/7 agents still actually working -- without raw task ids
+  // or JSON. This is now the default page; the detailed/technical view
+  // below is still available at /dashboard.html for anyone who wants it.
+  if (url === '/' || url === '/simple.html') {
+    fs.readFile(SIMPLE_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read simple.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/plain-status.json') {
+    getPlainSummary()
+      .then((summary) => send(res, 200, 'application/json', JSON.stringify(summary)))
+      .catch((err) => send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) })));
+    return;
+  }
+
+  if (url === '/dashboard.html') {
     fs.readFile(DASHBOARD_HTML_PATH, 'utf8', (err, html) => {
       if (err) return send(res, 500, 'text/plain', `Failed to read dashboard.html: ${err.message}`);
       send(res, 200, 'text/html; charset=utf-8', html);
@@ -84,6 +108,48 @@ const server = http.createServer((req, res) => {
       if (err) return send(res, 500, 'text/plain', `Failed to read city.html: ${err.message}`);
       send(res, 200, 'text/html; charset=utf-8', html);
     });
+    return;
+  }
+
+  // "Survive" city-bank economy status (added for ARCHITECTURE.md section
+  // 19) -- deliberately NOT /city.html, which already means the unrelated
+  // 3D agent-roster visualization (real naming collision caught during
+  // design).
+  if (url === '/economy.html') {
+    fs.readFile(ECONOMY_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read economy.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/economy-status.json') {
+    try {
+      const summary = getCityPlainSummary();
+      send(res, 200, 'application/json', JSON.stringify(summary));
+    } catch (err) {
+      send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
+    }
+    return;
+  }
+
+  // Round 8: the real-time 3D view of the survive economy -- one building
+  // per mechanism, citizens walking between them. Separate page and feed
+  // from /economy.html (the plain cards stay as they are).
+  if (url === '/survive-city-3d.html') {
+    fs.readFile(SURVIVE_CITY_3D_HTML_PATH, 'utf8', (err, html) => {
+      if (err) return send(res, 500, 'text/plain', `Failed to read survive-city-3d.html: ${err.message}`);
+      send(res, 200, 'text/html; charset=utf-8', html);
+    });
+    return;
+  }
+
+  if (url === '/survive-city-3d-status.json') {
+    try {
+      send(res, 200, 'application/json', JSON.stringify(getCity3DStatus()));
+    } catch (err) {
+      send(res, 500, 'application/json', JSON.stringify({ error: String((err && err.message) || err) }));
+    }
     return;
   }
 

@@ -282,11 +282,33 @@ async function checkDailyCircuitBreaker() {
 // blocks -- callers log a summary and skip/refuse, they don't need to
 // call the three checks individually.
 async function checkPortfolioRiskEnvelope({ symbol, newLegNotionalUsd, stage } = {}) {
-  const [capital, correlation, circuitBreaker] = await Promise.all([
-    checkCapitalAtRiskEnvelope({ newLegNotionalUsd }),
-    checkCryptoCorrelationEnvelope({ symbol }),
-    checkDailyCircuitBreaker(),
-  ]);
+  let capital, correlation, circuitBreaker;
+  try {
+    [capital, correlation, circuitBreaker] = await Promise.all([
+      checkCapitalAtRiskEnvelope({ newLegNotionalUsd }),
+      checkCryptoCorrelationEnvelope({ symbol }),
+      checkDailyCircuitBreaker(),
+    ]);
+  } catch (err) {
+    // Fail CLOSED, not open: a transient Alpaca lookup error here must not
+    // be read as "risk envelope OK" -- unlike assertNoExistingPosition()'s
+    // established fail-closed pattern elsewhere, this function had no guard
+    // of its own and depended entirely on whichever caller happened to wrap
+    // it in try/catch. Confirmed one real call site doesn't --
+    // execute-portfolio-setup.js's executeOne() (the --auto path that
+    // actually opened ARB/USD and LTC/USD on 2026-09-12) calls this with no
+    // try/catch of its own. Guard at the source so every caller gets a
+    // fail-closed result regardless.
+    log(`RISK ENVELOPE CHECK FAILED (fail-closed, treating as blocked): ${err.message}`);
+    return {
+      ok: false,
+      reasons: [`portfolio risk envelope check errored: ${err.message}`],
+      stage: stage || null,
+      symbol: symbol || null,
+      transient: true,
+      details: null,
+    };
+  }
 
   const reasons = [...capital.reasons, ...correlation.reasons, ...circuitBreaker.reasons];
   const ok = reasons.length === 0;

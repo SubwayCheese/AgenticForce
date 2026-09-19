@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Economy Status</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --card-bg: #ffffff;
+    --border: #e4e4e0;
+    --text: #1f1f1f;
+    --text-dim: #6b6b66;
+    --green: #1a7f37;
+    --green-bg: #e6f4ea;
+    --yellow: #9a6700;
+    --yellow-bg: #fff8e1;
+    --red: #c0362c;
+    --red-bg: #fdecea;
+    --accent: #6d4fd6;
+    --accent-bg: #efeafc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 60px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 20px; }
+  .banner { border-radius: 12px; padding: 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px; }
+  .banner .dot { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
+  .banner .headline { font-size: 19px; font-weight: 600; }
+  .banner .sub { font-size: 14px; color: var(--text-dim); margin-top: 2px; }
+  .banner.in-the-field { background: var(--green-bg); }
+  .banner.in-the-field .dot { background: var(--green); }
+  .banner.in-the-field .headline { color: var(--green); }
+  .banner.not-yet-funded { background: var(--yellow-bg); }
+  .banner.not-yet-funded .dot { background: var(--yellow); }
+  .banner.not-yet-funded .headline { color: var(--yellow); }
+  .banner.permanently-shut-down { background: var(--red-bg); }
+  .banner.permanently-shut-down .dot { background: var(--red); }
+  .banner.permanently-shut-down .headline { color: var(--red); }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .row:last-child { border-bottom: none; }
+  .row .label { color: var(--text-dim); }
+  .row .value { font-weight: 500; text-align: right; }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+  .citizen-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .citizen-card:last-child { margin-bottom: 0; }
+  .citizen-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; text-transform: uppercase; }
+  .badge.leader { background: var(--accent-bg); color: var(--accent); }
+  .badge.kia { background: var(--red-bg); color: var(--red); }
+  .badge.shutdown { background: var(--red-bg); color: var(--red); }
+  .badge.quarantined { background: var(--red-bg); color: var(--red); }
+  .empty { color: var(--text-dim); font-size: 14px; padding: 8px 0; }
+  .footer-note { color: var(--text-dim); font-size: 13px; text-align: center; margin-top: 24px; }
+  a.detail-link { color: var(--text-dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>City Economy Status</h1>
+
+  <div class="banner not-yet-funded" id="banner">
+    <div class="dot"></div>
+    <div>
+      <div class="headline" id="headline">Checking…</div>
+      <div class="sub" id="subline"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>The bank</h2>
+    <div class="row"><span class="label">Bank balance</span><span class="value" id="bank-balance">–</span></div>
+    <div class="row"><span class="label">Bank ledger integrity</span><span class="value" id="bank-health">–</span></div>
+    <div class="row"><span class="label">City P&amp;L since genesis</span><span class="value" id="city-pnl">–</span></div>
+    <div class="row"><span class="label">Citizens</span><span class="value" id="citizen-counts">–</span></div>
+    <div class="row"><span class="label">Lineage depth</span><span class="value" id="lineage-depth">–</span></div>
+    <div class="row"><span class="label">Total missions run</span><span class="value" id="mission-count">–</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Citizens</h2>
+    <div id="citizens"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="footer-note">
+    Updates automatically every 15 seconds &middot; <a class="detail-link" href="/simple.html">trading fleet status</a>
+  </div>
+</div>
+
+<script>
+function fmtMoney(n) {
+  const sign = n >= 0 ? "+" : "-";
+  return sign + "$" + Math.abs(n).toFixed(2);
+}
+function fmtMinutesAgo(iso) {
+  if (!iso) return "never";
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 minute ago";
+  if (mins < 60) return mins + " minutes ago";
+  const hrs = Math.floor(mins / 60);
+  return hrs + (hrs === 1 ? " hour ago" : " hours ago");
+}
+
+async function refresh() {
+  let data;
+  try {
+    const res = await fetch("/economy-status.json", { cache: "no-store" });
+    data = await res.json();
+    if (data.error) throw new Error(data.error);
+  } catch (e) {
+    document.getElementById("banner").className = "banner permanently-shut-down";
+    document.getElementById("headline").textContent = "Can't reach the status service";
+    document.getElementById("subline").textContent = String(e.message || e);
+    return;
+  }
+
+  const banner = document.getElementById("banner");
+  banner.className = "banner " + data.state;
+  const headline = document.getElementById("headline");
+  const subline = document.getElementById("subline");
+  if (data.state === "in-the-field") {
+    headline.textContent = "City is active";
+    subline.textContent = data.citizenCounts.active + " active citizen(s), last checked in " + fmtMinutesAgo(data.lastCheckInAt) + ".";
+  } else if (data.state === "not-yet-funded") {
+    headline.textContent = "Not yet funded";
+    subline.textContent = "No citizen has been founded yet -- waiting on the real-account handoff.";
+  } else {
+    headline.textContent = "Permanently shut down";
+    subline.textContent = "Every citizen's stake is exhausted -- no automatic recovery exists in code.";
+  }
+
+  document.getElementById("bank-balance").textContent = fmtMoney(data.totalBankBalanceUsd);
+  document.getElementById("bank-health").textContent = data.bankLedgerHealthy ? "OK" : "INTEGRITY ISSUE";
+  const pnlEl = document.getElementById("city-pnl");
+  pnlEl.textContent = fmtMoney(data.totalCityPnlSinceGenesisUsd);
+  pnlEl.className = "value " + (data.totalCityPnlSinceGenesisUsd >= 0 ? "pnl-pos" : "pnl-neg");
+  document.getElementById("citizen-counts").textContent = data.citizenCounts.active + " active, " + data.citizenCounts.kia + " KIA, " + data.citizenCounts.total + " total";
+  document.getElementById("lineage-depth").textContent = data.lineageDepth;
+  document.getElementById("mission-count").textContent = data.missionCount;
+
+  const citizensEl = document.getElementById("citizens");
+  if (!data.citizens.length) {
+    citizensEl.innerHTML = '<div class="empty">No citizens founded yet.</div>';
+  } else {
+    citizensEl.innerHTML = data.citizens.map(function(c) {
+      const badges = [];
+      if (c.isLeader) badges.push('<span class="badge leader">leader</span>');
+      if (c.status === "kia") badges.push('<span class="badge kia">KIA</span>');
+      if (c.shutDown) badges.push('<span class="badge shutdown">shut down</span>');
+      if (c.quarantined) badges.push('<span class="badge quarantined" title="' + (c.quarantineReason || '').replace(/"/g, "&quot;") + '">quarantined</span>');
+      const pnlCls = c.realizedPnlUsd >= 0 ? "pnl-pos" : "pnl-neg";
+      return '<div class="citizen-card">' +
+        '<div class="citizen-title"><span>' + c.citizenId + (c.foundedByLeaderId ? ' (founded by ' + c.foundedByLeaderId + ')' : ' (founder)') + '</span><span>' + badges.join(" ") + '</span></div>' +
+        '<div class="row"><span class="label">Cash</span><span class="value">$' + c.cashUsd.toFixed(2) + '</span></div>' +
+        '<div class="row"><span class="label">Realized P&amp;L</span><span class="value ' + pnlCls + '">' + fmtMoney(c.realizedPnlUsd) + '</span></div>' +
+        '<div class="row"><span class="label">Position</span><span class="value">' + (c.hasOpenPosition ? "open" : "none") + '</span></div>' +
+        '<div class="row"><span class="label">Mechanism</span><span class="value">' + (c.mechanism || "none yet") + '</span></div>' +
+        '</div>';
+    }).join("");
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

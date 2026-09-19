@@ -40,6 +40,8 @@ const VAULT_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 const TASKS_DIR = path.join(VAULT_ROOT, 'tasks');
 const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon.log');
 const RUN_TASK_GENERIC = path.join(SCRIPTS_DIR, 'run-task-generic.js');
+const PID_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon.pid');
+const INFLIGHT_PATH = path.join(VAULT_ROOT, 'bus', 'queue-daemon-inflight.json');
 
 const DEBOUNCE_MS = 600;
 // Overridable via QUEUE_DAEMON_BLOCKED_RETRY_MS so run-verification-suite.js
@@ -91,9 +93,80 @@ const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000; // 15 min
 const MAX_RATE_LIMIT_RETRIES = 3;
 const rateLimitRetryCounts = new Map();
 
+// Real incident, 2026-09-15: Codex's actual live error text for a hit
+// 5-hour usage window was "Your workspace is out of credits. Ask your
+// workspace owner to refill in order to continue." -- confirmed live via
+// a direct trivial codex exec call, captured verbatim. That phrasing
+// matched NONE of the patterns below (no "429"/"rate limit"/"quota"/
+// "resets "/"session limit"), so real automated dispatches (a synthesis,
+// a rescan, a journal reflection) landed as hard, un-retried `error`
+// instead of the graceful backoff this function exists to provide.
 function isRateLimitError(text) {
   const t = String(text || '').toLowerCase();
-  return /\b429\b/.test(t) || t.includes('rate limit') || t.includes('quota') || t.includes('resets ') || t.includes('session limit');
+  // 'resets ' tightened to a real reset-time shape (e.g. "resets 11:47am")
+  // now that run-task-generic.js's exit-code fix makes this function
+  // actually reachable in production -- the old bare substring check was
+  // harmless while dead code, but a false positive here now means a real
+  // logic/verification failure gets silently requeued instead of surfaced.
+  return /\b429\b/.test(t) || t.includes('rate limit') || t.includes('quota') || /resets \d{1,2}:\d{2}\s*(am|pm)/.test(t) || t.includes('session limit') || t.includes('out of credits') || t.includes('workspace owner');
+}
+
+// Singleton guard -- added after a real incident (2026-09-15): a manual
+// `node -e "require('./run-queue-daemon.js')"` verification command
+// accidentally started a second live instance of this daemon (this file
+// has no guard against being require()'d, and always runs its dispatch
+// loop unconditionally). Two instances racing the same tasks/ directory
+// risk double-dispatching the same pending task. Caught via `ps aux` and
+// killed by hand that time; this makes a second instance fail loud and
+// refuse to start instead of relying on a human noticing.
+function assertSingleton() {
+  if (fs.existsSync(PID_PATH)) {
+    const existingPid = parseInt(fs.readFileSync(PID_PATH, 'utf8').trim(), 10);
+    if (Number.isFinite(existingPid)) {
+      try {
+        process.kill(existingPid, 0); // signal 0: existence check only, never actually signals the process
+        console.error(`Another run-queue-daemon.js instance appears to already be running (pid ${existingPid}, per ${PID_PATH}). Refusing to start a second instance -- stop it first if this is actually stale.`);
+        process.exit(1);
+      } catch (err) {
+        if (err.code !== 'ESRCH') throw err; // anything other than "no such process" is unexpected -- surface it
+        // Stale pid file (that process no longer exists) -- safe to reclaim.
+      }
+    }
+  }
+  fs.writeFileSync(PID_PATH, String(process.pid), 'utf8');
+}
+
+function releaseSingleton() {
+  try {
+    if (fs.existsSync(PID_PATH) && fs.readFileSync(PID_PATH, 'utf8').trim() === String(process.pid)) {
+      fs.unlinkSync(PID_PATH);
+    }
+  } catch (_) {}
+}
+
+// In-flight marker -- records which task is mid-dispatch so a crash
+// between dispatch start and completion leaves a diagnostic trail instead
+// of silence. execFileSync is synchronous and the task file's own status
+// write is authoritative (a crashed parent typically leaves the child
+// subprocess to finish and write its own result), so this is deliberately
+// diagnostic rather than an attempt to "resume" anything clever on restart.
+function markInflight(taskId) {
+  try { fs.writeFileSync(INFLIGHT_PATH, JSON.stringify({ taskId, startedAt: nowIso(), pid: process.pid })); } catch (_) {}
+}
+
+function clearInflight() {
+  try { if (fs.existsSync(INFLIGHT_PATH)) fs.unlinkSync(INFLIGHT_PATH); } catch (_) {}
+}
+
+function reconcileStaleInflight() {
+  if (!fs.existsSync(INFLIGHT_PATH)) return;
+  try {
+    const stale = JSON.parse(fs.readFileSync(INFLIGHT_PATH, 'utf8'));
+    log(`WARNING: found a stale in-flight marker from a previous run -- taskId=${stale.taskId}, startedAt=${stale.startedAt}, pid=${stale.pid}. That process likely crashed mid-dispatch. The task file's own status is authoritative: if it's still 'pending' it will be picked up by the normal scan below; if the subprocess finished writing a result before the crash, nothing further is needed.`);
+  } catch (_) {
+    log(`WARNING: found a malformed in-flight marker at ${INFLIGHT_PATH} from a previous run -- ignoring it.`);
+  }
+  clearInflight();
 }
 
 function resetBlockedToPending(taskId) {
@@ -105,6 +178,8 @@ function resetBlockedToPending(taskId) {
 function dispatchOne(taskId) {
   log(`DISPATCHING: ${taskId}`);
   lastActivityAt = Date.now();
+  markInflight(taskId);
+  try {
   let out = '';
   try {
     out = execFileSync('node', [RUN_TASK_GENERIC, taskId], { cwd: VAULT_ROOT, encoding: 'utf8' });
@@ -132,7 +207,10 @@ function dispatchOne(taskId) {
       }).catch(() => {});
       return;
     }
-    log(`${taskId}: run-task-generic.js exited non-zero -- ${err.message.split('\n')[0]}${out ? ` -- stdout: ${out.trim().split('\n').pop()}` : ''}`);
+    // Full captured output, not just the last line -- the last line alone
+    // (via .pop()) routinely discarded the actually useful diagnostic text
+    // in run-task-generic.js's own ERROR/UNVERIFIED body.
+    log(`${taskId}: run-task-generic.js exited non-zero -- ${err.message.split('\n')[0]}${out ? ` -- output: ${out.trim()}` : ''}`);
     return;
   }
   // First line, not last: run-task-generic.js's DONE case prints
@@ -141,6 +219,9 @@ function dispatchOne(taskId) {
   // whatever the task's own answer happened to end with.
   const resultLine = out.trim().split('\n').filter(Boolean)[0] || '(no output)';
   log(`${taskId}: ${resultLine}`);
+  } finally {
+    clearInflight();
+  }
 }
 
 function processQueue() {
@@ -203,6 +284,9 @@ function retryBlocked() {
   processQueue();
 }
 
+assertSingleton();
+reconcileStaleInflight();
+
 log(`Queue daemon started. Watching ${TASKS_DIR} (recursive), long-lived until killed.`);
 sendNtfy({
   topic: 'ClaudeTeam',
@@ -234,9 +318,11 @@ setInterval(() => {
 
 process.on('SIGINT', () => {
   log('Queue daemon stopping (SIGINT).');
+  releaseSingleton();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
   log('Queue daemon stopping (SIGTERM).');
+  releaseSingleton();
   process.exit(0);
 });

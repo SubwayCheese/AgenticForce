@@ -77,8 +77,7 @@ async function getLatestQuote(symbol) {
     const msg = parsed && parsed.message ? parsed.message : text;
     throw new Error(`Alpaca market-data GET ${url} -> ${res.status}: ${msg}`);
   }
-  const quotesKey = isCrypto ? 'quotes' : 'quotes';
-  const bucket = isCrypto ? parsed.quotes : parsed.quotes;
+  const bucket = parsed.quotes; // same response field either way -- only the lookup key differs by asset class
   const key2 = isCrypto ? cryptoSymbols.toAlpacaSymbol(symbol) : symbol;
   const quote = bucket && bucket[key2];
   if (!quote) throw new Error(`No live quote returned for ${symbol} (${url})`);
@@ -182,6 +181,17 @@ function getOrder(orderId) {
   return apiRequest('GET', `/orders/${encodeURIComponent(orderId)}`);
 }
 
+// Round 15: real asset metadata (tradable/fractionable/status) and the
+// real market clock -- read-only. Mirrored independently in
+// survive-alpaca-live-client.js (deliberately never shared).
+function getAsset(symbol) {
+  return apiRequest('GET', `/assets/${encodeURIComponent(symbol)}`);
+}
+
+function getClock() {
+  return apiRequest('GET', '/clock');
+}
+
 // Crypto on this account is confirmed live as spot/cash-settled/long-only
 // (every crypto asset returned shortable:false, margin_requirement_long:100
 // -- no short side exists at all). Guarding on orderType alone is NOT
@@ -278,18 +288,20 @@ function cancelOrder(orderId) {
   return apiRequest('DELETE', `/orders/${encodeURIComponent(orderId)}`);
 }
 
-module.exports = { loadConfig, apiRequest, getLatestQuote, getDailyBars, getAccount, getPositions, getOrders, getOrder, submitOrder, cancelOrder, assertNotCryptoShortEntry, normalizeClientOrderId, CLIENT_ORDER_ID_MAX };
+module.exports = { loadConfig, apiRequest, getLatestQuote, getDailyBars, getAccount, getPositions, getOrders, getOrder, getAsset, getClock, submitOrder, cancelOrder, assertNotCryptoShortEntry, normalizeClientOrderId, CLIENT_ORDER_ID_MAX };
 
-// CLI: node alpaca-client.js account|positions|orders
+// CLI: node alpaca-client.js account|positions|orders|asset <SYM>|clock
 if (require.main === module) {
   const cmd = process.argv[2];
   const run = {
     account: getAccount,
     positions: getPositions,
     orders: () => getOrders(),
+    asset: () => getAsset(process.argv[3]),
+    clock: getClock,
   }[cmd];
-  if (!run) {
-    console.error('Usage: node alpaca-client.js account|positions|orders');
+  if (!run || (cmd === 'asset' && !process.argv[3])) {
+    console.error('Usage: node alpaca-client.js account|positions|orders|asset <SYM>|clock');
     process.exit(1);
   }
   run().then((r) => console.log(JSON.stringify(r, null, 2))).catch((err) => {

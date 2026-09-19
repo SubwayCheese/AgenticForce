@@ -134,9 +134,13 @@ async function maybeGenerateCycle(pilot) {
 function runExecuteAuto(pilot) {
   try {
     const out = execFileSync('node', [path.join(SCRIPTS_DIR, 'execute-portfolio-setup.js'), '--auto', `--pilot=${pilot}`], { cwd: VAULT_ROOT, encoding: 'utf8' });
-    log(`execute --auto --pilot=${pilot}: ${out.trim().split('\n').pop() || '(no output)'}`);
+    // Full output, not just the last line via .pop() -- that discarded the
+    // actually useful diagnostic text (which candidate ran, sizing, any
+    // per-candidate skip/alert) for the sake of one terse summary line.
+    log(`execute --auto --pilot=${pilot}: ${out.trim() || '(no output)'}`);
   } catch (err) {
-    log(`execute --auto --pilot=${pilot} FAILED: ${err.message.split('\n')[0]}`);
+    const stdout = (err && err.stdout) ? String(err.stdout).trim() : '';
+    log(`execute --auto --pilot=${pilot} FAILED: ${err.message.split('\n')[0]}${stdout ? ` -- output: ${stdout}` : ''}`);
   }
 }
 
@@ -146,9 +150,10 @@ function runExecuteAuto(pilot) {
 function runMonitorExecute() {
   try {
     const out = execFileSync('node', [path.join(SCRIPTS_DIR, 'monitor-paper-trades.js'), '--execute'], { cwd: VAULT_ROOT, encoding: 'utf8' });
-    log(`monitor --execute: ${out.trim().split('\n').pop() || '(no output)'}`);
+    log(`monitor --execute: ${out.trim() || '(no output)'}`);
   } catch (err) {
-    log(`monitor --execute FAILED: ${err.message.split('\n')[0]}`);
+    const stdout = (err && err.stdout) ? String(err.stdout).trim() : '';
+    log(`monitor --execute FAILED: ${err.message.split('\n')[0]}${stdout ? ` -- output: ${stdout}` : ''}`);
   }
 }
 

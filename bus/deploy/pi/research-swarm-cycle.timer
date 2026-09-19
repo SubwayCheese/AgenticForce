@@ -1,0 +1,14 @@
+# Companion timer for research-swarm-cycle.service -- fires once daily,
+# off-peak, per Round 17's real arithmetic (15 specialists, concurrency
+# 2, realistically 15-25 minutes total, safely under 30).
+[Unit]
+Description=Run research-swarm-cycle.service once a day
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+OnBootSec=10min
+Persistent=true
+Unit=research-swarm-cycle.service
+
+[Install]
+WantedBy=timers.target

@@ -25,10 +25,21 @@ const fs = require('fs');
 const path = require('path');
 
 const VAULT_ROOT = path.resolve(__dirname, '..', '..');
-const MEMORY_PATH = path.join(VAULT_ROOT, 'bus', 'memory.jsonl');
+let MEMORY_PATH = path.join(VAULT_ROOT, 'bus', 'memory.jsonl');
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+// Test-only hook, same pattern as survive-budget-envelope.js/city-bank.js/
+// survive-email.js -- lets a test point this module at a throwaway file
+// instead of the real bus/memory.jsonl. Never called outside a test. Note:
+// callers that destructure `const { MEMORY_PATH } = require(...)` capture
+// a snapshot at require time, not a live reference -- this only affects
+// this module's own functions (recordFact/getFact/etc.), which read the
+// variable fresh on every call.
+function _setMemoryPathForTesting(p) {
+  MEMORY_PATH = p;
 }
 
 function recordFact(key, value, meta) {
@@ -80,4 +91,4 @@ function listKeys() {
   return Array.from(byKey.entries()).map(([key, v]) => ({ key, count: v.count, latest: v.latest }));
 }
 
-module.exports = { recordFact, getFact, getFactHistory, listKeys, MEMORY_PATH };
+module.exports = { recordFact, getFact, getFactHistory, listKeys, MEMORY_PATH, _setMemoryPathForTesting };

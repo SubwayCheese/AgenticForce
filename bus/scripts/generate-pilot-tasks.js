@@ -23,6 +23,7 @@ const alpaca = require('./alpaca-client.js');
 const finnhub = require('./finnhub-client.js');
 const ntfy = require('./ntfy.js');
 const journal = require('./trading-journal.js');
+const edgeStatus = require('./edge-status.js');
 // Layered research pipeline (macro/sector/technical/company), added
 // 2026-09-13 -- direct user request to give round-1/round-2 richer real
 // context while the live pipeline keeps trading/journaling real outcomes.
@@ -170,6 +171,31 @@ function formatSymbolHistorySection(symbol) {
     '',
     'This is actual past performance on this exact symbol, not general market commentary -- weigh it accordingly, but a past loss does not automatically mean reject; a past win does not automatically mean approve. Judge THIS thesis on today\'s evidence, informed by what actually happened before.',
   ].join('\n');
+}
+
+// Closes a real gap found 2026-09-14: the recurring backtest layer
+// (sections 12-14) was writing real findings to vault notes and the fact
+// store, but nothing fed them back into a live thesis -- expensive,
+// honest backtest evidence was accumulating with no effect on the
+// decisions it was meant to inform. Same injection pattern as
+// formatSymbolHistorySection() above: informational context, never a
+// hard gate -- a thesis can disagree with this evidence, but it should
+// have to reckon with it, not ignore it by omission.
+function formatEdgeStatusSection(pilot, symbol) {
+  const status = edgeStatus.getCurrentEdgeStatus(pilot, symbol);
+  if (!status.dailyVerdict && !status.weightFact && !status.symbolFact) return '';
+  const lines = ['## Systematic backtest evidence (read before setting conviction)', ''];
+  if (status.dailyVerdict) {
+    lines.push(`- Live screen-score ranking formula, most recent systematic backtest (${status.dailyVerdict.ts.slice(0, 10)}): ${status.dailyVerdict.value}`);
+  }
+  if (status.weightFact) {
+    lines.push(`- Weekly parameter search for ${pilot} weights (${status.weightFact.ts.slice(0, 10)}): ${status.weightFact.value}`);
+  }
+  if (status.symbolFact) {
+    lines.push(`- Entry/exit rule backtest specifically for ${symbol} (${status.symbolFact.ts.slice(0, 10)}): ${edgeStatus.extractVerdictSnippet(status.symbolFact.value)}`);
+  }
+  lines.push('', 'This is real, independently-computed evidence, not this thesis\'s own reasoning -- it does not dictate your conclusion, but strong conviction should be able to explain why it disagrees with this evidence, not ignore it.');
+  return lines.join('\n');
 }
 
 // ---------- Earnings-calendar awareness (roadmap item 7) ----------
@@ -450,6 +476,7 @@ function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, da
   const macroSection = formatMacroSection(pilot);
   const sectorSection = formatSectorSection(pilot, symbol);
   const technicalSection = formatTechnicalSection(pilot, symbol);
+  const edgeStatusSection = formatEdgeStatusSection(pilot, symbol);
   const payloadLines = [
     `ROUND-1 INDEPENDENT THESIS for ${symbol}, generated unattended by generate-pilot-tasks.js for the ${datePrefix} ${pilot} cycle (see ${dataSnapshotTaskId}, auto-injected below, for the full data).`,
     '',
@@ -463,6 +490,7 @@ function generateThesisTask(pilot, symbol, datePrefix, priorLearningsSection, da
     ...(macroSection ? ['', macroSection] : []),
     ...(sectorSection ? ['', sectorSection] : []),
     ...(technicalSection ? ['', technicalSection] : []),
+    ...(edgeStatusSection ? ['', edgeStatusSection] : []),
   ];
   return writeTaskFile(taskId, {
     from: 'claude',
@@ -653,7 +681,45 @@ function generateReflectionTask(datePrefix, batch) {
 // exact, confirmed formula from fleet_pilot_20260908_universe50_consolidation.md,
 // ported into a real deterministic function so an unattended run reproduces
 // it identically every day instead of a human re-deriving it by hand.
-function computeScreenScore(candidates) {
+//
+// `weights` is optional and defaults to that exact original split -- added
+// 2026-09-13 for the parameter-search "learning" layer
+// (bus/scripts/backtest-parameter-search.js / ARCHITECTURE.md section 13),
+// so every existing caller that doesn't pass weights is byte-for-byte
+// unaffected. Live callers below pass loadScreenScoreWeights(pilot)
+// instead of relying on this default once a real search result exists.
+const DEFAULT_SCREEN_SCORE_WEIGHTS = { chgPct: 50, avgVolume: 30, marketCap: 20 };
+const SCREEN_SCORE_WEIGHTS_PATH = path.join(__dirname, 'screen-score-weights.json');
+
+// Reads this pilot's current weights from the git-committed
+// screen-score-weights.json (durable, meaningful state -- same category
+// as bus/memory.jsonl/bus/paper-trades.jsonl, not a disposable cursor).
+// Falls back to the original hardcoded default if the file or that
+// pilot's entry doesn't exist yet -- "refuse to guess, don't crash
+// either" applied to config loading, same posture as every other file
+// read in this codebase.
+function loadScreenScoreWeights(pilot) {
+  if (!fs.existsSync(SCREEN_SCORE_WEIGHTS_PATH)) return DEFAULT_SCREEN_SCORE_WEIGHTS; // legitimately not created yet -- not an error
+  try {
+    const doc = JSON.parse(fs.readFileSync(SCREEN_SCORE_WEIGHTS_PATH, 'utf8'));
+    const w = doc[pilot];
+    if (w && Number.isFinite(w.chgPct) && Number.isFinite(w.avgVolume) && Number.isFinite(w.marketCap)) return w;
+    return DEFAULT_SCREEN_SCORE_WEIGHTS;
+  } catch (err) {
+    // Unlike a missing file (expected before the first-ever search), a
+    // parse failure here means screen-score-weights.json exists but is
+    // corrupt. Falling back to the safe default is still correct for this
+    // live, every-cycle call site, but it should not be silent -- every
+    // sibling state loader touched in today's review logs a WARNING on
+    // malformed JSON, and this is the one that feeds the LIVE paper-trading
+    // screen score every cycle.
+    console.error(`WARNING: ${SCREEN_SCORE_WEIGHTS_PATH} malformed (${err.message}) -- falling back to default weights ${JSON.stringify(DEFAULT_SCREEN_SCORE_WEIGHTS)}`);
+    return DEFAULT_SCREEN_SCORE_WEIGHTS;
+  }
+}
+
+function computeScreenScore(candidates, weights) {
+  const w = weights || DEFAULT_SCREEN_SCORE_WEIGHTS;
   const fields = ['chgPct', 'avgVolume', 'marketCap'];
   const ranges = {};
   for (const f of fields) {
@@ -667,7 +733,7 @@ function computeScreenScore(candidates) {
   return candidates
     .map((c) => ({
       ...c,
-      screenScore: 50 * norm(c.chgPct, 'chgPct') + 30 * norm(c.avgVolume, 'avgVolume') + 20 * norm(c.marketCap, 'marketCap'),
+      screenScore: w.chgPct * norm(c.chgPct, 'chgPct') + w.avgVolume * norm(c.avgVolume, 'avgVolume') + w.marketCap * norm(c.marketCap, 'marketCap'),
     }))
     .sort((a, b) => b.screenScore - a.screenScore);
 }
@@ -798,7 +864,7 @@ async function generateFleetDataSnapshot(datePrefix) {
     c.sectorRelPerf = t && t.count ? c.chgPct - (t.sum / t.count) : null;
   }
 
-  const ranked = computeScreenScore(candidates);
+  const ranked = computeScreenScore(candidates, loadScreenScoreWeights('fleet'));
   const shortlist = ranked.slice(0, SHORTLIST_SIZE);
 
   // Only the shortlist actually gets a round-1 thesis, so only the
@@ -916,7 +982,7 @@ async function generateCryptoDataSnapshot(datePrefix) {
     c.sectorRelPerf = t && t.count ? c.chgPct - (t.sum / t.count) : null;
   }
 
-  const ranked = computeScreenScore(candidates);
+  const ranked = computeScreenScore(candidates, loadScreenScoreWeights('crypto'));
   const shortlist = ranked.slice(0, CRYPTO_SHORTLIST_SIZE);
 
   researchContextBySymbol = new Map();
@@ -989,6 +1055,8 @@ module.exports = {
   generateReflectionTask,
   generateCompanyResearchTask,
   computeScreenScore,
+  loadScreenScoreWeights,
+  DEFAULT_SCREEN_SCORE_WEIGHTS,
   computeMacroRegime,
   computeRSI14,
   computeMAPosture,

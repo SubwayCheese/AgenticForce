@@ -1,0 +1,19 @@
+# survive-shadow-score.service -- Round 19. Oneshot daily shadow-scoring job
+# (survive-shadow-score.js). No LLM, no codex, no credits: it reads market
+# data (read-only data endpoint) and writes only bus/survive-shadow.jsonl.
+#
+# NOT installed. Install as a --user unit when ready:
+#   cp survive-shadow-score.service survive-shadow-score.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now survive-shadow-score.timer
+# Environment=PATH and TimeoutStartSec are explicit per the Round 17 lesson
+# (systemd does not inherit the interactive PATH; default timeout is 90s).
+[Unit]
+Description=AgentVault survive shadow scoring -- score elapsed snapshots
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TimeoutStartSec=300
+ExecStart=/usr/bin/node bus/scripts/survive-shadow-score.js run

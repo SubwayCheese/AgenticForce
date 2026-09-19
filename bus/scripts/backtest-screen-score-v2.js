@@ -190,7 +190,28 @@ function directVerdict(results) {
   };
 }
 
-async function replayAssetClass(config) {
+// Split 2026-09-13 for the parameter-search "learning" layer
+// (bus/scripts/backtest-parameter-search.js / ARCHITECTURE.md section 13):
+// fetchAssetClassData() does everything WEIGHT-INDEPENDENT (one real bar
+// fetch + date alignment + per-date candidate features), so a grid search
+// over many weight combinations can reuse it once instead of re-fetching
+// bars per combination. scoreAssetClassData() does everything
+// WEIGHT-DEPENDENT (computeScreenScore() -> shortlist -> horizon returns),
+// and accepts an optional `signalDatesSubset` -- the hook a train/test
+// split uses. replayAssetClass() below is now a thin wrapper calling both
+// with the live default weights and the full date range -- verified
+// (2026-09-13) to produce byte-identical output to the pre-split version
+// (see the refactor-safety diff in that day's session).
+// `extraHistoryDays` (added 2026-09-14 for the fixed-split growing-test-
+// set redesign, ARCHITECTURE.md section 17): 0 (default) preserves this
+// function's exact original fetch size and return shape -- every existing
+// caller (replayAssetClass(), the daily CLI verdict) is completely
+// unaffected. > 0 requests a much deeper raw history (used by
+// backtest-parameter-search.js) and widens the candidate-feature loop
+// below to cover the full uncapped `eligibleDates`, not just the
+// TARGET_SIGNAL_DAYS-capped `signalDates` -- both are still returned, so
+// a caller that only ever wanted `signalDates` sees no difference.
+async function fetchAssetClassData(config, extraHistoryDays = 0) {
   const universeDocument = JSON.parse(fs.readFileSync(config.universePath, 'utf8'));
   const universe = universeDocument[config.universeKey];
   if (!Array.isArray(universe) || universe.length !== config.expectedUniverseSize) {
@@ -203,7 +224,7 @@ async function replayAssetClass(config) {
 
   // getDailyBars() calculates an overlong calendar start internally.  The
   // requested span provides 20 inputs before every signal and 20 days after it.
-  const fetchLimit = TARGET_SIGNAL_DAYS + LOOKBACK_DAYS + Math.max(...HORIZONS) + 40;
+  const fetchLimit = Math.max(TARGET_SIGNAL_DAYS, extraHistoryDays) + LOOKBACK_DAYS + Math.max(...HORIZONS) + 40;
   const [barsBySymbol, benchmarkBarsResult] = await Promise.all([
     alpaca.getDailyBars(universe, { limit: fetchLimit }),
     alpaca.getDailyBars([config.benchmark], { limit: fetchLimit }),
@@ -239,8 +260,15 @@ async function replayAssetClass(config) {
     throw new Error(`Only ${signalDates.length} eligible ${config.key} signal dates were available; refusing to label that meaningful.`);
   }
 
-  const observations = [];
-  for (const signalDate of signalDates) {
+  // Weight-independent per-date candidate features (chgPct/avgVolume;
+  // marketCap forced to 0 -- see the comment this replaces below) and the
+  // weight-independent forward returns (universe average, benchmark) --
+  // computed once here so scoreAssetClassData() never re-touches raw bars.
+  const candidatesBySignalDate = new Map();
+  const universeReturnsByDate = new Map();
+  const benchmarkReturnByDate = new Map();
+  const dateSetForFeatures = extraHistoryDays > 0 ? eligibleDates : signalDates;
+  for (const signalDate of dateSetForFeatures) {
     const signalIndex = indexByDate.get(signalDate);
     const lookbackDates = commonDates.slice(signalIndex - LOOKBACK_DAYS + 1, signalIndex + 1);
     const candidates = universe.map((symbol) => {
@@ -257,49 +285,95 @@ async function replayAssetClass(config) {
         marketCap: 0,
       };
     });
-    const ranked = computeScreenScore(candidates);
-    if (ranked.length !== universe.length) {
-      throw new Error(`Live computeScreenScore returned ${ranked.length} ${config.key} candidates on ${signalDate}; expected ${universe.length}.`);
-    }
-    const shortlist = ranked.slice(0, config.shortlistSize).map((candidate) => candidate.symbol);
-    const horizons = {};
+    candidatesBySignalDate.set(signalDate, candidates);
+
+    const horizonsUniverse = {};
+    const horizonsBenchmark = {};
     for (const horizon of HORIZONS) {
       const forwardDate = commonDates[signalIndex + horizon];
-      const universeReturns = universe.map((symbol) => {
+      horizonsUniverse[horizon] = mean(universe.map((symbol) => {
         const byDate = symbolBars.get(symbol);
         return (byDate.get(forwardDate).close / byDate.get(signalDate).close) - 1;
-      });
-      const shortlistReturns = shortlist.map((symbol) => {
-        const byDate = symbolBars.get(symbol);
-        return (byDate.get(forwardDate).close / byDate.get(signalDate).close) - 1;
-      });
-      horizons[horizon] = {
-        shortlistReturn: mean(shortlistReturns),
-        universeReturn: mean(universeReturns),
-        benchmarkReturn: (benchmarkByDate.get(forwardDate).close / benchmarkByDate.get(signalDate).close) - 1,
-      };
+      }));
+      horizonsBenchmark[horizon] = (benchmarkByDate.get(forwardDate).close / benchmarkByDate.get(signalDate).close) - 1;
     }
-    observations.push({ signalDate, shortlist, horizons });
+    universeReturnsByDate.set(signalDate, horizonsUniverse);
+    benchmarkReturnByDate.set(signalDate, horizonsBenchmark);
   }
 
   const costRate = ESTIMATED_ROUND_TRIP_COST_PCT[config.key] / 100;
   if (!Number.isFinite(costRate)) {
     throw new Error(`No scorecard round-trip cost configured for ${config.key}.`);
   }
-  const dailyMetrics = HORIZONS.map((horizon) => metricForHorizon(observations, horizon, costRate, 'daily'));
-  const nonOverlappingMetrics = HORIZONS.map((horizon) => metricForHorizon(observations, horizon, costRate, 'non-overlapping'));
   const rawBarCounts = universe.map((symbol) => barsBySymbol[symbol].bars.length);
+
   return {
     config,
     universe,
+    symbolBars,
     commonDates,
+    indexByDate,
+    signalDates,
+    eligibleDates,
+    candidatesBySignalDate,
+    universeReturnsByDate,
+    benchmarkReturnByDate,
+    costRate,
+    minBars: Math.min(...rawBarCounts),
+    maxBars: Math.max(...rawBarCounts),
+  };
+}
+
+// Weight-dependent replay over `data` (from fetchAssetClassData()).
+// `signalDatesSubset`, if given, restricts the replay to those dates only
+// (chronological order preserved) -- the train/test split hook.
+function scoreAssetClassData(data, weights, signalDatesSubset) {
+  const { config, universe, symbolBars, signalDates: allSignalDates, candidatesBySignalDate, universeReturnsByDate, benchmarkReturnByDate, costRate } = data;
+  const signalDates = signalDatesSubset || allSignalDates;
+
+  const observations = [];
+  for (const signalDate of signalDates) {
+    const candidates = candidatesBySignalDate.get(signalDate);
+    const ranked = computeScreenScore(candidates, weights);
+    if (ranked.length !== universe.length) {
+      throw new Error(`Live computeScreenScore returned ${ranked.length} ${config.key} candidates on ${signalDate}; expected ${universe.length}.`);
+    }
+    const shortlist = ranked.slice(0, config.shortlistSize).map((candidate) => candidate.symbol);
+    const signalIndex = data.indexByDate.get(signalDate);
+    const horizons = {};
+    for (const horizon of HORIZONS) {
+      const forwardDate = data.commonDates[signalIndex + horizon];
+      const shortlistReturns = shortlist.map((symbol) => {
+        const byDate = symbolBars.get(symbol);
+        return (byDate.get(forwardDate).close / byDate.get(signalDate).close) - 1;
+      });
+      horizons[horizon] = {
+        shortlistReturn: mean(shortlistReturns),
+        universeReturn: universeReturnsByDate.get(signalDate)[horizon],
+        benchmarkReturn: benchmarkReturnByDate.get(signalDate)[horizon],
+      };
+    }
+    observations.push({ signalDate, shortlist, horizons });
+  }
+
+  const dailyMetrics = HORIZONS.map((horizon) => metricForHorizon(observations, horizon, costRate, 'daily'));
+  const nonOverlappingMetrics = HORIZONS.map((horizon) => metricForHorizon(observations, horizon, costRate, 'non-overlapping'));
+  return {
+    config,
+    universe,
+    commonDates: data.commonDates,
     signalDates,
     costRate,
     dailyMetrics,
     nonOverlappingMetrics,
-    minBars: Math.min(...rawBarCounts),
-    maxBars: Math.max(...rawBarCounts),
+    minBars: data.minBars,
+    maxBars: data.maxBars,
   };
+}
+
+async function replayAssetClass(config) {
+  const data = await fetchAssetClassData(config);
+  return scoreAssetClassData(data, undefined, undefined);
 }
 
 function resultRows(assetResult) {
@@ -369,7 +443,7 @@ function markdownReport(results, verdict) {
       '|---|---:|---:|---:|',
       intervalRows(assetResult, 'netVsBenchmark'),
       '',
-      'The every-horizon rows start at the first replay signal and take every 5th, 10th, or 20th common date, respectively. No phase was selected after seeing returns. These windows do not mechanically share forward days; Student-t intervals are used because the 20-day test has only 13 trials. They are cleaner than daily windows, but still not a guarantee that financial-market observations are IID across regimes.',
+      'The every-horizon rows start at the first replay signal and take every 5th, 10th, or 20th common date, respectively. No phase was selected after seeing returns. These windows do not mechanically share forward days; Student-t intervals are used because the 20-day test has only 13 trials. They are cleaner than daily windows, but still not a guarantee that financial-market observations are IID across regimes. Caveat not yet addressed: unlike backtest-parameter-search.js\'s fixed-split design (ARCHITECTURE.md section 17), this run\'s own signal window is a trailing window that slides forward roughly one trading day per calendar day, so which dates land at each sampled phase also shifts daily -- a change in this "Direct verdict" from one day to the next can partly reflect that phase shift, not only genuinely new evidence.',
       '',
     ].join('\n');
   }).join('\n');
@@ -436,8 +510,19 @@ async function main() {
   console.log(`Report written: ${REPORT_PATH}`);
 }
 
-main().catch((error) => {
-  const cause = error && error.cause && error.cause.message ? ` (${error.cause.message})` : '';
-  console.error(`Screen-score v2 backtest failed: ${error.message}${cause}`);
-  process.exitCode = 1;
-});
+// Guarded 2026-09-13 when this file first gained a require()-able export
+// surface for backtest-parameter-search.js -- previously main() ran
+// unconditionally on load, which was harmless while this was only ever
+// invoked as a CLI script, but would have silently re-run the entire
+// backtest (and rewritten REPORT_PATH) as a side effect of a plain
+// require(), the exact class of bug execute-portfolio-setup.js's own
+// main() had before its require.main === module fix (see ARCHITECTURE.md).
+if (require.main === module) {
+  main().catch((error) => {
+    const cause = error && error.cause && error.cause.message ? ` (${error.cause.message})` : '';
+    console.error(`Screen-score v2 backtest failed: ${error.message}${cause}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { fetchAssetClassData, scoreAssetClassData, replayAssetClass, assetClassHasDefensibleEdge, assetClassLooksClearlyNegative, ASSET_CLASSES, HORIZONS };
