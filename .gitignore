@@ -13,13 +13,29 @@ bus/continuous-backtest-supervisor.log
 bus/cron-continuous-backtest-supervisor.log
 bus/continuous-backtest-rotation-state.json
 bus/survive-supervisor.log
-# bus/memory.jsonl is deliberately NOT ignored -- it's the durable fact
-# store (Phase 3 piece 3), a meaningful record closer in character to
-# bus/log.md than to the disposable operational logs above.
-# bus/survive-ledger.jsonl, bus/survive-missions.jsonl,
-# bus/survive-journal.jsonl, and bus/survive-city-bank.jsonl are
-# deliberately NOT ignored either, same reasoning -- durable, meaningful
-# real-money records, not disposable operational logs.
+# Live runtime STATE is never tracked by git (2026-09-19 decision; see docs/DECISIONS.md).
+# It used to be tracked as a "durable record", but git commands in the working tree
+# (checkout, commit -a, add -A) can revert or delete live files -- that happened once.
+# Durability now comes from dated snapshots (~/backups), not from git.
+bus/log.md
+bus/memory.jsonl
+bus/paper-trades.jsonl
+bus/pending-triggers.jsonl
+bus/trading-journal.jsonl
+bus/vault-research-published.jsonl
+bus/backtest-vault-published.jsonl
+bus/survive-*.jsonl
+bus/builder-state.json
+bus/codex-health.json
+bus/dispatch-calibration.jsonl
+bus/apify-stats.jsonl
+bus/superteam-scout.jsonl
+bus/research-swarm-events.jsonl
+bus/queue-daemon.pid
+bus/performance-scorecard.json
+bus/scripts/backtest-search-split-state.json
+tasks-research-swarm/
+reference/
 .graph/
 tasks/verification_suite/
 bus/secrets.local.json
