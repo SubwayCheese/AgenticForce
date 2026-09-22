@@ -42,7 +42,17 @@ const VAULT_ROOT = avPaths.ROOT;
 const TASKS_SURVIVE_DIR = path.join(VAULT_ROOT, 'tasks', 'survive');
 const LOG_PATH = path.join(VAULT_ROOT, 'bus', 'survive-supervisor.log');
 
-const MISSION_COOLDOWN_HOURS = 4; // not hyper-frequent, given the stakes and the "minimal input" goal -- adjustable
+const MISSION_COOLDOWN_HOURS = 2; // Round 28: 4h -> 2h, offset by alternating codex/claude-agent below so codex load doesn't double
+
+// Round 28: alternate each mission's whole 4-task chain between codex and claude-agent (never split
+// mid-chain -- keeps dependency/capability assumptions uniform within one mission) so halving the cooldown
+// does not double codex's own usage; claude-agent is already a real, previously-verified web-search-capable
+// specialist (WEB_SEARCH_CAPABLE in run-task.js) dispatched through the same generic runner, at zero codex
+// cost. Odd mission numbers -> codex, even -> claude-agent.
+function missionAgentFor(missionId) {
+  const n = Number(String(missionId).replace(/\D/g, ''));
+  return n % 2 === 0 ? 'claude-agent' : 'codex';
+}
 
 // Round 15: small, hardcoded, liquid, cautious-account-appropriate
 // candidate universe -- pre-fetched with REAL Alpaca data before research
@@ -145,7 +155,7 @@ function findDeadInFlightMission(citizenId, readTaskFileFn = runTask.readTaskFil
   for (const m of open) {
     for (const id of [m.researchTaskId, m.bullTaskId, m.bearTaskId, m.decisionTaskId]) {
       const t = id ? readTaskFileFn(id) : null;
-      if (t && t.status === 'error') return { missionId: m.missionId, taskId: id };
+      if (t && t.status === 'error') return { missionId: m.missionId, taskId: id, to: t.to };
     }
   }
   return null;
@@ -156,11 +166,23 @@ function findDeadInFlightMission(citizenId, readTaskFileFn = runTask.readTaskFil
 // codex is out of credits, never made while healthy). Only when the probe
 // passes is the dead mission resolved so a fresh one can start; while
 // codex is down the citizen simply waits, with one alert per outage.
+//
+// Round 28: a dead task's own `to` decides whether this applies at all -- the codex probe/outage model
+// (retry once credits are confirmed back) is specific to codex's real failure mode. A dead claude-agent task
+// has no such probe here (no claude-agent equivalent exists yet) and no reason to wait on CODEX's health,
+// which is irrelevant to it -- recovering it immediately (still counted as a real dispatchFailure, still
+// subject to MAX_CONSECUTIVE_DISPATCH_FAILURES) avoids reintroducing the exact wedge bug this function was
+// built to fix, just for the other half of dispatches.
 async function recoverDeadMissions(citizens, { probeFn = codexHealth.probeCodex, recordFn = codexHealth.recordProbe, readTaskFileFn = runTask.readTaskFile } = {}) {
   let probe = null;
   for (const citizen of citizens) {
     const dead = findDeadInFlightMission(citizen.citizenId, readTaskFileFn);
     if (!dead) continue;
+    if (dead.to === 'claude-agent') {
+      executor.appendMissionEvent({ type: 'mission-resolved', citizenId: citizen.citizenId, missionId: dead.missionId, outcome: 'error', dispatchFailure: true, reason: `dispatch failed (${dead.taskId} errored, to: claude-agent) -- no codex health dependency, abandoned immediately so a fresh mission can start` });
+      log(`Citizen ${citizen.citizenId}: recovered dead ${dead.missionId} (${dead.taskId}, claude-agent) immediately -- not a codex-health matter.`);
+      continue;
+    }
     if (!probe) { probe = await probeFn(); await recordFn(probe); }
     if (probe.status !== 'ok') { log(`Citizen ${citizen.citizenId}: ${dead.missionId} is dead (${dead.taskId} errored) and codex is ${probe.status} -- waiting for recovery.`); continue; }
     executor.appendMissionEvent({ type: 'mission-resolved', citizenId: citizen.citizenId, missionId: dead.missionId, outcome: 'error', dispatchFailure: true, reason: `dispatch failed (${dead.taskId} errored); codex probe healthy again -- abandoned so a fresh mission can start` });
@@ -307,6 +329,7 @@ async function authorNewMission(citizenId, { rehearsal } = {}) {
   const bullTaskId = `survive/survive_c${citizenId}_${missionId}_bull`;
   const bearTaskId = `survive/survive_c${citizenId}_${missionId}_bear`;
   const decisionTaskId = `survive/survive_c${citizenId}_${missionId}_decision`;
+  const agent = missionAgentFor(missionId);
 
   // A clone inherits its parent's mechanism and is meant to CONTINUE the
   // proven technique, not freely choose -- strong context, not just
@@ -334,7 +357,7 @@ async function authorNewMission(citizenId, { rehearsal } = {}) {
     'The table above is REAL, verified data (live bid/ask/spread and tradable/fractionable status from Alpaca, not estimates -- see any staleness note above if the market is closed) for a small, deliberately limited set of candidates appropriate for this account, some human-picked ("baseline") and some proposed same-day by an automated market scan ("scan" -- weaker evidence, see the Source column and the note below the table). Compare them honestly against each other and against holding no position: which, if any, is the strongest real opportunity right now, and why do the others lose? You are not required to default to the lowest-risk option -- weigh real trade-offs using your own judgment. If you hold an open position, evaluate whether it should be exited or held instead. If you have a genuinely strong independent reason to recommend a symbol NOT in the table, you may -- but say so explicitly and flag that its numbers are unverified, unlike the candidates above. This is REAL MONEY -- be honest and rigorous, not optimistic. State your findings and reasoning clearly, including WHY you rejected the alternatives. Restate the exact real figures (bid, ask, spread, fractionable, tradable) from the table for whichever candidate you recommend -- the reviewers see only your output, not this table. TWO separate, independent reviewers will build the strongest possible case FOR and AGAINST acting on your findings before any decision is made -- so state your reasoning precisely enough that someone arguing against it has something real to engage with, not just a vague lean.',
   ].join('\n');
 
-  writeTaskFile(researchTaskId, { from: 'survive-supervisor', to: 'codex', payload: researchPayload, enrichWithSearch: true });
+  writeTaskFile(researchTaskId, { from: 'survive-supervisor', to: agent, payload: researchPayload, enrichWithSearch: true });
 
   // Round 13: a genuine adversarial debate before the decision, not just
   // a single pass -- mirrors TradingAgents' real structure (see
@@ -354,7 +377,7 @@ async function authorNewMission(citizenId, { rehearsal } = {}) {
     '',
     'Respond with ONLY a fenced ```json block: {"stance": "bullish"|"no-real-case", "symbol": "..."|null, "keyPoints": ["...", "..."], "verifiedFacts": {"bid": 0, "ask": 0, "spreadPct": 0, "fractionable": true, "tradable": true, "availableCashUsd": 0}|null, "confidence": "low"|"medium"|"high"}. If your stance is "bullish", verifiedFacts must restate the EXACT real bid/ask/spread/fractionable/tradable figures the research reported for your chosen symbol, plus the citizen\'s available cash -- these exact numbers, not a paraphrase, are what the final decision will see; null only if your stance is "no-real-case". A future task will weigh this against an independent bear case and make the actual decision -- you are not deciding anything yourself.',
   ].join('\n');
-  writeTaskFile(bullTaskId, { from: 'survive-supervisor', to: 'codex', payload: bullPayload, dependsOnTaskId: researchTaskId });
+  writeTaskFile(bullTaskId, { from: 'survive-supervisor', to: agent, payload: bullPayload, dependsOnTaskId: researchTaskId });
 
   const bearPayload = [
     `You are the BEAR reviewer for citizen ${citizenId}'s mission -- an independent second opinion, not the original researcher. Based ONLY on the real research in the prior task, build the STRONGEST honest case AGAINST acting (against entering, or for exiting/staying out).`,
@@ -365,7 +388,7 @@ async function authorNewMission(citizenId, { rehearsal } = {}) {
     '',
     'Respond with ONLY a fenced ```json block: {"stance": "bearish"|"no-real-case", "concerns": ["...", "..."], "verifiedFacts": {"bid": 0, "ask": 0, "spreadPct": 0, "fractionable": true, "tradable": true, "availableCashUsd": 0}|null, "confidence": "low"|"medium"|"high"}. If your concerns reference the candidate\'s own numbers (spread, fractionability, sizing), verifiedFacts must restate the EXACT real figures the research reported, not a paraphrase; null only if your stance is "no-real-case". A future task will weigh this against an independent bull case and make the actual decision -- you are not deciding anything yourself.',
   ].join('\n');
-  writeTaskFile(bearTaskId, { from: 'survive-supervisor', to: 'codex', payload: bearPayload, dependsOnTaskId: researchTaskId });
+  writeTaskFile(bearTaskId, { from: 'survive-supervisor', to: agent, payload: bearPayload, dependsOnTaskId: researchTaskId });
 
   const decisionPayload = [
     `You are the final decision-maker for citizen ${citizenId}'s mission -- the risk-managed synthesis of TWO independent, adversarial reviews (a bull case arguing FOR acting, a bear case arguing AGAINST) built on the same underlying research, each grounded in real, verified market data (see each review's verifiedFacts -- prefer those over any recollection of the research if they conflict, since they are the most recently confirmed real numbers; do not call a figure "not supplied" if it appears there). Weigh both honestly; neither review gets deference just for existing -- a bull case that ignores a real bear concern, or a bear case that ignores real bull evidence, should be weighted down accordingly. If the research itself supported no real case in either direction ("no-real-case" from both), that is real information: default toward "hold"/"no-action" rather than manufacturing a decision neither review could actually support.`,
@@ -377,7 +400,7 @@ async function authorNewMission(citizenId, { rehearsal } = {}) {
     'rationale must name how you weighed the bull case against the bear case, not just restate one side. You are DECIDING, not EXECUTING -- you have no ability to place a real order. A separate deterministic script reads this exact block and acts on it.',
   ].join('\n');
 
-  writeTaskFile(decisionTaskId, { from: 'survive-supervisor', to: 'codex', payload: decisionPayload, dependsOnTaskIds: `${bullTaskId},${bearTaskId}` });
+  writeTaskFile(decisionTaskId, { from: 'survive-supervisor', to: agent, payload: decisionPayload, dependsOnTaskIds: `${bullTaskId},${bearTaskId}` });
 
   executor.appendMissionEvent({ type: 'mission-started', citizenId, missionId, researchTaskId, bullTaskId, bearTaskId, decisionTaskId });
   log(`Authored ${missionId} for citizen ${citizenId}: ${researchTaskId} -> ${decisionTaskId}`);
@@ -502,7 +525,7 @@ async function main() {
   // call here, per active citizen, gated the same way isMissionDue() is.
 }
 
-module.exports = { findDeadInFlightMission, recoverDeadMissions, isMissionDue, nextMissionId, authorNewMission, writeTaskFile, main, fetchCandidateUniverseData, formatCandidateUniverseTable, SURVIVE_CANDIDATE_UNIVERSE };
+module.exports = { findDeadInFlightMission, recoverDeadMissions, isMissionDue, nextMissionId, authorNewMission, writeTaskFile, main, fetchCandidateUniverseData, formatCandidateUniverseTable, SURVIVE_CANDIDATE_UNIVERSE, missionAgentFor };
 
 if (require.main === module) {
   main().catch((err) => { log(`FAILED: ${err.message}`); process.exit(1); });

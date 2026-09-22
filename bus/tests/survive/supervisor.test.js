@@ -92,6 +92,58 @@ test('candidate universe: total failure alerts exactly once and a hang times out
   sbx.cleanup();
 });
 
+test('missionAgentFor: alternates by mission number, odd -> codex, even -> claude-agent', () => {
+  const sbx = makeSandbox();
+  const sup = sbx.load('survive-supervisor');
+  assert.equal(sup.missionAgentFor('mission001'), 'codex');
+  assert.equal(sup.missionAgentFor('mission002'), 'claude-agent');
+  assert.equal(sup.missionAgentFor('mission003'), 'codex');
+  assert.equal(sup.missionAgentFor('mission010'), 'claude-agent');
+  sbx.cleanup();
+});
+
+test('authorNewMission: consecutive missions for the same citizen alternate codex/claude-agent, never split within one mission', async () => {
+  const sbx = makeSandbox();
+  const sup = sbx.load('survive-supervisor');
+  const executor = sbx.load('survive-executor');
+  const fs = require('fs');
+  seedCitizen(sbx, 'T8');
+  const fake = {
+    getLatestQuote: async () => ({ bid: 100, ask: 100.02, mid: 100.01 }),
+    getAsset: async () => ({ tradable: true, fractionable: true, status: 'active' }),
+    getClock: async () => ({ is_open: true }),
+  };
+  executor.loadClient = () => fake;
+  const m1 = await sup.authorNewMission('T8', { rehearsal: true });
+  executor.appendMissionEvent({ type: 'mission-resolved', citizenId: 'T8', missionId: m1, outcome: 'no-action' });
+  const m2 = await sup.authorNewMission('T8', { rehearsal: true });
+  for (const k of ['research', 'bull', 'bear', 'decision']) {
+    const t1 = fs.readFileSync(sbx.file('tasks', 'survive', `survive_cT8_${m1}_${k}.md`), 'utf8');
+    const t2 = fs.readFileSync(sbx.file('tasks', 'survive', `survive_cT8_${m2}_${k}.md`), 'utf8');
+    assert.match(t1, /^to: codex$/m, `${m1}/${k} should go to codex (odd mission)`);
+    assert.match(t2, /^to: claude-agent$/m, `${m2}/${k} should go to claude-agent (even mission)`);
+  }
+  sbx.cleanup();
+});
+
+test('recoverDeadMissions: a dead claude-agent task recovers immediately, no codex probe made', async () => {
+  const sbx = makeSandbox();
+  const sup = sbx.load('survive-supervisor');
+  const executor = sbx.load('survive-executor');
+  seedCitizen(sbx, 'T9');
+  const ids = { r: 'x/r2', b: 'x/b2', e: 'x/e2', d: 'x/d2' };
+  executor.appendMissionEvent({ type: 'mission-started', citizenId: 'T9', missionId: 'mission002', researchTaskId: ids.r, bullTaskId: ids.b, bearTaskId: ids.e, decisionTaskId: ids.d });
+  const tasks = { [ids.r]: { status: 'error', to: 'claude-agent' }, [ids.b]: { status: 'blocked' }, [ids.e]: { status: 'blocked' }, [ids.d]: { status: 'blocked' } };
+  const rt = (id) => tasks[id] || null;
+  let probed = false;
+  await sup.recoverDeadMissions([{ citizenId: 'T9' }], { probeFn: async () => { probed = true; return { status: 'ok', detail: null }; }, recordFn: async () => {}, readTaskFileFn: rt });
+  assert.equal(probed, false, 'a dead claude-agent task must never wait on a codex health probe');
+  const resolved = executor.readMissionEvents('T9').filter((e) => e.type === 'mission-resolved');
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].dispatchFailure, true);
+  sbx.cleanup();
+});
+
 test('authorNewMission writes the four-task chain with real-data grounding', async () => {
   const sbx = makeSandbox();
   const sup = sbx.load('survive-supervisor');

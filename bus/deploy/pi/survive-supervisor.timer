@@ -1,18 +1,21 @@
-# Companion timer for survive-supervisor.service -- fires every 4 hours,
+# Companion timer for survive-supervisor.service -- fires every 2 hours,
 # matching survive-supervisor.js's own MISSION_COOLDOWN_HOURS constant.
-# Deliberately much less frequent than the trading fleet's 30-min timer:
-# this is real money on a hard-capped stake with a "minimal input" goal,
-# not a high-frequency loop -- see ARCHITECTURE.md section 19.
+# Round 28: 4h -> 2h, offset by survive-supervisor.js alternating each
+# mission's whole task chain between codex and claude-agent so this does
+# not simply double codex load. Still much less frequent than the trading
+# fleet's 30-min timer -- this is real money on a hard-capped stake with a
+# "minimal input" goal, not a high-frequency loop -- see ARCHITECTURE.md
+# section 19.
 #
 # Enable the TIMER, not the .service directly -- systemctl enable --now
 # survive-supervisor.timer (see survive-supervisor.service's own header
 # for the install commands and the NOT-installed-by-default note).
 [Unit]
-Description=Run survive-supervisor.service every 4 hours
+Description=Run survive-supervisor.service every 2 hours
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=4h
+OnUnitActiveSec=2h
 Unit=survive-supervisor.service
 
 [Install]
