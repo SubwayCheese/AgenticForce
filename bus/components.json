@@ -1,0 +1,524 @@
+{
+  "_doc": "Component registry. Every file in bus/scripts must be listed with a domain and status; the architecture test enforces it and the dependency rules below. Purposes are read from each file header when docs/SYSTEM-MAP.md is generated, so they cannot drift here.",
+  "domains": {
+    "platform": "shared infrastructure",
+    "ops": "dashboard and status aggregators (may read every domain)",
+    "fleet": "paper-trading fleet",
+    "city": "real-money agent city (survive)",
+    "swarm": "research swarm",
+    "revenue": "product builder, Apify and bounty tooling",
+    "org": "autonomous organization runtime (durable Director/AgentSpec decision loop + Plan-2 economic cells, all real-money-execution paths hard-denied in this phase)"
+  },
+  "statuses": {
+    "live": "running now",
+    "paused": "scheduled/entrypoint intentionally off",
+    "manual": "run by hand",
+    "library": "required by other code",
+    "legacy": "no live path; candidate to archive (do not delete without checking)"
+  },
+  "allowedDependencies": {
+    "platform": [
+      "platform"
+    ],
+    "ops": [
+      "platform",
+      "ops",
+      "fleet",
+      "city",
+      "swarm",
+      "revenue",
+      "org"
+    ],
+    "fleet": [
+      "fleet",
+      "platform"
+    ],
+    "city": [
+      "city",
+      "platform"
+    ],
+    "swarm": [
+      "swarm",
+      "platform"
+    ],
+    "revenue": [
+      "revenue",
+      "platform"
+    ],
+    "org": [
+      "org",
+      "platform"
+    ]
+  },
+  "allowedExceptions": [
+    [
+      "survive-executor.js",
+      "alpaca-client.js",
+      "rehearsal mode uses the paper client by injection"
+    ],
+    [
+      "survive-executor.js",
+      "execute-portfolio-setup.js",
+      "reuses the fleet parseStopPrice() for protective stops (documented design; debt: extract to platform)"
+    ]
+  ],
+  "components": {
+    "agent-engine.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "agent-roster.js": {
+      "domain": "ops",
+      "status": "library"
+    },
+    "alpaca-client.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "apify-publisher.js": {
+      "domain": "revenue",
+      "status": "manual"
+    },
+    "apify-stats.js": {
+      "domain": "revenue",
+      "status": "manual"
+    },
+    "authority.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "A0-A4 authority tiers + evidence gate; A3/A4 hard-denied (no approval workflow yet)"
+    },
+    "backtest-parameter-search.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "backtest-screen-score-v2.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "backtest-screen-score.js": {
+      "domain": "fleet",
+      "status": "legacy"
+    },
+    "backtest-supervisor.js": {
+      "domain": "fleet",
+      "status": "paused"
+    },
+    "backtest-vault-writer.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "blocker-classifier.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "Plan 1 sec 10 blocker taxonomy + recovery routing, deterministic"
+    },
+    "build-system-map.js": {
+      "domain": "platform",
+      "status": "manual",
+      "note": "generates docs/SYSTEM-MAP.md"
+    },
+    "builder-budget.js": {
+      "domain": "revenue",
+      "status": "library"
+    },
+    "bus-status.js": {
+      "domain": "ops",
+      "status": "library"
+    },
+    "capability-registry.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "Plan 1 sec 11 build-or-acquire capability registry"
+    },
+    "capital-allocator.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "Plan 2 allocation scoring, replication gate, diversity/kill/track-record gates"
+    },
+    "check-inbox.js": {
+      "domain": "platform",
+      "status": "legacy"
+    },
+    "check-schedules.js": {
+      "domain": "platform",
+      "status": "manual",
+      "note": "read-only drift checker against deploy/schedules.json"
+    },
+    "citizen-lifecycle.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "city-bank.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "city-leadership.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "city-registry.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "city-reserve.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "city-security.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "city-spending.js": {
+      "domain": "city",
+      "status": "manual",
+      "note": "built, unused: Stripe Issuing spend cards, no caller"
+    },
+    "city-status.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "claude-worker.js": {
+      "domain": "revenue",
+      "status": "library"
+    },
+    "codex-health.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "conditional-triggers.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "continuous-backtest-supervisor.js": {
+      "domain": "fleet",
+      "status": "paused"
+    },
+    "crew-status.js": {
+      "domain": "platform",
+      "status": "legacy"
+    },
+    "crypto-status.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "crypto-symbols.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "cycle-date-utils.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "dashboard-status.js": {
+      "domain": "ops",
+      "status": "library"
+    },
+    "director.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "Director decision cycle, DI worker, never applies its own decisions"
+    },
+    "dispatch-budget.js": {
+      "domain": "platform",
+      "status": "manual"
+    },
+    "edge-status.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "events.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "durable append-only event log, own dir, isolated from run-queue-daemon.js tasks/"
+    },
+    "execute-portfolio-setup.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "execute-setup.js": {
+      "domain": "fleet",
+      "status": "legacy"
+    },
+    "executor.js": {
+      "domain": "org",
+      "status": "manual",
+      "note": "sole gateway from a Director decision to real mutations; requires a real AuthorityResult"
+    },
+    "finnhub-client.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "fleet-status.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "fmp-client.js": {
+      "domain": "fleet",
+      "status": "legacy"
+    },
+    "generate-backtest-tasks.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "generate-pilot-tasks.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "git-sync.js": {
+      "domain": "platform",
+      "status": "legacy",
+      "note": "template only (targets /home/pi), never installed"
+    },
+    "market-scan-cycle.js": {
+      "domain": "city",
+      "status": "manual",
+      "note": "Round 27: oneshot that runs the real scan and writes the cache; mirrors research-swarm-cycle.js; unit written, not installed"
+    },
+    "mechanism-registry.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "memory-query.js": {
+      "domain": "platform",
+      "status": "manual"
+    },
+    "memory-store.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "monitor-paper-trades.js": {
+      "domain": "fleet",
+      "status": "paused"
+    },
+    "ntfy.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "performance-scorecard.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "pilot-supervisor.js": {
+      "domain": "fleet",
+      "status": "paused"
+    },
+    "portfolio-risk-envelope.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "product-gate.js": {
+      "domain": "revenue",
+      "status": "library"
+    },
+    "prune-memory.js": {
+      "domain": "platform",
+      "status": "manual"
+    },
+    "refresh-crypto-universe.js": {
+      "domain": "fleet",
+      "status": "manual"
+    },
+    "research-swarm-categories.js": {
+      "domain": "swarm",
+      "status": "library"
+    },
+    "research-swarm-cycle.js": {
+      "domain": "swarm",
+      "status": "paused"
+    },
+    "research-swarm-tasks.js": {
+      "domain": "swarm",
+      "status": "library"
+    },
+    "research-swarm-worker.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "revenue-builder.js": {
+      "domain": "revenue",
+      "status": "manual"
+    },
+    "run-backlog.js": {
+      "domain": "platform",
+      "status": "legacy"
+    },
+    "run-continuous.js": {
+      "domain": "platform",
+      "status": "legacy"
+    },
+    "run-org-tests.js": {
+      "domain": "org",
+      "status": "manual",
+      "note": "own credit-free test runner for bus/tests/org/"
+    },
+    "run-queue-daemon.js": {
+      "domain": "platform",
+      "status": "live",
+      "note": "system unit agentvault-queue-daemon.service"
+    },
+    "run-research-crew.js": {
+      "domain": "platform",
+      "status": "legacy",
+      "note": "dormant: only run by run-continuous"
+    },
+    "run-survive-tests.js": {
+      "domain": "platform",
+      "status": "manual"
+    },
+    "run-task-claude.js": {
+      "domain": "platform",
+      "status": "legacy"
+    },
+    "run-task-collab.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "run-task-generic.js": {
+      "domain": "platform",
+      "status": "live",
+      "note": "spawned by run-queue-daemon for every task"
+    },
+    "run-task.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "run-verification-suite.js": {
+      "domain": "ops",
+      "status": "manual",
+      "note": "cross-cutting old fleet/engine suite (hence ops); hard-coded Windows paths; slow tier spawns real codex"
+    },
+    "secrets-broker.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "serve-dashboard.js": {
+      "domain": "ops",
+      "status": "live",
+      "note": "hand-started, port 8877"
+    },
+    "store.js": {
+      "domain": "org",
+      "status": "manual",
+      "note": "durable versioned-JSON store, cross-process locking, task state machine, leases"
+    },
+    "superteam-scout.js": {
+      "domain": "revenue",
+      "status": "manual"
+    },
+    "survive-alpaca-live-client.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-bootstrap-founder.js": {
+      "domain": "city",
+      "status": "manual"
+    },
+    "survive-budget-envelope.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-change-gate.js": {
+      "domain": "platform",
+      "status": "manual"
+    },
+    "survive-email.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-executor.js": {
+      "domain": "city",
+      "status": "library",
+      "note": "exception: requires paper alpaca-client for --rehearsal mode"
+    },
+    "survive-journal.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-leader-council.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-market-data.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-market-scan.js": {
+      "domain": "city",
+      "status": "library",
+      "note": "Round 27: proposes candidates beyond the fixed baseline; the real codex dispatch is decoupled onto market-scan-cycle.js, never called from survive-supervisor.js directly"
+    },
+    "survive-mechanism-research.js": {
+      "domain": "city",
+      "status": "legacy",
+      "note": "retired in place, replaced by the research swarm"
+    },
+    "survive-research-synthesis.js": {
+      "domain": "swarm",
+      "status": "library"
+    },
+    "survive-shadow-score.js": {
+      "domain": "city",
+      "status": "manual"
+    },
+    "survive-shadow.js": {
+      "domain": "city",
+      "status": "library"
+    },
+    "survive-supervisor.js": {
+      "domain": "city",
+      "status": "paused"
+    },
+    "test-position-identity.js": {
+      "domain": "fleet",
+      "status": "manual"
+    },
+    "trading-journal.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "treasury.js": {
+      "domain": "org",
+      "status": "manual",
+      "note": "Plan 2 event-sourced ledger, operating states, $100 constitution (data only, unfunded)"
+    },
+    "validate-agent-config.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "vault-research-writer.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "vault-search.js": {
+      "domain": "platform",
+      "status": "library"
+    },
+    "verifier.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "Plan 1 sec 14 typed receipts + real re-check verification"
+    },
+    "watch-inbox.js": {
+      "domain": "platform",
+      "status": "legacy",
+      "note": "dormant: only run by run-continuous"
+    },
+    "watchdog.js": {
+      "domain": "org",
+      "status": "library",
+      "note": "lease sweep + deterministic semantic anti-stall"
+    }
+  },
+  "compatSymlinks": {
+    "_doc": "bus/scripts/ holds ONLY these compatibility symlinks (name -> real file), each kept because something outside the repo still names the old path. Remove entries as their reason disappears; the architecture test allows a subset.",
+    "run-queue-daemon.js": "system unit ExecStart (needs sudo to edit): permanent until then",
+    "run-task-generic.js": "spawned by name by the running queue daemon: permanent until the daemon is restarted on new code",
+    "pilot-supervisor.js": "crontab line (paused) and ~/crontab.backup-2026-09-19; remove when the cron lines are rewritten",
+    "backtest-supervisor.js": "crontab line (paused)",
+    "continuous-backtest-supervisor.js": "crontab line (paused)",
+    "memory-query.js": ".claude/settings.json allow rule",
+    "dispatch-budget.js": ".claude/settings.json allow rule",
+    "run-survive-tests.js": ".claude/settings.json allow rule"
+  }
+}

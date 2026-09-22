@@ -1,0 +1,21 @@
+# market-scan-cycle.service -- Round 27. Oneshot unit for the isolated market-scan dispatcher
+# (market-scan-cycle.js). Separate from survive-supervisor.js's per-wake path entirely -- reads/writes only
+# bus/city-state/market-scan-cache.json, never touches tasks/ or bus/queue-daemon.pid.
+#
+# NOT installed. Install as a --user unit when ready (mirrors research-swarm-cycle.service exactly):
+#   cp market-scan-cycle.service market-scan-cycle.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now market-scan-cycle.timer
+#
+# TimeoutStartSec and Environment=PATH are not optional -- see research-swarm-cycle.service's own header for
+# why (systemd's default 90s timeout would kill a real codex dispatch; systemd units don't inherit the
+# interactive shell PATH codex needs).
+[Unit]
+Description=AgentVault survive market scan -- widen C1's candidate universe beyond the fixed baseline
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TimeoutStartSec=900
+ExecStart=/usr/bin/node bus/city/market-scan-cycle.js

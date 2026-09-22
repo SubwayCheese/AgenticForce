@@ -72,7 +72,7 @@ test('candidate universe: per-symbol failure isolation, null spread guard, cavea
   assert.equal(rows[2].spreadPct, null);
   const closed = sup.formatCandidateUniverseTable(rows, 'x', false);
   assert.match(closed, /DATA FETCH FAILED: quote 404/);
-  assert.match(closed, /\| NOMID \| \$1\.00 \| \$1\.10 \| n\/a \|/);
+  assert.match(closed, /\| NOMID \| baseline \| \$1\.00 \| \$1\.10 \| n\/a \|/); // Round 27: added Source column
   assert.match(closed, /Market is CLOSED/);
   assert.doesNotMatch(sup.formatCandidateUniverseTable(rows, 'x', null), /Market is/);
   assert.equal(sbx.ntfyCalls().length, 0, 'partial failure does not alert');

@@ -1,0 +1,14 @@
+# Companion timer for market-scan-cycle.service. Fires once daily, well before C1's mission cadence would
+# use a fresh cache (MAX_CACHE_AGE_MS in survive-market-scan.js is 36h, so a missed run or two is tolerated
+# gracefully -- the cache is just treated as stale and the mission falls back to baseline-only).
+[Unit]
+Description=Run market-scan-cycle.service once a day
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+OnBootSec=15min
+Persistent=true
+Unit=market-scan-cycle.service
+
+[Install]
+WantedBy=timers.target

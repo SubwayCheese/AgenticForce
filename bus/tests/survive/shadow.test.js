@@ -97,3 +97,41 @@ test('snapshot is written by authorNewMission; the score job scores it once hori
   assert.equal(r2.board.scored, 1);
   sbx.cleanup();
 });
+
+// Round 27 fix: symbolsNeededFor() derives what to fetch from pending snapshots' own candidates, not a
+// static universe import -- proves a scanned symbol outside any fixed list still gets scored correctly.
+test('symbolsNeededFor: derives from pending snapshots\' own candidates plus the fixed baseline-policy symbols', () => {
+  const sbx = makeSandbox();
+  const score = sbx.load('survive-shadow-score');
+  const shadow = sbx.load('survive-shadow');
+  const snaps = [
+    { candidates: [{ symbol: 'SGOV' }, { symbol: 'NVDA' }] }, // NVDA: a scanned symbol, not in any fixed universe
+    { candidates: [{ symbol: 'VOO' }] },
+  ];
+  const needed = score.symbolsNeededFor(snaps).sort();
+  assert.deepEqual(needed, ['NVDA', 'SGOV', 'VOO'].sort());
+  assert.ok(Object.values(shadow.BASELINE_SYMBOLS).every((s) => needed.includes(s)), 'baseline-policy symbols are always included even if no snapshot happens to mention them');
+  sbx.cleanup();
+});
+
+test('runScoring: a scanned symbol (outside the fixed universe) that a citizen actually entered is scored correctly, not silently null', async () => {
+  const sbx = makeSandbox();
+  const shadow = sbx.load('survive-shadow');
+  const score = sbx.load('survive-shadow-score');
+  const closes = Array.from({ length: 40 }, (_, i) => 50 + i * 0.5); // a steady climb so "entered NVDA" clearly beats cash
+  const start = '2026-01-01';
+  const barsFor = closes.map((c, i) => ({ date: new Date(Date.parse(start) + i * 86400e3).toISOString().slice(0, 10), close: c }));
+  const snap = shadow.recordSnapshot({
+    citizenId: 'C1', missionId: 'mission900',
+    candidateData: [{ symbol: 'NVDA', ok: true, bid: 100, ask: 100.1, mid: 100.05, spreadPct: 0.1 }, { symbol: 'SGOV', ok: true, bid: 100, ask: 100.01, mid: 100.005, spreadPct: 0.01 }],
+    marketOpen: true, nowMs: Date.parse('2026-01-05T20:00:00Z'), // after-hours-ish; exact time doesn't matter for this test
+  });
+  const barsFn = async (sym) => (sym === 'NVDA' || sym === 'SGOV' || sym === 'VOO' ? barsFor : []);
+  const decisionFn = () => ({ decision: 'enter', symbol: 'NVDA' });
+  const r = await score.runScoring({ barsFn, decisionFn });
+  assert.equal(r.scoredNow, 1);
+  const scores = shadow.readShadowEvents().filter((e) => e.type === 'score');
+  assert.equal(scores.length, 1);
+  assert.ok(typeof scores[0].policies.actual[5] === 'number' && scores[0].policies.actual[5] !== null, 'the entered scanned symbol has a real, non-null scored outcome, not the old silent-null bug');
+  sbx.cleanup();
+});
