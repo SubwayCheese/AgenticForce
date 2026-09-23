@@ -169,3 +169,28 @@ test('end to end: real ffmpeg render of a 2-scene short with a deterministic fak
   assert.ok(!fs.readdirSync(out).some((f) => f.includes('.part')), 'no partial files left behind');
   sbx.cleanup();
 });
+
+test('long titles shrink to fit the frame; short ones keep full size', () => {
+  const { sbx, vp } = fresh();
+  assert.equal(vp.titleFontSize('REAL MONEY'), 76);
+  const size = vp.titleFontSize('AGENTS THAT RUN THEMSELVES');
+  assert.ok(size < 76 && 26 * 0.68 * size <= 980, 'the CTA that clipped in the first batch now fits');
+  assert.ok(vp.titleFontSize('X'.repeat(200)) >= 36, 'never shrinks below a readable floor');
+  sbx.cleanup();
+});
+
+test('TTS cache: a fully cached script never starts the voice model', () => {
+  const { sbx, sp } = fresh();
+  const cacheDir = sbx.file('tts-cache');
+  const workDir = sbx.file('work');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(workDir, { recursive: true });
+  const key = sp.ttsCacheKey('Hello there.', 'af_heart', 1.1);
+  fs.writeFileSync(path.join(cacheDir, `${key}.wav`), 'RIFF-fake');
+  fs.writeFileSync(path.join(cacheDir, `${key}.json`), JSON.stringify({ duration: 1.5, groups: [{ p: 'h', s: 0, e: 1 }] }));
+  const res = sp.kokoroTts([{ say: 'Hello there.' }], { voice: 'af_heart', speed: 1.1, workDir, cacheDir });
+  assert.equal(res[0].duration, 1.5);
+  assert.equal(fs.readFileSync(res[0].wav, 'utf8'), 'RIFF-fake');
+  assert.notEqual(sp.ttsCacheKey('Hello there.', 'af_heart', 1.2), key, 'speed is part of the key');
+  sbx.cleanup();
+});

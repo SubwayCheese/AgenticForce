@@ -56,6 +56,12 @@ function runFfmpeg(args) {
 // ---- local: ffmpeg motion graphics -------------------------------------------------------------------
 // Lines appear one by one across the first ~60% of the scene (a "typing" feel without per-character cost).
 // Text goes through textfile= with expansion=none so no user text is ever parsed as an ffmpeg expression.
+// Shrink long titles to fit: DejaVu Sans Bold caps average ~0.68em wide, and the frame leaves ~980px.
+// (First batch clipped "AGENTS THAT RUN THEMSELVES" at a fixed 76px.)
+function titleFontSize(title) {
+  return Math.max(36, Math.min(76, Math.floor(980 / (String(title).length * 0.68))));
+}
+
 function localFilter({ lines = [], title, seconds, palette, tmpDir }) {
   const p = palette || PALETTES[0];
   const f = [];
@@ -63,7 +69,7 @@ function localFilter({ lines = [], title, seconds, palette, tmpDir }) {
   if (title) {
     const tf = path.join(tmpDir, 'title.txt');
     fs.writeFileSync(tf, title);
-    f.push(`drawtext=fontfile=${BOLD_FONT}:textfile=${tf}:expansion=none:fontsize=76:fontcolor=white:x=(w-text_w)/2:y=190:borderw=5:bordercolor=black@0.6`);
+    f.push(`drawtext=fontfile=${BOLD_FONT}:textfile=${tf}:expansion=none:fontsize=${titleFontSize(title)}:fontcolor=white:x=(w-text_w)/2:y=190:borderw=5:bordercolor=black@0.6`);
   }
   if (shown.length) {
     const boxY = title ? 330 : 280;
@@ -254,4 +260,4 @@ function newRun({ maxAiClips = MAX_AI_CLIPS_DEFAULT, noAi = false } = {}) {
   return { down: new Set(), aiClips: 0, maxAiClips, noAi, log: [] };
 }
 
-module.exports = { RENDER_CPUS, niced, MAX_LINE_CHARS, makeSceneClip, newRun, local, vyro, antigravity, DEFAULT_CHAIN, ProviderDown, PALETTES, localFilter, runFfmpeg, W, H, FPS, MAX_AI_CLIPS_DEFAULT, BOLD_FONT };
+module.exports = { titleFontSize, RENDER_CPUS, niced, MAX_LINE_CHARS, makeSceneClip, newRun, local, vyro, antigravity, DEFAULT_CHAIN, ProviderDown, PALETTES, localFilter, runFfmpeg, W, H, FPS, MAX_AI_CLIPS_DEFAULT, BOLD_FONT };

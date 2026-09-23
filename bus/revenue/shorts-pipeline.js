@@ -23,6 +23,7 @@ const KOKORO_MODEL = path.join(DATA_DIR, 'kokoro', 'kokoro-v1.0-timed.onnx');
 const KOKORO_VOICES = path.join(DATA_DIR, 'kokoro', 'voices-v1.0.bin');
 const KOKORO_MODEL_SHA256 = 'beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a';
 const KOKORO_VERSION = '0.6.1';
+const TTS_CACHE_DIR = path.join(DATA_DIR, 'tts-cache');
 const DEFAULT_OUT = path.join(avPaths.PRODUCTS_REPO, 'courses', 'agentic-systems', 'media');
 const LOCK_PATH = avPaths.bus('shorts-pipeline.lock');
 const SCENE_GAP = 0.18; // seconds of silence after each scene -- lets a cut land between sentences
@@ -180,15 +181,41 @@ for sc in req["scenes"]:
 print("@@JSON@@" + json.dumps(out))
 `;
 
-function kokoroTts(scenes, { voice = 'af_heart', speed = 1.08, workDir }) {
-  const req = {
-    model: KOKORO_MODEL, voices: KOKORO_VOICES, voice, speed,
-    scenes: scenes.map((s, i) => ({ text: s.say, wav: path.join(workDir, `voice${i}.wav`) })),
-  };
-  const r = spawnSync('nice', providers.niced(VENV_PY, ['-c', KOKORO_PY]), { input: JSON.stringify(req), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 45 * 60 * 1000 });
-  const marker = (r.stdout || '').lastIndexOf('@@JSON@@');
-  if (r.status !== 0 || marker < 0) throw new Error(`kokoro TTS failed (${r.status}): ${(r.stderr || '').slice(-500)}`);
-  return JSON.parse(r.stdout.slice(marker + 8).trim());
+// Voice is the slow half of a render (~17x realtime on 2 cores), so each scene's audio + timings are cached by
+// (text, voice, speed, model hash). Re-rendering after a visual fix then costs only the ffmpeg part.
+function ttsCacheKey(text, voice, speed) {
+  return crypto.createHash('sha256').update(JSON.stringify({ text, voice, speed, model: KOKORO_MODEL_SHA256 })).digest('hex').slice(0, 32);
+}
+
+function kokoroTts(scenes, { voice = 'af_heart', speed = 1.08, workDir, cacheDir = TTS_CACHE_DIR }) {
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const out = new Array(scenes.length);
+  const todo = [];
+  scenes.forEach((s, i) => {
+    const key = ttsCacheKey(s.say, voice, speed);
+    const wav = path.join(workDir, `voice${i}.wav`);
+    const cWav = path.join(cacheDir, `${key}.wav`);
+    const cMeta = path.join(cacheDir, `${key}.json`);
+    if (fs.existsSync(cWav) && fs.existsSync(cMeta)) {
+      fs.copyFileSync(cWav, wav);
+      out[i] = { ...JSON.parse(fs.readFileSync(cMeta, 'utf8')), wav };
+    } else {
+      todo.push({ i, key, text: s.say, wav });
+    }
+  });
+  if (todo.length) {
+    const req = { model: KOKORO_MODEL, voices: KOKORO_VOICES, voice, speed, scenes: todo.map((t) => ({ text: t.text, wav: t.wav })) };
+    const r = spawnSync('nice', providers.niced(VENV_PY, ['-c', KOKORO_PY]), { input: JSON.stringify(req), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 45 * 60 * 1000 });
+    const marker = (r.stdout || '').lastIndexOf('@@JSON@@');
+    if (r.status !== 0 || marker < 0) throw new Error(`kokoro TTS failed (${r.status}): ${(r.stderr || '').slice(-500)}`);
+    const res = JSON.parse(r.stdout.slice(marker + 8).trim());
+    todo.forEach((t, j) => {
+      out[t.i] = res[j];
+      fs.copyFileSync(t.wav, path.join(cacheDir, `${t.key}.wav`));
+      fs.writeFileSync(path.join(cacheDir, `${t.key}.json`), JSON.stringify({ duration: res[j].duration, groups: res[j].groups }));
+    });
+  }
+  return out;
 }
 
 // ---- lock (plan review I4) --------------------------------------------------------------------------------
@@ -295,7 +322,7 @@ const BOOTSTRAP = [
   'curl -sSL -o voices-v1.0.bin https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin',
 ];
 
-module.exports = { renderShort, lintText, lintScript, validateScript, alignWords, chunkWords, buildAss, assTime, captionText, acquireLock, check, kokoroTts, textWords, BOOTSTRAP, DEFAULT_OUT, SCENE_GAP };
+module.exports = { renderShort, lintText, lintScript, validateScript, alignWords, chunkWords, buildAss, assTime, captionText, acquireLock, check, kokoroTts, ttsCacheKey, textWords, BOOTSTRAP, DEFAULT_OUT, SCENE_GAP };
 
 if (require.main === module) {
   (async () => {
