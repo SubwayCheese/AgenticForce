@@ -271,7 +271,8 @@ async function renderShort(script, { outDir = DEFAULT_OUT, run = providers.newRu
     fs.writeFileSync(path.join(workDir, 'scenes.txt'), clips.map((c) => `file '${c.path}'`).join('\n') + '\n');
     const audioIn = timed.flatMap((t) => ['-i', t.wav]);
     const pads = timed.map((t, i) => `[${i}:a]aresample=48000,apad=pad_dur=${SCENE_GAP}[a${i}]`).join(';');
-    const cat = timed.map((_, i) => `[a${i}]`).join('') + `concat=n=${timed.length}:v=0:a=1[aout]`;
+    // loudnorm to -14 LUFS: the first batch measured ~-25 dB mean, too quiet for short-form feeds.
+    const cat = timed.map((_, i) => `[a${i}]`).join('') + `concat=n=${timed.length}:v=0:a=1,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     const audio = path.join(workDir, 'voice.m4a');
     runFfmpeg([...audioIn, '-filter_complex', `${pads};${cat}`, '-map', '[aout]', '-c:a', 'aac', '-b:a', '160k', audio]);
 
