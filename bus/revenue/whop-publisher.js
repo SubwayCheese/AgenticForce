@@ -2,7 +2,8 @@
 // (api/v1): Courses experience -> course -> one chapter per module with a markdown text lesson -> an inline
 // "starter code" lesson -> a product with a one-time plan. Everything is created HIDDEN; `--visible` is a separate,
 // explicit step. Idempotent: ids of everything created are kept in bus/whop-publish-state.json, so a re-run
-// resumes instead of duplicating. Credentials come only from the secrets broker (WHOP_API_KEY).
+// resumes instead of duplicating. Credentials come only from the secrets broker (WHOP_API_KEY, plus optional per-resource
+// WHOP_EXPERIENCES_API_KEY / WHOP_COURSES_API_KEY / WHOP_PRODUCTS_API_KEY).
 // Usage: node whop-publisher.js <course-dir-name> plan              (offline: print what would be created)
 //        node whop-publisher.js <course-dir-name> check             (read-only: key scopes, account, experiences)
 //        node whop-publisher.js <course-dir-name> publish --price 19 (create/resume, all hidden)
@@ -17,11 +18,18 @@ const API_VERSION = '2026-07-01';
 const COURSES_APP_ID = 'app_0vPZThfBpAwLo'; // Whop's own "Courses" app (GET /apps?query=courses, 2026-09-23)
 let STATE_PATH = avPaths.bus('whop-publish-state.json');
 
-function makeApi({ key, fetchFn = fetch }) {
+// Whop scopes keys per resource, so an owner may create one key per scope. `keys` maps a path prefix to the key for
+// it; anything unmatched uses `key`.
+function keyFor(p, key, keys = {}) {
+  const hit = Object.keys(keys).find((prefix) => p.startsWith(prefix) && keys[prefix]);
+  return hit ? keys[hit] : key;
+}
+
+function makeApi({ key, keys, fetchFn = fetch }) {
   return async function api(method, p, body) {
     const res = await fetchFn(`${API}${p}`, {
       method,
-      headers: { Authorization: `Bearer ${key}`, 'Api-Version-Date': API_VERSION, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Authorization: `Bearer ${keyFor(p, key, keys)}`, 'Api-Version-Date': API_VERSION, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -127,7 +135,7 @@ function summarize(plan) {
   };
 }
 
-module.exports = { buildPlan, publish, makeVisible, check, makeApi, section, COURSES_APP_ID, _setStatePathForTesting: (p) => { STATE_PATH = p; } };
+module.exports = { buildPlan, publish, makeVisible, check, makeApi, keyFor, section, COURSES_APP_ID, _setStatePathForTesting: (p) => { STATE_PATH = p; } };
 
 if (require.main === module) {
   const [courseDir, cmd = 'plan'] = process.argv.slice(2);
@@ -137,7 +145,12 @@ if (require.main === module) {
   (async () => {
     const plan = buildPlan(courseDir, { price });
     if (cmd === 'plan') return console.log(JSON.stringify(summarize(plan), null, 2));
-    const api = makeApi({ key: require('../platform/secrets-broker.js').loadSecret('WHOP_API_KEY') });
+    const load = (n) => { try { return require('../platform/secrets-broker.js').loadSecret(n); } catch (_) { return null; } };
+    const api = makeApi({ key: load('WHOP_API_KEY'), keys: {
+      '/experiences': load('WHOP_EXPERIENCES_API_KEY'),
+      '/course': load('WHOP_COURSES_API_KEY'), // /courses, /course_chapters, /course_lessons
+      '/products': load('WHOP_PRODUCTS_API_KEY'),
+    } });
     if (cmd === 'check') return console.log(JSON.stringify(await check({ api }), null, 2));
     const all = loadState(); all[courseDir] = all[courseDir] || {};
     const persist = () => saveState(all);

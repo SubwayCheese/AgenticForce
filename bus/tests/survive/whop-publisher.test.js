@@ -104,3 +104,18 @@ test('whop-publisher: check is read-only and reports missing scopes instead of t
   assert.ok(methods.every((m) => m === 'GET'));
   sbx.cleanup();
 });
+
+test('whop-publisher: routes each resource to its own scoped key, falling back to the default', async () => {
+  const sbx = makeSandbox(); const wp = sbx.load('whop-publisher');
+  const keys = { '/experiences': 'kE', '/course': 'kC', '/products': null };
+  assert.equal(wp.keyFor('/course_lessons', 'k0', keys), 'kC');
+  assert.equal(wp.keyFor('/courses/c1', 'k0', keys), 'kC');
+  assert.equal(wp.keyFor('/experiences', 'k0', keys), 'kE');
+  assert.equal(wp.keyFor('/products', 'k0', keys), 'k0', 'a missing key falls back');
+  assert.equal(wp.keyFor('/companies/me', 'k0', keys), 'k0');
+  const seen = [];
+  const api = wp.makeApi({ key: 'k0', keys, fetchFn: async (url, o) => { seen.push(o.headers.Authorization); return { ok: true, status: 200, text: async () => '{}' }; } });
+  await api('POST', '/course_chapters', {}); await api('GET', '/companies/me');
+  assert.deepEqual(seen, ['Bearer kC', 'Bearer k0']);
+  sbx.cleanup();
+});
