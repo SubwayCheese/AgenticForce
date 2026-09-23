@@ -209,3 +209,19 @@ runs ~8.5x slower than realtime on this Pi (fp32; int8 was 2x slower still). (3)
 frame; the progress bar uses a sliding overlay instead.
 
 Not done (owner-only): Whop product creation/pricing, posting to social accounts, getting a real Vyro/Antigravity key.
+
+## 2026-09-23 Round 29 follow-ups: first claude-agent mission, a closed-market entry, Pi under-voltage
+- **mission008 = first claude-agent mission** (00:57 PDT): full chain resolved; research quality high (restated
+  verified figures, weighed scan candidates as weaker evidence, flagged stale after-hours quotes). Decision:
+  `enter SGOV, limit $100.65, $20` (exactly the 40% cap).
+- **Executed into a closed market** at the 02:58 PDT wake: Alpaca ACCEPTED the notional day-limit order, the
+  executor's poll saw no fill and canceled it -> `outcome: error, reason: canceled`. Verified read-only on the
+  live account afterwards: 0 open orders, no positions, cash/equity $50.00. Safe, but the cancel is best-effort; a
+  silent cancel failure would have left a queued order the ledger doesn't know about. Fix proposed (NOT applied,
+  protected file): `docs/proposals/2026-09-23-executor-market-hours.md` -- defer entries while the market is
+  closed, expire stale decisions, alert loudly on cancel failure.
+- **Pi 4 under-voltage**: `get_throttled` = 0x50005; kernel log shows continuous undervoltage since 2026-09-20
+  ~13:55 (154 events that day, no "normalised" after). Pre-existing, not caused by this work. Renders capped to 2
+  cores. Owner action: official 5.1V/3A USB-C supply (or a short, thick cable).
+- Shorts: 6 rendered (1080x1920, 26-29s, -14 LUFS), QC'd frame by frame; fixes found by QC and shipped: clipped CTA
+  title (auto-fit), quiet audio (loudnorm), misleading "history: gone" line in short 03. TTS cache cut re-renders ~2x.
