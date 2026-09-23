@@ -75,6 +75,12 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
 7. **Kokoro speed:** int8 model was slower than fp32 on this Pi; only the `model-files-v1.1` export has the
    `duration` output needed for caption timing. Renders run ~11 min per 27s video on 2 cores.
 
+8. **`gemini-video auth login` (agy's browser-login for Veo):** does not work as claimed. It borrows the Google Cloud
+   SDK's public OAuth client for a device flow; Google answers `invalid_client: Invalid client type` (tested
+   2026-09-23; nothing was linked or stored), and real Veo generate calls still return 429. Its docstring claim that a
+   Gemini Advanced/AI Pro subscription raises API quota is unverified and contradicted by the 429 -- consumer
+   subscriptions do not fund the Gemini API. Only billing on the API key's project (or a Vertex project) unlocks Veo.
+
 ## Next steps
 Owner-only (I must not do these):
 1. **Power supply:** official 5.1V/3A USB-C for the Pi 4.
