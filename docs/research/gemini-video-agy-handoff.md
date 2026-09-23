@@ -1,6 +1,6 @@
 # Gemini Video CLI — Project Handoff Document
 **Created:** 2026-09-23  
-**Account:** tcboss17@gmail.com  
+**Account:** <owner Google account>  
 **Device:** RaspPiDrive (aarch64 — Raspberry Pi, Debian Linux)  
 **Author:** Antigravity AI session (conversation ID: 24aa081d-4128-4c65-a8e8-ffb2e58aab95)
 
@@ -67,7 +67,7 @@ All three CLI names are interchangeable. Works in **any terminal** — independe
 
 ### The Core Problem (Investigated Thoroughly)
 
-The user has a **Gemini Pro consumer subscription** (Google One / AI Premium via `tcboss17@gmail.com`). This subscription grants video generation access inside the **Gemini web app** (`gemini.google.com`) — but it is **not the same system** as the developer API.
+The user has a **Gemini Pro consumer subscription** (Google One / AI Premium via `<owner Google account>`). This subscription grants video generation access inside the **Gemini web app** (`gemini.google.com`) — but it is **not the same system** as the developer API.
 
 Three separate systems exist:
 
@@ -98,7 +98,7 @@ A new OAuth token path was engineered using the **Google Device Authorization Fl
 **Flow:**
 1. `gemini-video auth login` → CLI requests a device code from `https://oauth2.googleapis.com/device/code`
 2. User visits URL + enters short code in any browser (can be phone, laptop, etc.)
-3. User signs in as `tcboss17@gmail.com` and grants access
+3. User signs in as `<owner Google account>` and grants access
 4. CLI polls `https://oauth2.googleapis.com/token` and receives `access_token` + `refresh_token`
 5. Token saved to `~/.gemini/video-oauth-token.json` (permissions: `chmod 600`)
 6. Token auto-refreshes using the refresh token — no re-login needed for months
@@ -257,7 +257,7 @@ The skill documentation that triggers this in `agy` is at:
 ### To activate video generation immediately:
 
 1. Run `gemini-video auth login` in any terminal
-2. Visit the URL shown, sign in as `tcboss17@gmail.com`, enter the code
+2. Visit the URL shown, sign in as `<owner Google account>`, enter the code
 3. Run `gemini-video generate "your prompt here"`
 
 ### If the OAuth token stops working:
