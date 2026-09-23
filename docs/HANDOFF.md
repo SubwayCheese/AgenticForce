@@ -40,15 +40,18 @@ does not fit this repo -- see Failed attempts #9 and Next steps #5.
   Price set at $19 launch / $29 later (research in `whop/listing.md`). Landing page `landing/index.html` (private preview
   https://claude.ai/artifact/MKzSakTaAGTe4r29jdepVi; `STORE_URL` empty until Whop is live). `marketing/AUDIENCE-PLAN.md`
   (2-week launch sequence) and a dev.to draft (`marketing/posts/devto-failure-stories.md`).
-  **Whop integration:** `bus/revenue/whop-publisher.js` (plan/check/publish/visible; hidden first; resumable). BLOCKED on
-  the key: `check` shows `WHOP_API_KEY` lacks course + product scopes; business `biz_...` reports verified=false.
+  **LIVE ON WHOP since 2026-09-23 16:03 PDT:** https://whop.com/biz_PPKuEPjr6iEsPB/agents-that-run-themselves/ ($19 one-time,
+  plan `plan_QqPQ5RSVI3txk`, business "Workforce"; 9 chapters / 10 lessons, verified by read-back). Published by
+  `bus/revenue/whop-publisher.js`; ids in `bus/whop-publish-state.json`. Gotchas found: the key's business is GET /accounts/me
+  (NOT /companies/me, which answers with a different business, "Me" -- that caused every 403); POST /products silently
+  ignores plan_options/experience_ids (use /plans and /experiences/{id}/attach); new courses get a seed "Chapter 1".
   **Posting:** Opus.pro API can post to YT/TikTok/IG/X, key works, but 0 social accounts connected (owner OAuth).
 - **AI video:** blocked on Google billing (see Next steps #4). The shorts use local ffmpeg text-card visuals and are usable as-is.
 - **Agents:** Codex healthy; Claude headless (`to: claude-agent`); Antigravity `agy` 1.2.9 wired as a third text specialist.
   On 2026-09-23 the owner asked for broader agent shell access: agy now also reads `~/AgentVault-products` and may run
   read-only commands (cat/head/tail/grep/wc/find/stat/diff/jq...; no git/rm/node). Codex left as-is (its read-only sandbox
   already runs any command; `write` mode exists).
-- **Tests:** `node bus/platform/run-survive-tests.js` = 123 passed. City repo HEAD is pushed; products repo is local only.
+- **Tests:** `node bus/platform/run-survive-tests.js` = 124 passed. City repo HEAD is pushed; products repo is local only.
 
 ## Active field (where work was happening)
 - `~/AgentVault-products/courses/agentic-systems/` (course, starter, whop/, marketing/, PLAN.md)
@@ -104,9 +107,9 @@ course only matters if it reaches buyers -- a landing page and an audience plan 
 Owner-only (I must not do these):
 1. **Subscribe the ntfy app** to the two private topics (values in `bus/secrets.local.json`).
 2. **Power supply:** official 5.1V/3A USB-C for the Pi 4.
-3. **Course launch:** create a Whop API key with course + product scopes and put it in `bus/secrets.local.json` as
-   `WHOP_API_KEY` (`whop/SETUP.md`); then an agent can run `whop-publisher.js agentic-systems publish --price 19` (owner
-   gave standing go-ahead 2026-09-23). Connect social accounts in Opus.pro, or post the shorts by hand
+3. **Course launch (course is live):** set the 7-day refund policy and check payouts/verification for "Workforce" in the Whop
+   dashboard; delete the unused Whop keys `apik_YmLY`, `apik_4x1J`, `apik_3yQ7` (pasted in chat; "Agentic work" is the one used).
+   Connect social accounts in Opus.pro, or post the shorts by hand
    (`marketing/POSTING-CHECKLIST.md`). HN/Reddit posts must come from the owner (`marketing/AUDIENCE-PLAN.md`).
 4. **Unblock AI video (worked out with agy + codex):** Google AI Pro includes $10/month of Google Cloud credits (Developer
    Program; redeem to a billing account; card needed); Veo 3.1 Lite ~$0.30 per 6s clip, so ~$10 covers the whole 30-scene batch.

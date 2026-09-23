@@ -26,7 +26,9 @@ function fakeApi({ failOn } = {}) {
   const api = async (method, p, body) => {
     calls.push({ method, p: p.split('?')[0], body });
     if (failOn && failOn(method, p, calls.length)) throw new Error('boom');
-    if (p === '/companies/me') return { id: 'biz_1', title: 'Me', verified: false };
+    if (p === '/accounts/me') return { id: 'biz_1', title: 'Me', verified: false };
+    // A course as Whop returns it: its own seed chapter plus whatever we created.
+    if (method === 'GET' && p.startsWith('/courses/')) return { chapters: [{ id: 'seed', title: 'Chapter 1', lessons: [{ title: 'Lesson 1' }] }, { id: 'id_4', title: 'Module 1: One', lessons: [] }] };
     n += 1;
     return { id: `id_${n}`, route: body && body.route };
   };
@@ -41,7 +43,11 @@ test('whop-publisher: builds a plan from the course files (chapters, starter les
   assert.deepEqual(plan.chapters[1].lessons.map((l) => l.key), ['m2-l1', 'starter']);
   assert.match(plan.chapters[1].lessons[1].content, /agent-loop\.js[\s\S]*module\.exports = 1;/);
   assert.equal(plan.product.headline, 'Pitch here.');
-  assert.match(plan.product.description, /Desc here\.[\s\S]*- a[\s\S]*- not b/);
+  assert.match(plan.product.description, /Desc here\.[\s\S]*- not b[\s\S]*- a/);
+  // Whop's 80-char headline limit is enforced offline, before any API call.
+  const long = fixtureCourse(); const lp = path.join(long, 'courses', 'demo', 'whop', 'listing.md');
+  fs.writeFileSync(lp, fs.readFileSync(lp, 'utf8').replace('Pitch here.', 'x'.repeat(81)));
+  assert.throws(() => wp.buildPlan('demo', { productsRoot: long }), /Whop allows 80/);
   assert.doesNotMatch(plan.product.description, /FAQ/);
   assert.deepEqual(plan.plan, { plan_type: 'one_time', base_currency: 'usd', initial_price: 19, release_method: 'buy_now' });
   assert.equal(wp.buildPlan('demo', { productsRoot: fixtureCourse() }).plan, null);
@@ -59,15 +65,17 @@ test('whop-publisher: publish creates everything hidden, in order, and a re-run 
   const resume = fakeApi();
   await wp.publish(plan, { api: resume.api, state, persist });
   const creates = resume.calls.filter((c) => c.method === 'POST').map((c) => c.p);
-  assert.deepEqual(creates, ['/course_lessons', '/products'], 'resume only creates what is missing');
+  assert.deepEqual(creates, ['/course_lessons', '/products', `/experiences/${state.experienceId}/attach`, '/plans'], 'resume only creates what is missing');
+  assert.deepEqual(resume.calls.filter((c) => c.method === 'DELETE').map((c) => c.p), ['/course_chapters/seed'], 'only the untouched seed chapter is deleted');
   const all = [...crash.calls, ...resume.calls];
   assert.equal(all.find((c) => c.p === '/experiences').body.app_id, wp.COURSES_APP_ID);
   assert.equal(all.find((c) => c.p === '/courses').body.visibility, 'hidden');
   const product = all.find((c) => c.p === '/products').body;
   assert.equal(product.visibility, 'hidden');
-  assert.deepEqual(product.experience_ids, [state.experienceId]);
-  assert.equal(product.plan_options.initial_price, 19);
-  assert.equal(product.plan_options.plan_type, 'one_time');
+  assert.equal(all.find((c) => c.p.endsWith('/attach')).body.product_id, state.productId);
+  const planBody = all.find((c) => c.p === '/plans').body;
+  assert.deepEqual([planBody.product_id, planBody.plan_type, planBody.initial_price, planBody.currency], [state.productId, 'one_time', 19, 'usd']);
+  assert.ok(state.attached && state.planId && state.defaultsRemoved);
   assert.ok(state.productId && persists > 0);
   // A third run is a no-op.
   const again = fakeApi();
@@ -112,10 +120,10 @@ test('whop-publisher: routes each resource to its own scoped key, falling back t
   assert.equal(wp.keyFor('/courses/c1', 'k0', keys), 'kC');
   assert.equal(wp.keyFor('/experiences', 'k0', keys), 'kE');
   assert.equal(wp.keyFor('/products', 'k0', keys), 'k0', 'a missing key falls back');
-  assert.equal(wp.keyFor('/companies/me', 'k0', keys), 'k0');
+  assert.equal(wp.keyFor('/accounts/me', 'k0', keys), 'k0');
   const seen = [];
   const api = wp.makeApi({ key: 'k0', keys, fetchFn: async (url, o) => { seen.push(o.headers.Authorization); return { ok: true, status: 200, text: async () => '{}' }; } });
-  await api('POST', '/course_chapters', {}); await api('GET', '/companies/me');
+  await api('POST', '/course_chapters', {}); await api('GET', '/accounts/me');
   assert.deepEqual(seen, ['Bearer kC', 'Bearer k0']);
   sbx.cleanup();
 });

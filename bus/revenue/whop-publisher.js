@@ -66,12 +66,21 @@ function buildPlan(courseDirName, { price, productsRoot = avPaths.PRODUCTS_REPO 
   if (course.starter && fs.existsSync(path.join(dir, course.starter))) {
     chapters[chapters.length - 1].lessons.push({ key: 'starter', title: 'Starter code (copy these files)', content: starterLesson(dir) });
   }
-  const description = [section(listing, 'Description'), '**What you\'ll learn**', section(listing, "What you'll learn"),
-    '**What it is NOT**', section(listing, 'What it is NOT')].filter(Boolean).join('\n\n');
+  // Whop limits (400 otherwise): headline <= 80 chars, product description <= 1500. Drop optional parts to fit.
+  const parts = [section(listing, 'Description'), `**What it is NOT**\n${section(listing, 'What it is NOT')}`,
+    `**What you'll learn**\n${section(listing, "What you'll learn")}`];
+  // Product descriptions may render as plain text: join hard-wrapped lines, keep list items on their own lines.
+  const unwrap = (t) => t.split(/\n{2,}/).map((para) => para.replace(/\n(?!\s*[-*] )/g, ' ')).join('\n\n');
+  for (let i = 0; i < parts.length; i++) parts[i] = unwrap(parts[i]);
+  let description = parts.join('\n\n');
+  while (description.length > 1500 && parts.length > 1) { parts.pop(); description = parts.join('\n\n'); }
+  const headline = section(listing, 'Headline') || section(listing, 'One-line pitch');
+  if (headline.length > 80) throw new Error(`listing headline is ${headline.length} chars; Whop allows 80 (add a "## Headline" section)`);
+  if (description.length > 1500) throw new Error(`listing description is ${description.length} chars; Whop allows 1500`);
   return {
     course: { title: course.title, tagline: section(listing, 'One-line pitch').slice(0, 200) },
     chapters,
-    product: { title: course.title.slice(0, 80), headline: section(listing, 'One-line pitch').slice(0, 200), description, route: course.slug },
+    product: { title: course.title.slice(0, 80), headline, description, route: course.slug },
     plan: price == null ? null : { plan_type: 'one_time', base_currency: 'usd', initial_price: Number(price), release_method: 'buy_now' },
   };
 }
@@ -79,9 +88,11 @@ function buildPlan(courseDirName, { price, productsRoot = avPaths.PRODUCTS_REPO 
 function loadState() { try { return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8')); } catch (_) { return {}; } }
 function saveState(all) { fs.writeFileSync(STATE_PATH, `${JSON.stringify(all, null, 2)}\n`); }
 
+// The business a key belongs to is GET /accounts/me. (GET /companies/me answers with the signed-in user's own business,
+// which can be a different one -- that mismatch produced 403s on every course/product call, 2026-09-23.)
 async function check({ api }) {
   const out = {};
-  const acct = await api('GET', '/companies/me');
+  const acct = await api('GET', '/accounts/me');
   out.account = { id: acct.id, title: acct.title, verified: acct.verified };
   const probe = async (name, p) => { try { await api('GET', p); out[name] = 'ok'; } catch (e) { out[name] = e.message; } };
   await probe('experiences:read', `/experiences?account_id=${acct.id}&first=1`);
@@ -94,7 +105,7 @@ async function check({ api }) {
 // a crash mid-way never loses an id (and therefore never duplicates on the re-run).
 async function publish(plan, { api, state, persist }) {
   if (!plan.plan) throw new Error('publish needs --price <usd>');
-  if (!state.accountId) { state.accountId = (await api('GET', '/companies/me')).id; persist(); }
+  if (!state.accountId) { const a = await api('GET', '/accounts/me'); state.accountId = a.id; state.accountRoute = a.route || a.id; persist(); }
   if (!state.experienceId) {
     const exp = await api('POST', '/experiences', { app_id: COURSES_APP_ID, account_id: state.accountId, name: plan.course.title, is_public: false });
     state.experienceId = exp.id; persist();
@@ -112,10 +123,33 @@ async function publish(plan, { api, state, persist }) {
     }
   }
   if (!state.productId) {
-    const p = await api('POST', '/products', { account_id: state.accountId, ...plan.product, visibility: 'hidden', experience_ids: [state.experienceId], custom_cta: 'get_access', plan_options: { ...plan.plan, visibility: 'visible' } });
+    // POST /products silently ignores experience_ids and plan_options (verified 2026-09-23), so the course is attached
+    // and the price is created with their own endpoints below.
+    const p = await api('POST', '/products', { account_id: state.accountId, ...plan.product, visibility: 'hidden', custom_cta: 'get_access' });
     state.productId = p.id; state.productRoute = p.route || plan.product.route; persist();
   }
+  if (!state.attached) {
+    await api('POST', `/experiences/${state.experienceId}/attach`, { product_id: state.productId });
+    state.attached = true; persist();
+  }
+  if (!state.planId) {
+    const pl = await api('POST', '/plans', { account_id: state.accountId, product_id: state.productId, plan_type: plan.plan.plan_type,
+      currency: plan.plan.base_currency, initial_price: plan.plan.initial_price, release_method: plan.plan.release_method, visibility: 'visible' });
+    state.planId = pl.id; state.purchaseUrl = pl.purchase_url || null; persist();
+  }
+  if (!state.defaultsRemoved) { await removeDefaultChapters({ api, state }); state.defaultsRemoved = true; persist(); }
   return state;
+}
+
+// Whop seeds a new course with an empty "Chapter 1" / "Lesson 1". Delete only chapters we did not create that still
+// look exactly like that seed, so nothing the owner added by hand is ever touched.
+async function removeDefaultChapters({ api, state }) {
+  const course = await api('GET', `/courses/${state.courseId}`);
+  const ours = new Set(Object.values(state.chapters || {}));
+  const seeds = (course.chapters || []).filter((ch) => !ours.has(ch.id) && /^Chapter \d+$/.test(ch.title || '')
+    && (ch.lessons || []).every((l) => /^Lesson \d+$/.test(l.title || '')) && (ch.lessons || []).length <= 1);
+  for (const ch of seeds) await api('DELETE', `/course_chapters/${ch.id}`);
+  return seeds.map((ch) => ch.id);
 }
 
 async function makeVisible({ api, state, persist }) {
@@ -135,7 +169,7 @@ function summarize(plan) {
   };
 }
 
-module.exports = { buildPlan, publish, makeVisible, check, makeApi, keyFor, section, COURSES_APP_ID, _setStatePathForTesting: (p) => { STATE_PATH = p; } };
+module.exports = { buildPlan, publish, makeVisible, removeDefaultChapters, check, makeApi, keyFor, section, COURSES_APP_ID, _setStatePathForTesting: (p) => { STATE_PATH = p; } };
 
 if (require.main === module) {
   const [courseDir, cmd = 'plan'] = process.argv.slice(2);
@@ -157,6 +191,6 @@ if (require.main === module) {
     const opts = { api, state: all[courseDir], persist };
     const result = cmd === 'publish' ? await publish(plan, opts) : cmd === 'visible' ? await makeVisible(opts) : null;
     if (!result) throw new Error(`unknown command ${cmd}`);
-    console.log(JSON.stringify({ ...result, storeUrl: result.productRoute ? `https://whop.com/${result.productRoute}/` : null }, null, 2));
+    console.log(JSON.stringify({ ...result, storeUrl: result.productRoute ? `https://whop.com/${result.accountRoute || result.accountId}/${result.productRoute}/` : null }, null, 2));
   })().catch((e) => { console.error('Failed:', e.message); process.exit(1); });
 }
