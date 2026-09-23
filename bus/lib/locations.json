@@ -106,5 +106,6 @@
  "verifier.js": "org/verifier.js",
  "video-providers.js": "revenue/video-providers.js",
  "watch-inbox.js": "platform/watch-inbox.js",
- "watchdog.js": "org/watchdog.js"
+ "watchdog.js": "org/watchdog.js",
+ "whop-publisher.js": "revenue/whop-publisher.js"
 }

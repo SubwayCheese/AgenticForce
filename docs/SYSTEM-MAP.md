@@ -13,7 +13,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | fleet | paper-trading fleet | 26 | 0 | 4 | 2 | 17 | 3 |
 | city | real-money agent city (survive) | 23 | 0 | 1 | 4 | 17 | 1 |
 | swarm | research swarm | 4 | 0 | 1 | 0 | 3 | 0 |
-| revenue | product builder, Apify and bounty tooling | 9 | 0 | 0 | 5 | 4 | 0 |
+| revenue | product builder, Apify and bounty tooling | 10 | 0 | 0 | 6 | 4 | 0 |
 | org | autonomous organization runtime (durable Director/AgentSpec decision loop + Plan-2 economic cells, all real-money-execution paths hard-denied in this phase) | 12 | 0 | 0 | 4 | 8 | 0 |
 
 **Dependency rules** (enforced by `bus/tests/survive/architecture.test.js`): platform -> platform; ops -> platform, ops, fleet, city, swarm, revenue, org; fleet -> fleet, platform; city -> city, platform; swarm -> swarm, platform; revenue -> revenue, platform; org -> org, platform.
@@ -50,7 +50,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | run-task-collab | library | 1 | MANUAL-ONLY, write-enabled Codex dispatch for supervised collaboration on the vault itself (e.g. |
 | run-task-generic | live | 0 | config-driven task dispatch. Reads a task's `to:` field, loads the matching bus/platform/agents/<to>.json config, and dispatches through... **Note:** spawned by run-queue-daemon for every task |
 | run-task | library | 25 | deterministic dependency resolution + Codex dispatch for the /bus/ protocol. |
-| secrets-broker | library | 14 | Phase 3 piece 4: the credential/secrets broker boundary. |
+| secrets-broker | library | 15 | Phase 3 piece 4: the credential/secrets broker boundary. |
 | survive-change-gate | manual | 0 | Pure code, no LLM. The only allowed path for an automated change (a later improver agent, or a human using the same checks) to reach the live... |
 | validate-agent-config | library | 2 | checks a bus/platform/agents/<id>.json config against the shape agent-engine.js actually requires, before anyone trusts it to dispatch a real task. |
 | vault-search | library | 3 | Phase 3 groundwork: shared, queryable access to the vault's own knowledge for any script in /bus/, not just something a human browses in Obsidian. |
@@ -147,6 +147,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | shorts-pipeline | manual | 0 | renders vertical short videos (Reels/Shorts/TikTok) from a script JSON. |
 | superteam-scout | manual | 0 | (scout-only phase). READ-ONLY watcher for Superteam Earn bounties an AI agent could actually do. |
 | video-providers | library | 1 | visual sources for shorts-pipeline.js. |
+| whop-publisher | manual | 0 | publishes a course from the products repo as a Whop product through Whop's REST API (api/v1): Courses experience -> course -> one chapter per module... |
 
 ## org (bus/org/)
 

@@ -520,6 +520,10 @@
       "domain": "org",
       "status": "library",
       "note": "lease sweep + deterministic semantic anti-stall"
+    },
+    "whop-publisher.js": {
+      "domain": "revenue",
+      "status": "manual"
     }
   },
   "compatSymlinks": {

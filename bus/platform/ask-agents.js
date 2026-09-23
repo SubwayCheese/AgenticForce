@@ -32,7 +32,7 @@ function safePayload(text) {
 // likes to finish research by writing a "plan artifact" file -- so tell it up front to answer inline.
 function withAgentNotes(agent, payload) {
   return agent === 'antigravity'
-    ? `${payload}\n\nThis is a read-only session: answer INLINE in your reply. Do not create files, plan artifacts or notes, and do not run commands.`
+    ? `${payload}\n\nThis is a read-only session: answer INLINE in your reply. Read files ONLY with your read_file tool (never cat, head, grep or any shell command). Do not create files, plan artifacts or notes, and do not run commands.`
     : payload;
 }
 
