@@ -397,6 +397,10 @@
       "status": "live",
       "note": "hand-started, port 8877"
     },
+    "shorts-pipeline.js": {
+      "domain": "revenue",
+      "status": "manual"
+    },
     "store.js": {
       "domain": "org",
       "status": "manual",
@@ -498,6 +502,10 @@
       "domain": "org",
       "status": "library",
       "note": "Plan 1 sec 14 typed receipts + real re-check verification"
+    },
+    "video-providers.js": {
+      "domain": "revenue",
+      "status": "library"
     },
     "watch-inbox.js": {
       "domain": "platform",

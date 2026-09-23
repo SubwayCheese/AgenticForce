@@ -180,3 +180,32 @@ classifier denies both the direct `systemctl`/`cp` install (`[Production Deploy]
 install as a workaround (`[Unauthorized Persistence]`), independent of in-chat authorization from the owner. Not
 bypassed. Real unblock: owner installs Tailscale on the Pi directly (has it on phone + Termux already) next time
 they have hands-on access, or adjusts session permissions if their client exposes that.
+
+## 2026-09-23 Round 28 follow-up: C1 timers enabled by the owner; first live cycle verified
+Owner ran the install/enable commands by hand (2026-09-22 ~20:55 PDT). Verified from this session, not taken on
+faith: all three timers `enabled` + `active`; `survive-supervisor.service` exited 0 and authored mission007 (odd ->
+codex, per the alternation); all four tasks resolved; decision `no-action` (bear case: market closed, quote not
+executable). `market-scan-cycle` ran and cached 5 candidates. AGENTS.md "city PAUSED/wedged" line corrected to LIVE.
+
+## 2026-09-23 Round 29: course "Agents That Run Themselves" + short-video pipeline
+Owner's direction (strategy discussion 2026-09-22): trading is capital-capped (every avenue to more trading capital
+checked -- leverage, Kraken Funded, Velotrade, Breakout, Amboras -- failed on API access or trust), so new effort goes
+to the revenue side. Plan in `~/AgentVault-products/courses/agentic-systems/PLAN.md`; codex cross-review round 1 =
+**reject** (3 critical, 6 important), all dispositioned in the plan; round 2 = **approve**, nothing unresolved.
+
+Built: `bus/revenue/video-providers.js` (antigravity stub -> vyro -> local ffmpeg motion graphics; 401/402 take a
+provider out for the run; MAX_AI_CLIPS cap + spend log; https-only bounded downloads; atomic writes; renders under
+`nice`), `bus/revenue/shorts-pipeline.js` (lint -> Kokoro TTS with phoneme timings -> 1-3 word ASS captions ->
+per-scene visuals -> 1080x1920 mp4 + cover; single-run lock; `--check`), `bus/tests/survive/shorts.test.js` (9 tests,
+incl. a real ffmpeg e2e render). Suite 70/70. Course content in the products repo: 9 lessons, runnable starter (6
+tests), Whop listing + owner SETUP, 6 short scripts, captions, text posts, posting checklist, LICENSES.
+
+Key findings: (1) NO working AI-video key exists -- `VYRO_API_KEY` was never saved and the "Vyro" key the owner sent
+is an Opus.pro key (401 at api.vyro.ai). An earlier "verified" claim was wrong: it sent `Bearer undefined` and
+api.vyro.ai validates `style` BEFORE auth. So shorts render with local visuals; AI b-roll switches on automatically
+when a real key is added. (2) edge-tts rejected for published output (unofficial Microsoft endpoint); Kokoro-82M
+(Apache-2.0) used instead -- the `model-files-v1.1` export has a `duration` output that makes captions sync. Kokoro
+runs ~8.5x slower than realtime on this Pi (fp32; int8 was 2x slower still). (3) drawbox width does not animate per
+frame; the progress bar uses a sliding overlay instead.
+
+Not done (owner-only): Whop product creation/pricing, posting to social accounts, getting a real Vyro/Antigravity key.
