@@ -31,7 +31,7 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
   supply). C1's live state is on this SD card.
 - **Course + shorts:** all built and committed; nothing published. 6 videos rendered in
   `~/AgentVault-products/courses/agentic-systems/media/` (git-ignored).
-- **Tests:** `node bus/platform/run-survive-tests.js` = 78 passed. Both repos committed (city repo HEAD `40eee08`).
+- **Tests:** `node bus/platform/run-survive-tests.js` = 80 passed. Both repos committed (city repo HEAD `1c3678e`; products repo `3fff4e5`).
 
 ## Active field (where work was happening)
 - `~/AgentVault-products/courses/agentic-systems/` (course, starter, whop/, marketing/, PLAN.md)
@@ -39,7 +39,7 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
   `ask-agents.js`; `bus/city/survive-supervisor.js` (Rounds 27-28).
 - Note: the working directory of some sessions was `~/AgentVault-products`; the city repo is `~/AgentVault`.
 
-## Changes made (this session; details in DECISIONS.md rounds 27-30)
+## Changes made (this session; details in DECISIONS.md rounds 27-31)
 - **R27:** C1's candidate universe widened by a daily web-search "market scan" (cache read on the fast path, never a
   live dispatch); shadow-score now scores scanned symbols; live rehearsal caught a negative-spread bug (fixed + test).
 - **R28:** mission cadence 4h -> 2h; per-mission agent alternation codex/claude-agent; dead-mission recovery no
@@ -52,6 +52,8 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
 - **R30:** Antigravity as a third specialist (`to: antigravity`); `ask-agents.js` for agent-to-agent Q&A + review
   (verified both directions). `~/.gemini/antigravity-cli/settings.json` now allows ONLY
   `read_file(/home/subwaycheese/AgentVault)` (backup `settings.json.bak-2026-09-23`).
+- **R31:** Veo video provider wired in via the Antigravity-built `gemini-video` CLI; per-scene prompts added; blocked on
+  Gemini API billing (429 on the free tier).
 - Also: AGENTS.md corrected (city is LIVE), protected-paths cleanup found unnecessary (see Failed attempts #6).
 
 ## Failed attempts and dead ends (do not repeat)
@@ -85,7 +87,7 @@ Owner-only (I must not do these):
    Gemini API plan (link billing at aistudio.google.com/app/plan_and_billing; ~$9 for all 30 scenes on Lite). Then:
    `node bus/revenue/shorts-pipeline.js ~/AgentVault-products/courses/agentic-systems/marketing/shorts/0*.json --max-ai 30`
    (voice is cached; expect Veo latency + ffmpeg). Review the first clip's look before the full batch. Vyro is dead.
-5. Decide whether Antigravity joins C1's mission rotation, and whether to run the change gate on Rounds 27-30
+5. Decide whether Antigravity joins C1's mission rotation, and whether to run the change gate on Rounds 27-31
    (protected paths were touched; gate would say human-review-required).
 Agent-doable (ask first if it touches live systems):
 6. Put `run-queue-daemon` under systemd (needs the owner to install the unit).
