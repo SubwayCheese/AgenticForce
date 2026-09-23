@@ -1,6 +1,6 @@
 # HANDOFF -- read this first in a new session
 
-Last refreshed 2026-09-23 ~15:05 PDT. This repo already has a vault of context, so this file is a pointer-heavy briefing:
+Last refreshed 2026-09-23 ~15:50 PDT. This repo already has a vault of context, so this file is a pointer-heavy briefing:
 where we are, what is unsafe, what is next. It does not repeat `AGENTS.md` (rules, commands), `docs/DECISIONS.md` (every
 decision and why; newest at the BOTTOM despite its header), or `docs/SYSTEM-MAP.md` (generated map). Read `AGENTS.md` first.
 **First action in a new session: check C1's live state (below) before doing anything else.**
@@ -35,12 +35,20 @@ does not fit this repo -- see Failed attempts #9 and Next steps #5.
   C1's live state is on this SD card. Renders are capped to 2 cores. Owner action: official 5.1V/3A USB-C supply.
 - **GitHub:** `github.com/SubwayCheese/AgenticForce` is PUBLIC and current (README, MIT LICENSE, domain layout, 119 tests pass in
   a fresh clone). The course repo `~/AgentVault-products` is deliberately NOT published (it is the product being sold).
-- **Course + shorts:** built and committed, nothing published or priced. 9 lessons (~6,000 words), a runnable starter (6
-  tests), Whop listing + owner SETUP, 6 rendered vertical shorts (`media/`, git-ignored), captions, posts, posting checklist.
-  Gaps: no Whop product exists, nothing posted, no landing page, no video lessons, demand and price unvalidated.
+- **Course + shorts:** built, reviewed, launch-ready; nothing published yet. 9 lessons, starter (6 tests), 6 shorts.
+  Round 34 (2026-09-23): codex reviewed the lessons (24 issues) and antigravity did a second pass (3 more); all fixed.
+  Price set at $19 launch / $29 later (research in `whop/listing.md`). Landing page `landing/index.html` (private preview
+  https://claude.ai/artifact/MKzSakTaAGTe4r29jdepVi; `STORE_URL` empty until Whop is live). `marketing/AUDIENCE-PLAN.md`
+  (2-week launch sequence) and a dev.to draft (`marketing/posts/devto-failure-stories.md`).
+  **Whop integration:** `bus/revenue/whop-publisher.js` (plan/check/publish/visible; hidden first; resumable). BLOCKED on
+  the key: `check` shows `WHOP_API_KEY` lacks course + product scopes; business `biz_...` reports verified=false.
+  **Posting:** Opus.pro API can post to YT/TikTok/IG/X, key works, but 0 social accounts connected (owner OAuth).
 - **AI video:** blocked on Google billing (see Next steps #4). The shorts use local ffmpeg text-card visuals and are usable as-is.
 - **Agents:** Codex healthy; Claude headless (`to: claude-agent`); Antigravity `agy` 1.2.9 wired as a third text specialist.
-- **Tests:** `node bus/platform/run-survive-tests.js` = 119 passed. City repo HEAD is pushed; products repo is local only.
+  On 2026-09-23 the owner asked for broader agent shell access: agy now also reads `~/AgentVault-products` and may run
+  read-only commands (cat/head/tail/grep/wc/find/stat/diff/jq...; no git/rm/node). Codex left as-is (its read-only sandbox
+  already runs any command; `write` mode exists).
+- **Tests:** `node bus/platform/run-survive-tests.js` = 123 passed. City repo HEAD is pushed; products repo is local only.
 
 ## Active field (where work was happening)
 - `~/AgentVault-products/courses/agentic-systems/` (course, starter, whop/, marketing/, PLAN.md)
@@ -96,8 +104,10 @@ course only matters if it reaches buyers -- a landing page and an audience plan 
 Owner-only (I must not do these):
 1. **Subscribe the ntfy app** to the two private topics (values in `bus/secrets.local.json`).
 2. **Power supply:** official 5.1V/3A USB-C for the Pi 4.
-3. **Course launch:** create/price the Whop product (`courses/agentic-systems/whop/SETUP.md`; check comparable prices first),
-   watch the 6 shorts, post with each platform's AI-disclosure toggle on (`marketing/POSTING-CHECKLIST.md`).
+3. **Course launch:** create a Whop API key with course + product scopes and put it in `bus/secrets.local.json` as
+   `WHOP_API_KEY` (`whop/SETUP.md`); then an agent can run `whop-publisher.js agentic-systems publish --price 19` (owner
+   gave standing go-ahead 2026-09-23). Connect social accounts in Opus.pro, or post the shorts by hand
+   (`marketing/POSTING-CHECKLIST.md`). HN/Reddit posts must come from the owner (`marketing/AUDIENCE-PLAN.md`).
 4. **Unblock AI video (worked out with agy + codex):** Google AI Pro includes $10/month of Google Cloud credits (Developer
    Program; redeem to a billing account; card needed); Veo 3.1 Lite ~$0.30 per 6s clip, so ~$10 covers the whole 30-scene batch.
    Link that billing to the AI Studio project (aistudio.google.com/plan_and_billing) or use Vertex with a service-account key at
@@ -117,7 +127,7 @@ Agent-doable (ask first if it touches live systems):
 8. Re-arm/whole-share sizing for stops: fractional stops are day-only, so a held position is unprotected overnight.
 9. Count Antigravity calls in `dispatch-budget.js` (it only counts codex).
 10. After the first shadow-score run, read `node bus/city/survive-shadow-score.js board`.
-11. Course landing page (once a Whop link exists). Parked: 3D city redesign in the-delegation/autopolis style; MCP servers list.
+11. Host the landing page (GitHub Pages needs enabling in repo settings, or another host) once the Whop link exists. Parked: 3D city redesign in the-delegation/autopolis style; MCP servers list.
 
 ## Gotchas and rules that matter
 - **Hard rules are in `AGENTS.md`:** never `git checkout/switch/reset --hard/clean/commit -a/add -A` in this tree (it holds live
