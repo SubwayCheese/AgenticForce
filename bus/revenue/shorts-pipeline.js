@@ -185,7 +185,7 @@ function kokoroTts(scenes, { voice = 'af_heart', speed = 1.08, workDir }) {
     model: KOKORO_MODEL, voices: KOKORO_VOICES, voice, speed,
     scenes: scenes.map((s, i) => ({ text: s.say, wav: path.join(workDir, `voice${i}.wav`) })),
   };
-  const r = spawnSync('nice', ['-n', '10', VENV_PY, '-c', KOKORO_PY], { input: JSON.stringify(req), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 45 * 60 * 1000 });
+  const r = spawnSync('nice', providers.niced(VENV_PY, ['-c', KOKORO_PY]), { input: JSON.stringify(req), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 45 * 60 * 1000 });
   const marker = (r.stdout || '').lastIndexOf('@@JSON@@');
   if (r.status !== 0 || marker < 0) throw new Error(`kokoro TTS failed (${r.status}): ${(r.stderr || '').slice(-500)}`);
   return JSON.parse(r.stdout.slice(marker + 8).trim());

@@ -43,8 +43,13 @@ class ProviderDown extends Error {
 }
 
 // nice -n 10: renders share the Pi with C1's supervisor and the queue daemon; a render must never starve them.
+// taskset to 2 of 4 cores: at full 4-core load this Pi reported under-voltage + throttling (get_throttled
+// 0x50005, 2026-09-23) -- its power supply can't feed sustained all-core load, and brownouts risk the SD card
+// that also holds C1's live state. Slower renders are the right trade.
+const RENDER_CPUS = '0-1';
+function niced(cmd, args) { return ['-n', '10', 'taskset', '-c', RENDER_CPUS, cmd, ...args]; }
 function runFfmpeg(args) {
-  const r = spawnSync('nice', ['-n', '10', 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  const r = spawnSync('nice', niced('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', '2', ...args]), { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`ffmpeg failed (${r.status}): ${(r.stderr || '').slice(-600)}`);
 }
 
@@ -249,4 +254,4 @@ function newRun({ maxAiClips = MAX_AI_CLIPS_DEFAULT, noAi = false } = {}) {
   return { down: new Set(), aiClips: 0, maxAiClips, noAi, log: [] };
 }
 
-module.exports = { MAX_LINE_CHARS, makeSceneClip, newRun, local, vyro, antigravity, DEFAULT_CHAIN, ProviderDown, PALETTES, localFilter, runFfmpeg, W, H, FPS, MAX_AI_CLIPS_DEFAULT, BOLD_FONT };
+module.exports = { RENDER_CPUS, niced, MAX_LINE_CHARS, makeSceneClip, newRun, local, vyro, antigravity, DEFAULT_CHAIN, ProviderDown, PALETTES, localFilter, runFfmpeg, W, H, FPS, MAX_AI_CLIPS_DEFAULT, BOLD_FONT };
