@@ -1,0 +1,87 @@
+--- a/bus/city/survive-executor.js
++++ b/bus/city/survive-executor.js
+@@ -192,13 +192,57 @@
+   } catch (_) { /* best-effort */ }
+ }
+ 
++// Picks the protective stop level. Found live 2026-09-23 (mission010): the old code took the FIRST dollar figure in the
++// model-written exit condition, which was the entry bid ($100.61) -- not below the market, so Alpaca rejected the stop
++// (422 "stop price must be less than current price", checked against the live BID) and a real position sat unprotected.
++// Free text is an unreliable source (a structured stopPrice field in the decision JSON would be better), so this is
++// deliberately conservative: a $ amount counts only when phrased as a stop ("below $95", "stop at $95", "falls to $95");
++// a percentage counts only when measured off the entry/bid ("5% below entry"); malformed numbers (negative, ranges,
++// exponents) are rejected. Candidates must be below the live bid and within 30% of it; the TIGHTEST valid one wins
++// (a level 0-2bp under the bid is clamped to 2bp under); otherwise the 5% fallback off the fill, clamped into bounds.
++// Every returned price is re-validated after rounding: finite, > 0, 2 decimals, strictly below the market.
++const MIN_STOP_GAP = 0.0002;
++const MAX_STOP_DISTANCE = 0.30;
++const QUOTE_TIMEOUT_MS = 5000;
++const STOP_DOLLAR_RE = /(?:\b(?:below|under|beneath|falls? to|drops? to|declines? to|stop(?:[- ]loss)?(?:\s+(?:at|of))?)\s+)\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)(?![\d.,]*[eE]-?\d)(?!\s*-\s*\$?\d)/gi;
++const STOP_PERCENT_RE = /(?<![\d.\-eE])(\d*\.?\d+)\s*%(?![\d.])\s*(?:below|under|lower than|down from)\s+(?:the\s+)?(?:\$\s*[\d,.]+\s+)?(entry|fill|purchase|cost|buy|bid|price|open)/gi;
++function resolveStopPrice(condition, { fill, bid }) {
++  const text = String(condition || '');
++  const market = bid > 0 ? bid : fill;
++  if (!(market > 0)) return { price: null, source: null };
++  const ceiling = market * (1 - MIN_STOP_GAP);
++  const floor = market * (1 - MAX_STOP_DISTANCE);
++  const round2 = (x) => Number(x.toFixed(2));
++  const ok = (x) => Number.isFinite(x) && x > 0 && x < market;
++  const cands = [];
++  for (const m of text.matchAll(STOP_PERCENT_RE)) {
++    const pct = Number(m[1]);
++    const base = /^(bid|price)$/i.test(m[2]) && bid > 0 ? bid : fill; // "2% below bid" is measured off the live bid
++    if (pct > 0 && pct <= 50 && base > 0) cands.push({ price: round2(base * (1 - pct / 100)), source: 'thesis-percentage' });
++  }
++  // A $ amount inside a percentage clause ("5% below $100 entry") is that clause's reference, not a stop level.
++  for (const m of text.replace(STOP_PERCENT_RE, ' ').matchAll(STOP_DOLLAR_RE)) {
++    const v = Number(m[1].replace(/,/g, ''));
++    if (v > 0) cands.push({ price: round2(v), source: 'thesis-derived' });
++  }
++  const clampTop = (c) => (c.price > ceiling && c.price <= market ? { ...c, price: Math.floor(ceiling * 100) / 100 } : c);
++  const valid = cands.map(clampTop).filter((c) => ok(c.price) && c.price <= ceiling && c.price >= floor).sort((a, b) => b.price - a.price);
++  if (valid.length) return { price: valid[0].price, source: valid[0].source };
++  if (!(fill > 0)) return { price: null, source: null };
++  const fallback = Math.min(Math.max(round2(fill * (1 - FALLBACK_STOP_PCT)), round2(floor)), Math.floor(ceiling * 100) / 100);
++  return ok(fallback) ? { price: fallback, source: 'fallback-percentage' } : { price: null, source: null };
++}
++
++async function freshBid(client, symbol) {
++  try {
++    const q = await Promise.race([client.getLatestQuote(symbol), new Promise((_, rej) => setTimeout(() => rej(new Error('quote timeout')), QUOTE_TIMEOUT_MS))]);
++    return q && q.bid > 0 ? q.bid : null;
++  } catch (_) { return null; }
++}
++
+ async function placeProtectiveStop({ client, citizenId, missionId, lotId, symbol, filledQty, invalidationCondition, referencePrice }) {
+-  let stopPrice = parseStopPrice(invalidationCondition);
+-  let stopPriceSource = 'thesis-derived';
+-  if (!stopPrice && referencePrice) {
+-    stopPrice = Number((referencePrice * (1 - FALLBACK_STOP_PCT)).toFixed(2));
+-    stopPriceSource = 'fallback-percentage';
+-  }
++  const bid = await freshBid(client, symbol);
++  let { price: stopPrice, source: stopPriceSource } = resolveStopPrice(invalidationCondition, { fill: referencePrice, bid });
+   if (!stopPrice) {
+     await alertMissingStop(citizenId, symbol, 'no stop price could be derived from invalidationCondition or estimated from a reference price');
+     return { stopPlaced: false, reason: 'no-stop-price' };
+@@ -212,6 +256,11 @@
+     // Fractional-qty GTC stop rejection -- same real Alpaca limit
+     // execute-portfolio-setup.js already documented. Retry as 'day'.
+     try {
++      // The first attempt may have been rejected because the market moved (or the quote was stale): recompute from a
++      // fresh bid and never retry a price ABOVE the first one, so the retry can only get safer.
++      const bid2 = await freshBid(client, symbol);
++      const again = bid2 ? resolveStopPrice(invalidationCondition, { fill: referencePrice, bid: bid2 }) : { price: null };
++      if (again.price && again.price < stopPrice) { stopPrice = again.price; stopPriceSource = again.source; }
+       const order = await client.submitOrder({ citizenId, symbol, direction: 'short', qty: filledQty, orderType: 'stop', stopPrice, timeInForce: 'day', intent: 'close', clientOrderId: `${baseClientOrderId}-day` });
+       appendMissionEvent({ type: 'stop-placed', citizenId, missionId, lotId, symbol, stopPrice, stopPriceSource, orderId: order.id, timeInForce: 'day' });
+       return { stopPlaced: true, stopPrice, stopPriceSource, timeInForce: 'day' };
+@@ -413,6 +462,8 @@
+   findLatestUnresolvedDecision,
+   runForCitizen,
+   executeExit,
++  placeProtectiveStop,
++  resolveStopPrice,
+   reconcilePosition,
+   loadClient,
+   SURVIVE_NTFY_TOPIC,

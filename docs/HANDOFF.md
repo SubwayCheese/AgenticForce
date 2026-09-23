@@ -14,12 +14,17 @@ trust), so **new effort goes to general revenue**. First bet: a course, "Agents 
 short AI-voiced videos. C1 keeps running as the proof-of-concept.
 
 ## Current state (verified 2026-09-23 09:41 PDT)
-- **C1 (real-money agent, live Alpaca, $50):** running unattended. `survive-supervisor.timer` fires every 2h
-  (Round 28); missions alternate codex (odd) / claude-agent (even). Account right now: cash $50, equity $50, 0 open
-  orders, no positions. History: mission007 no-action; 008 (first claude-agent mission) decided a limit entry into a
-  closed market -> Alpaca canceled it (no money moved); 009 no-action; **010 decided `enter SGOV, $20, market order`
-  and is UNEXECUTED -- the 11:00 PDT wake is inside market hours, so it may place C1's first real order.** Check
-  `bus/survive-supervisor.log` and the live account read-only (`bus/city/survive-alpaca-live-client.js`).
+- **C1 (real-money agent, live Alpaca, $50):** running unattended. `survive-supervisor.timer` fires every 2h (Round 28);
+  missions alternate codex (odd) / claude-agent (even). **As of 2026-09-23 ~11:15 PDT C1 HOLDS a real position: SGOV
+  0.198672205 sh, entered by mission010 at $100.618 (cash $30, equity ~$49.99).** The executor's protective stop FAILED
+  (422: it used the entry bid as the stop price) so a day stop at $100.11 (order f1003f1a..., logged as
+  `manual-delegated-by-owner`) was placed by hand on the owner's delegation; it EXPIRES at the 13:00 PDT close (Alpaca only
+  allows day stops on fractional qty) -- overnight the position has no stop. Mission011 (13:01 wake, after the close) will
+  evaluate hold/exit. Earlier: 007 no-action; 008 (first claude-agent mission) limit entry into a closed market, canceled;
+  009 no-action. **Fix ready for review, NOT applied (protected file):** `docs/proposals/2026-09-23-executor-stop-price.md`
+  + `docs/proposals/executor-stop-price/` (patch + 36 scratch-copy tests, codex-reviewed in 3 rounds). Apply it before C1's
+  next market-hours entry (tomorrow's open) or it will repeat. Check live state read-only with
+  `bus/city/survive-alpaca-live-client.js` and `bus/survive-supervisor.log`.
 - **Timers (user systemd):** supervisor (2h), `market-scan-cycle` (daily 09:00), `survive-shadow-score` (daily
   16:30 PDT; first run due today -- it scores past decisions against real prices, C1's "learning" data).
 - **Queue daemon:** running as a hand-started process (PID from Sept 20), NOT under systemd. A Pi reboot would
@@ -84,8 +89,8 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
 ## Next steps
 Owner-only (I must not do these):
 1. **Power supply:** official 5.1V/3A USB-C for the Pi 4.
-2. **Review + decide** `docs/proposals/2026-09-23-executor-market-hours.md` (executor submits entries into closed
-   markets; cancel is best-effort). `survive-executor.js` is protected -- never edit it unilaterally.
+2. **Review + apply** `docs/proposals/2026-09-23-executor-stop-price.md` (URGENT: the stop bug) and decide
+   `docs/proposals/2026-09-23-executor-market-hours.md` (executor submits entries into closed markets; cancel is best-effort). `survive-executor.js` is protected -- never edit it unilaterally.
 3. **Course launch:** watch the 6 shorts; create/price the Whop product (`courses/agentic-systems/whop/SETUP.md`);
    post with each platform's AI-disclosure toggle on (`marketing/POSTING-CHECKLIST.md`). Verify the suggested price
    against real market data first (it is an estimate).

@@ -1,30 +1,44 @@
 # Proposal (needs owner review -- protected file): the protective stop used the ENTRY price
 
-**File:** `bus/city/survive-executor.js` `placeProtectiveStop` (protected; NOT applied). Found 2026-09-23 11:04 PDT.
+**Status:** patch written, tested on a scratch copy (36/36), cross-reviewed by codex in three rounds (each round reproduced real flaws and the patch was reworked;
+round 3 findings were also fixed and re-tested but not re-reviewed by a fourth round). NOT applied: `bus/city/survive-executor.js` is protected (change gate: human-review-required).
 
-## What happened
-mission010 entered SGOV ($20, filled 0.198672205 @ $100.618) and the stop failed: `POST /orders -> 422: stop price must be
-less than current price`. The decision's exit condition read "...its price falls more than 0.5% below the $100.61 entry-time
-bid...". `parseStopPrice` (in `bus/fleet/execute-portfolio-setup.js`, written for fleet text like "closes above $390.00")
-returns the FIRST dollar figure -> 100.61 = the entry bid, which is not below the market, so Alpaca rejected it. Because it
-returned a number, the executor's 5% percentage fallback never ran. Result: a real position with NO stop (an ntfy alert
-fires; the day-order retry hit the same 422).
+## What happened (2026-09-23 11:01 PDT, mission010)
+C1 entered SGOV ($20, 0.198672205 sh @ $100.618). The stop failed: `422: stop price must be less than current price`. The
+decision's exit condition said "...falls more than 0.5% below the $100.61 entry-time bid...", and `parseStopPrice` (fleet
+code written for text like "closes above $390.00") returns the FIRST dollar figure -> $100.61 == the live bid. Alpaca compares
+a sell-stop with the live bid, so it was rejected; because a number was returned, the 5% fallback never ran. A real position
+sat with no stop until it was placed by hand at $100.11 (day order) on the owner's delegation.
 
-## Proposed fix (in `placeProtectiveStop`, right after `parseStopPrice`)
-```js
-if (stopPrice && referencePrice && stopPrice >= referencePrice) {
-  // A sell-stop must sit BELOW the market. The first $ figure in pipeline decisions is often the entry price itself.
-  const pct = /(\d+(?:\.\d+)?)\s*%\s*(?:below|under|lower|down)/i.exec(invalidationCondition || '');
-  const frac = pct ? Number(pct[1]) / 100 : FALLBACK_STOP_PCT;
-  stopPrice = Number((referencePrice * (1 - frac)).toFixed(2));
-  stopPriceSource = pct ? 'thesis-percentage' : 'fallback-percentage';
-}
+## The fix
+`resolveStopPrice(condition, {fill, bid})` replaces the first-dollar heuristic. A $ amount counts only when phrased as a stop
+("below $95", "stop at $95", "falls to $95" -- NOT a reference like "the $100.61 entry bid"); a percentage counts only when
+measured off entry/bid ("5% below entry", not "1% below average"); negatives, ranges and exponents are rejected. Candidates
+must be below the live bid and within 30% of it; the TIGHTEST valid one wins (0-2bp under the bid is clamped to 2bp under);
+otherwise the 5% fallback off the fill clamped into the same band. Every result is re-validated after rounding (finite, > 0,
+strictly below the market) or returns null so the existing loud "unprotected position" alert fires. `placeProtectiveStop`
+fetches the live bid first (5s timeout, tolerates a client without `getLatestQuote`) and, if the broker still rejects, retries
+with a FRESH bid and never a higher price. Exports `placeProtectiveStop` and `resolveStopPrice`.
+
+**Better long-term (a decision for you, larger change):** have the decision JSON carry a structured `stopPrice` field that
+code validates, and stop reading levels out of prose at all. The remaining ambiguity in free text is inherent.
+
+## Files (this folder: `docs/proposals/executor-stop-price/`)
+- `survive-executor.patch` -- the change (unified diff against the current file)
+- `verify.test.js` -- 36 tests run against a SCRATCH copy: `node --test docs/proposals/executor-stop-price/verify.test.js`
+  (includes every scenario codex reproduced against the first draft, a control test that reproduces the original bug on the
+  unpatched code, and the mission010 text end to end)
+
+## To apply (owner)
+```bash
+cd ~/AgentVault
+node --test docs/proposals/executor-stop-price/verify.test.js     # expect 36 pass
+patch -p1 < docs/proposals/executor-stop-price/survive-executor.patch
+node bus/platform/run-survive-tests.js                            # expect all green
+git add bus/city/survive-executor.js && git commit -m "Executor: resolve protective stop below the live bid"
 ```
-Tests to add (`bus/tests/survive/`): (1) the exact mission010 text + referencePrice 100.618 -> stop 100.12 (0.5% below the fill),
-placed; (2) text with a genuine lower level ("stop at $95.00") is untouched; (3) text with only a higher $ figure and no
-percentage -> 5% fallback; (4) `submitOrder` rejecting twice still raises the loud alert.
-Also worth deciding: fractional-qty stops can only be `day` orders on Alpaca, so a placed stop expires at the close and is
-not re-placed -- an overnight gap is unprotected. A re-arm step at each wake (or whole-share sizing) would close that.
+Then move the CASES table from `verify.test.js` into `bus/tests/survive/` (it needs no scratch patching once applied).
 
-## Manual protection for the CURRENT position (owner action -- a live order)
-See the message in the chat / handoff; either place a day stop at ~$100.12 while the market is open, or close the position.
+## Still open (a decision, not part of this patch)
+Fractional-quantity stops can only be `day` orders on Alpaca, so a placed stop expires at the close and is not re-armed --
+an overnight gap is unprotected. Options: re-arm at every market-hours wake, or size entries in whole shares.
