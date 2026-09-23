@@ -22,7 +22,7 @@ Wants=network-online.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/AgentVault
-ExecStart=/usr/bin/node bus/scripts/run-queue-daemon.js
+ExecStart=/usr/bin/node bus/platform/run-queue-daemon.js
 Restart=on-failure
 RestartSec=30
 # Standing safety note, unchanged from Windows: alpaca-client.js's own

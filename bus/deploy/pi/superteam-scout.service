@@ -1,0 +1,14 @@
+# superteam-scout.service -- Round 21. Read-only daily scan of Superteam Earn's
+# PUBLIC listings for bounties an agent could do. No key, no submissions, no model
+# calls. NOT installed. Install as a --user unit:
+#   cp superteam-scout.service superteam-scout.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now superteam-scout.timer
+[Unit]
+Description=AgentVault Superteam Earn scout (read-only)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=300
+ExecStart=/usr/bin/node bus/revenue/superteam-scout.js

@@ -33,7 +33,7 @@ bus/superteam-scout.jsonl
 bus/research-swarm-events.jsonl
 bus/queue-daemon.pid
 bus/performance-scorecard.json
-bus/scripts/backtest-search-split-state.json
+bus/fleet/data/backtest-search-split-state.json
 tasks-research-swarm/
 reference/
 .graph/
@@ -44,3 +44,7 @@ discord-codex-bot/.env
 discord-codex-bot/tokens/
 discord-codex-bot-deploy.zip
 bus/memory.jsonl.backup-*
+
+# private key files (Kalshi etc.) -- never tracked
+bus/secrets/
+*.pem

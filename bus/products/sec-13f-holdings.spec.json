@@ -1,0 +1,38 @@
+{
+  "slug": "sec-13f-holdings",
+  "title": "SEC 13F Institutional Holdings -- parsed and diffed",
+  "entry": "parse13FInfoTable",
+  "description": "Parses SEC Form 13F information-table XML (with or without namespace prefixes) into clean JSON holdings, and diffs two quarters to show new, exited, increased and decreased positions. Public SEC EDGAR data for AI agents and market research; raw data, not advice.",
+  "pricing": "Pay-per-event, small per-filing charge (exact price set at listing time)",
+  "disclaimer": "This tool reports public SEC filings as-is. It is not investment advice, makes no prediction about any security, and may contain errors or omissions (13F data is delayed and excludes short positions). Use at your own risk; verify against the original filing on sec.gov.",
+  "allowedHosts": ["sec.gov"],
+  "allowedDeps": [],
+  "requirements": "Implement two pure functions in src/core.js using only Node built-ins (no XML library).\n\n1) parse13FInfoTable(xmlString) -> array of {issuer, titleOfClass, cusip, valueUsd, shares, shareType, discretion, votingSole, votingShared, votingNone}. The XML may use a default namespace, an arbitrary prefix such as ns1:, or no namespace at all -- tags must match regardless of prefix. Numbers are JS numbers. Never throw on missing optional tags (use 0 or null). valueUsd is the <value> tag as a number.\n\n2) diffHoldings(previousRows, currentRows) -> array of {cusip, issuer, status, previousShares, currentShares, sharesDelta, pctChange}, keyed by cusip, where status is one of 'new' (only in current), 'exited' (only in previous), 'increased', 'decreased', 'unchanged'. pctChange is (delta/previousShares)*100 rounded to 2 decimals, or null when previousShares is 0/absent. Sort by absolute sharesDelta descending, ties by cusip ascending.\n\nAlso write src/fetch.js exporting an async fetchLatest13F(cik, opts) that queries only sec.gov (EDGAR) with a descriptive User-Agent header and at most 5 requests per second, returning raw XML strings; dependency-free and not exercised by the offline tests. Keep everything small and readable.",
+  "acceptance": [
+    {
+      "name": "parses prefixed-namespace info table",
+      "entry": "parse13FInfoTable",
+      "inputFile": "fixtures/13f-sample.xml",
+      "expect": [
+        { "issuer": "APPLE INC", "cusip": "037833100", "valueUsd": 1500000, "shares": 10000, "shareType": "SH", "discretion": "SOLE", "votingSole": 10000 },
+        { "issuer": "MICROSOFT CORP", "cusip": "594918104", "valueUsd": 800000, "shares": 2000, "discretion": "DFND" }
+      ]
+    },
+    {
+      "name": "diffs two quarters",
+      "entry": "diffHoldings",
+      "spread": true,
+      "input": [
+        [ { "cusip": "A", "issuer": "AAA", "shares": 100 }, { "cusip": "B", "issuer": "BBB", "shares": 50 }, { "cusip": "C", "issuer": "CCC", "shares": 10 }, { "cusip": "E", "issuer": "EEE", "shares": 5 } ],
+        [ { "cusip": "A", "issuer": "AAA", "shares": 150 }, { "cusip": "B", "issuer": "BBB", "shares": 50 }, { "cusip": "D", "issuer": "DDD", "shares": 30 }, { "cusip": "E", "issuer": "EEE", "shares": 4 } ]
+      ],
+      "expect": [
+        { "cusip": "A", "status": "increased", "previousShares": 100, "currentShares": 150, "sharesDelta": 50, "pctChange": 50 },
+        { "cusip": "D", "status": "new", "currentShares": 30, "sharesDelta": 30, "pctChange": null },
+        { "cusip": "C", "status": "exited", "previousShares": 10, "sharesDelta": -10, "pctChange": -100 },
+        { "cusip": "E", "status": "decreased", "sharesDelta": -1, "pctChange": -20 },
+        { "cusip": "B", "status": "unchanged", "sharesDelta": 0 }
+      ]
+    }
+  ]
+}

@@ -1,3 +1,6 @@
+> **HISTORICAL LOG.** This file is a dated, round-by-round history of how the system was built and is NOT the current architecture.
+> For the current structure read `AGENTS.md`, `docs/SYSTEM-MAP.md` (generated) and `docs/DECISIONS.md`.
+
 ---
 tier: warm
 relevance: 0.5
@@ -2056,7 +2059,7 @@ rows in `bus/paper-trades.jsonl`/`bus/pending-triggers.jsonl` dated
 
 **Host**: a Raspberry Pi (hostname `RaspPiDrive`, user `subwaycheese`),
 64-bit Raspberry Pi OS Lite (headless, no desktop), reachable over the
-home Wi-Fi via `ssh subwaycheese@RaspPiDrive.local`. Confirmed real
+home Wi-Fi via `ssh <user>@<pi-host>`. Confirmed real
 prerequisites on this hardware: Codex CLI (`codex-cli`) and Claude Code
 both ship official Linux ARM64 (aarch64) builds and run natively here --
 this was the single open risk before migrating (see the pre-existing
@@ -3366,6 +3369,71 @@ screenshots show "Weighing the case..." over the researching citizen up
 close and no bubbles at the default camera; all 7 routes 200;
 `bus/economy.html`/`bus/city.html` unchanged; no real mission/task
 files touched; demo copy kept in sync, temporary close-up page removed.
+
+### Round 17 (2026-09-18): concurrent research swarm
+
+`research-swarm-cycle.js` (daily oneshot, systemd unit written, NOT
+installed) fans 15 specialist research categories through a bounded async
+pool (`research-swarm-worker.js`, concurrency 2, raw `child_process.spawn`
+with an `'error'` handler, explicit PATH, per-task 10-minute timeout).
+Tasks live in `tasks-research-swarm/survive/`, a directory the shared
+`run-queue-daemon.js` watch never sees, tracked by
+`bus/research-swarm-events.jsonl` (stale-cycle recovery after 2h).
+`mechanism-registry.js` now ignores `*.proposed.js` so drafted proposals
+are never `require()`d. The old weekly `survive-mechanism-research.js` is
+retired in place.
+
+### Round 18 (2026-09-18): codex outage detect-and-recover
+
+`codex-health.js` probes codex only while something is stuck, alerts once
+per outage transition, and `survive-supervisor.js`'s `recoverDeadMissions()`
+resolves a wedged mission as a `dispatchFailure` once the probe passes
+(next mission due immediately, capped at 3 consecutive failures).
+
+### Round 19 (2026-09-19): prerequisites for safe self-improvement
+
+No improver agents yet -- this round builds what they need first.
+- **Credit-free test suite**: `bus/tests/survive/*.test.js`
+  (`node bus/scripts/run-survive-tests.js`). Each test runs against a
+  sandboxed COPY of `bus/scripts` in a temp dir (`_sandbox.js`), which
+  re-roots every path (ledgers, `tasks/`, `agents/`, `mechanisms/`) with no
+  changes to the modules under test; `ntfy.js` is stubbed and any outbound
+  network attempt throws. codex is faked with a shell script through the
+  real dispatch path. It cannot touch live state or spend credits.
+- **Change gate**: `survive-change-gate.js --base <ref> --candidate <ref>`
+  diffs refs (never the live tree), refuses (exit 3) any change touching
+  `bus/protected-paths.json` (read from the BASE ref so a candidate cannot
+  weaken it), then syntax-checks and runs the suite in a temporary
+  worktree. Installed systemd units and the crontab are outside the repo
+  and outside the gate's view.
+- **Shadow scoring**: each mission appends a structured candidate snapshot
+  (`bus/survive-shadow.jsonl`); `survive-shadow-score.js` (daily, no LLM;
+  timer written, not installed) scores +5/+20 session forward returns from
+  split/dividend-adjusted bars (`survive-market-data.js`, read-only) with a
+  no-lookahead reference, comparing the citizen's actual policy to
+  cash / always-SGOV / always-VOO on the same missions. The board says so
+  when every decision is no-action or n is too small.
+- **Dispatch budget governor**: `dispatch-budget.js` measures completed codex
+  dispatches from `bus/queue-daemon.log` (+ swarm events), gates only the
+  discretionary dispatchers we own (`allow('swarm')`), fails closed on a
+  missing/short log or unverified codex health, and records per-window
+  volume at each out-of-credits transition for calibration. Advisory: it
+  cannot stop the shared daemon or the paper fleet. Known blind spots
+  (probes, direct codex callers, Claude-side usage) are printed by
+  `node bus/scripts/dispatch-budget.js status`.
+
+### Round 20 (2026-09-19): Claude-driven revenue builder
+
+`revenue-builder.js` turns a product spec (`bus/products/*.spec.json`) into a gated,
+release-ready product using headless Claude (`claude-worker.js`: tools allowlist, no
+Bash/web/MCP, own process group, structured rate-limit parsing; `builder-budget.js`
+pauses until the window `resetsAt`). The ORCHESTRATOR gates the result
+(`product-gate.js`: secrets scan, manifest/allowlist/pinning, banned constructs and host
+allowlist, the product's own tests and spec-owned acceptance cases, all offline via
+`unshare -rn`, failing closed). Products live in a separate repo
+(`~/AgentVault-products`). `apify-publisher.js` packages a product as an Apify Actor
+(generated wrapper with per-event billing) and publishes via the REST API; the human-only
+prerequisite is the marketplace account/token and payout identity verification.
 
 ## Related Notes
 

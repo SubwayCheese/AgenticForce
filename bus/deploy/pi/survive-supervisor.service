@@ -27,4 +27,4 @@ Wants=network-online.target
 Type=oneshot
 User=subwaycheese
 WorkingDirectory=/home/subwaycheese/AgentVault
-ExecStart=/usr/bin/node bus/scripts/survive-supervisor.js
+ExecStart=/usr/bin/node bus/city/survive-supervisor.js

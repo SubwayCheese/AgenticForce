@@ -74,7 +74,7 @@ than assuming this doc is infallible.
 
 ## Verification, once hardware exists
 
-1. `node -e "require('./bus/scripts/alpaca-client.js').getAccount().then(console.log)"`
+1. `node -e "require('./bus/fleet/alpaca-client.js').getAccount().then(console.log)"`
    -- confirms the paper API credentials work from the Pi's own network
    path (a different egress IP than this Windows machine; Alpaca
    shouldn't care, but verify rather than assume).

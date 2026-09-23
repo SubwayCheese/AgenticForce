@@ -34,7 +34,7 @@ Every response, no exceptions, must:
     When a response actually comes from reading a live file rather than
     recall, the required first line is instead `SOURCE: verified live via
     direct file read in this pipeline`, naming the exact file(s) read.
-    `bus/scripts/run-task.js`'s `getMandatorySuffix('codex')` sends the
+    `bus/platform/run-task.js`'s `getMandatorySuffix('codex')` sends the
     real three-way instruction; this file's older two-way wording above
     is kept for the training-data-recall / orchestrator-supplied cases,
     which are still real and still the common case for anything not
@@ -55,7 +55,7 @@ Every response, no exceptions, must:
 
 The orchestrator (Claude) must include all three requirements verbatim in
 every prompt sent to Codex under this protocol -- see
-/tasks/task_template.md. bus/scripts/run-task.js does this automatically
+/tasks/task_template.md. bus/platform/run-task.js does this automatically
 for any task run through it.
 
 ## Real grounding is a different path, not a Codex capability

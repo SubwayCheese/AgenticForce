@@ -28,7 +28,7 @@ test('profit split: sub-cent profit is a safe no-op deposit, normal and asymmetr
 
 test('mechanism-registry never requires *.proposed.js files', () => {
   const sbx = makeSandbox();
-  const dir = path.join(sbx.scripts, 'mechanisms');
+  const dir = sbx.dir('city', 'mechanisms');
   fs.mkdirSync(dir, { recursive: true });
   // A proposal that would throw (and could be malicious) if it were ever required.
   fs.writeFileSync(path.join(dir, 'evil.proposed.js'), "throw new Error('proposed file was required'); ");

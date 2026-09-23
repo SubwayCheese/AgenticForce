@@ -16,4 +16,4 @@ Type=oneshot
 WorkingDirectory=/home/subwaycheese/AgentVault
 Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TimeoutStartSec=300
-ExecStart=/usr/bin/node bus/scripts/survive-shadow-score.js run
+ExecStart=/usr/bin/node bus/city/survive-shadow-score.js run

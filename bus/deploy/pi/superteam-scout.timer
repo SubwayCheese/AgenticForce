@@ -1,0 +1,10 @@
+[Unit]
+Description=Run superteam-scout.service every 6 hours
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=6h
+Unit=superteam-scout.service
+
+[Install]
+WantedBy=timers.target

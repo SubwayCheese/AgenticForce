@@ -1,0 +1,15 @@
+# serve-dashboard.service -- keeps the dashboard (port 8877) alive across reboots.
+# NOT installed. The dashboard died silently on the 2026-09-19 reboot because it was
+# started by hand. Install as a --user unit (see INSTALL-PENDING.md).
+[Unit]
+Description=AgentVault dashboard
+
+[Service]
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node bus/ops/serve-dashboard.js
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

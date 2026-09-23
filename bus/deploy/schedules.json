@@ -1,0 +1,81 @@
+{
+  "_doc": "Expected schedule/process state. `node bus/platform/check-schedules.js` compares this against systemd, crontab and running processes and prints drift. Update this file in the same change as any install/enable/disable.",
+  "systemUnits": [
+    {
+      "name": "agentvault-queue-daemon.service",
+      "expect": "active",
+      "note": "shared task queue daemon; dispatches codex/claude tasks"
+    }
+  ],
+  "userUnits": [
+    {
+      "name": "research-swarm-cycle.service",
+      "expect": "disabled",
+      "note": "research swarm unit; only runs when its timer is enabled"
+    },
+    {
+      "name": "survive-supervisor.service",
+      "expect": "disabled",
+      "note": "city mission runner unit; only runs when its timer is enabled"
+    },
+    {
+      "name": "survive-supervisor.timer",
+      "expect": "disabled",
+      "note": "city missions; paused (codex usage exhausted)"
+    },
+    {
+      "name": "research-swarm-cycle.timer",
+      "expect": "disabled",
+      "note": "research swarm; paused (codex usage exhausted)"
+    },
+    {
+      "name": "superteam-scout.timer",
+      "expect": "absent",
+      "note": "unit written, not installed (see INSTALL-PENDING.md)"
+    },
+    {
+      "name": "apify-stats.timer",
+      "expect": "absent",
+      "note": "unit written, not installed"
+    },
+    {
+      "name": "survive-shadow-score.timer",
+      "expect": "absent",
+      "note": "unit written, not installed"
+    },
+    {
+      "name": "serve-dashboard.service",
+      "expect": "absent",
+      "note": "dashboard is hand-started until installed"
+    }
+  ],
+  "cron": [
+    {
+      "match": "pilot-supervisor.js",
+      "expect": "paused",
+      "note": "paper fleet"
+    },
+    {
+      "match": "backtest-supervisor.js",
+      "expect": "paused",
+      "note": "paper fleet backtests"
+    },
+    {
+      "match": "continuous-backtest-supervisor.js",
+      "expect": "paused",
+      "note": "continuous backtests"
+    }
+  ],
+  "processes": [
+    {
+      "match": "serve-dashboard.js",
+      "expect": "running",
+      "note": "dashboard on port 8877, hand-started"
+    },
+    {
+      "match": "run-queue-daemon.js",
+      "expect": "running",
+      "note": "started by the system unit"
+    }
+  ]
+}

@@ -20,4 +20,4 @@ Wants=network-online.target
 Type=oneshot
 User=pi
 WorkingDirectory=/home/pi/AgentVault
-ExecStart=/usr/bin/node bus/scripts/git-sync.js
+ExecStart=/usr/bin/node bus/platform/git-sync.js

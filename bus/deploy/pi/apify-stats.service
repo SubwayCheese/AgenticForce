@@ -1,0 +1,11 @@
+# apify-stats.service -- read-only daily snapshot of Apify Actor runs/users into bus/apify-stats.jsonl.
+# NOT installed (see INSTALL-PENDING.md).
+[Unit]
+Description=AgentVault Apify stats snapshot (read-only)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=120
+ExecStart=/usr/bin/node bus/revenue/apify-stats.js

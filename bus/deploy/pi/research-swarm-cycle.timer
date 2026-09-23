@@ -1,13 +1,15 @@
-# Companion timer for research-swarm-cycle.service -- fires once daily,
-# off-peak, per Round 17's real arithmetic (15 specialists, concurrency
-# 2, realistically 15-25 minutes total, safely under 30).
+# Companion timer for research-swarm-cycle.service. Polls every 2 hours
+# (after each run finishes) instead of once a day: the cycle itself is
+# limited to one per CADENCE_DAYS by isCycleDue(), and the budget governor
+# (dispatch-budget.js) denies a run -- authoring nothing -- while codex is
+# out of credits. Polling means the swarm starts within ~2h of credits
+# returning, with no human step. A denied poll costs one free failed probe.
 [Unit]
-Description=Run research-swarm-cycle.service once a day
+Description=Poll research-swarm-cycle.service every 2 hours (one real cycle per day)
 
 [Timer]
-OnCalendar=*-*-* 03:00:00
 OnBootSec=10min
-Persistent=true
+OnUnitInactiveSec=2h
 Unit=research-swarm-cycle.service
 
 [Install]

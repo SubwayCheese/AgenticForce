@@ -1,0 +1,39 @@
+{
+  "slug": "sec-form4-insiders",
+  "title": "SEC Form 4 Insider Trades -- parsed to clean JSON",
+  "entry": "parseForm4Xml",
+  "description": "Turns raw SEC Form 4 XML filings into clean, structured JSON (issuer, insider, role, transaction code, shares, price, dollar value, holdings after), and summarizes insider buying vs selling per ticker. Built on public SEC EDGAR data. Useful as a data tool for AI agents and market research; raw data, not advice.",
+  "pricing": "Pay-per-event, small per-filing charge (exact price set at listing time)",
+  "disclaimer": "This tool reports public SEC filings as-is. It is not investment advice, makes no prediction about any security, and may contain errors or omissions. Use at your own risk; verify against the original filing on sec.gov.",
+  "allowedHosts": ["sec.gov"],
+  "allowedDeps": [],
+  "requirements": "Implement two pure functions in src/core.js using only Node built-ins (no XML library; parse with careful string/regex handling of the tags shown).\n\n1) parseForm4Xml(xmlString) -> { issuer:{cik,name,ticker}, owners:[{name,cik,isDirector,isOfficer,isTenPercentOwner,officerTitle}], transactions:[{securityTitle,date,code,shares,pricePerShare,valueUsd,acquiredDisposed,sharesOwnedAfter}] } covering nonDerivativeTransaction entries. Numbers must be JS numbers (shares, pricePerShare, valueUsd = shares*pricePerShare rounded to 2 decimals, sharesOwnedAfter); booleans for the is* flags; a missing price gives pricePerShare 0 and valueUsd 0. Never throw on a missing optional tag.\n\n2) summarizeByTicker(filings) where filings is an array of parseForm4Xml results -> array, one entry per issuer ticker, of {ticker, buyValueUsd, sellValueUsd, netValueUsd, distinctBuyers, transactionCount}. Only transaction codes P (open-market purchase) count as buys and S (open-market sale) as sells; other codes are ignored for the totals. distinctBuyers counts distinct owner names that made at least one P transaction. Sort by netValueUsd descending.\n\nAlso write src/fetch.js exporting an async function fetchRecentForm4(ticker, opts) that queries only sec.gov (EDGAR) with the required descriptive User-Agent header and at most 5 requests per second, returning raw XML strings; it must be dependency-free and is not exercised by the offline tests. Keep everything small and readable.",
+  "acceptance": [
+    {
+      "name": "parses a purchase and a sale",
+      "entry": "parseForm4Xml",
+      "inputFile": "fixtures/form4-sample.xml",
+      "expect": {
+        "issuer": { "cik": "0000320193", "name": "Example Corp", "ticker": "EXMP" },
+        "owners": [{ "name": "Doe Jane", "isOfficer": true, "isDirector": false, "officerTitle": "Chief Financial Officer" }],
+        "transactions": [
+          { "code": "P", "shares": 1000, "pricePerShare": 25.5, "valueUsd": 25500, "acquiredDisposed": "A", "sharesOwnedAfter": 15000, "date": "2026-09-10" },
+          { "code": "S", "shares": 500, "pricePerShare": 26, "valueUsd": 13000, "acquiredDisposed": "D", "sharesOwnedAfter": 14500 }
+        ]
+      }
+    },
+    {
+      "name": "summarizes buys vs sells per ticker",
+      "entry": "summarizeByTicker",
+      "input": [
+        { "issuer": { "ticker": "EXMP" }, "owners": [{ "name": "Doe Jane" }], "transactions": [ { "code": "P", "valueUsd": 25500 }, { "code": "S", "valueUsd": 13000 } ] },
+        { "issuer": { "ticker": "EXMP" }, "owners": [{ "name": "Roe Rick" }], "transactions": [ { "code": "P", "valueUsd": 10000 }, { "code": "M", "valueUsd": 999 } ] },
+        { "issuer": { "ticker": "ZZZZ" }, "owners": [{ "name": "Poe Pat" }], "transactions": [ { "code": "S", "valueUsd": 5000 } ] }
+      ],
+      "expect": [
+        { "ticker": "EXMP", "buyValueUsd": 35500, "sellValueUsd": 13000, "netValueUsd": 22500, "distinctBuyers": 2, "transactionCount": 4 },
+        { "ticker": "ZZZZ", "buyValueUsd": 0, "sellValueUsd": 5000, "netValueUsd": -5000, "distinctBuyers": 0, "transactionCount": 1 }
+      ]
+    }
+  ]
+}

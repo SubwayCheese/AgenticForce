@@ -16,7 +16,7 @@ integration. Treat any of this file's text below as describing the OLD,
 no-CLI state until someone actually verifies the new CLI locally
 (`antigravity --help` or equivalent, `file <path>` for the Windows
 wrapper-vs-exe question, one live smoke-test call -- same rigor
-`bus/scripts/agents/README.md` documents for Codex and Claude).
+`bus/platform/agents/README.md` documents for Codex and Claude).
 
 - Specialist invoked by Claude Code -- **old assumption below, now
   contradicted by the finding above**: this previously said there was no

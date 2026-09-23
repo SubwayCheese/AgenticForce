@@ -23,4 +23,4 @@ Type=oneshot
 WorkingDirectory=/home/subwaycheese/AgentVault
 Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TimeoutStartSec=1800
-ExecStart=/usr/bin/node bus/scripts/research-swarm-cycle.js
+ExecStart=/usr/bin/node bus/swarm/research-swarm-cycle.js

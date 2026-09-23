@@ -50,7 +50,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | run-task-collab | library | 1 | MANUAL-ONLY, write-enabled Codex dispatch for supervised collaboration on the vault itself (e.g. |
 | run-task-generic | live | 0 | config-driven task dispatch. Reads a task's `to:` field, loads the matching bus/platform/agents/<to>.json config, and dispatches through... **Note:** spawned by run-queue-daemon for every task |
 | run-task | library | 25 | deterministic dependency resolution + Codex dispatch for the /bus/ protocol. |
-| secrets-broker | library | 13 | Phase 3 piece 4: the credential/secrets broker boundary. |
+| secrets-broker | library | 14 | Phase 3 piece 4: the credential/secrets broker boundary. |
 | survive-change-gate | manual | 0 | Pure code, no LLM. The only allowed path for an automated change (a later improver agent, or a human using the same checks) to reach the live... |
 | validate-agent-config | library | 2 | checks a bus/platform/agents/<id>.json config against the shape agent-engine.js actually requires, before anyone trusts it to dispatch a real task. |
 | vault-search | library | 3 | Phase 3 groundwork: shared, queryable access to the vault's own knowledge for any script in /bus/, not just something a human browses in Obsidian. |

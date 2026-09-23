@@ -1,0 +1,31 @@
+{
+  "slug": "treasury-yield-curve",
+  "title": "US Treasury Yield Curve -- parsed with curve-shape signals",
+  "entry": "parseYieldCurveXml",
+  "description": "Parses the US Treasury Daily Par Yield Curve Rates XML feed into clean JSON per date and computes curve-shape signals (2s10s spread, inversion flag, day-over-day change). Public U.S. Treasury data for AI agents and market research; raw data, not advice.",
+  "pricing": "Pay-per-event, small per-request charge (exact price set at listing time)",
+  "disclaimer": "This tool reports public U.S. Treasury data as-is. It is not investment advice, makes no prediction, and may contain errors or omissions. Use at your own risk; verify against home.treasury.gov.",
+  "allowedHosts": ["treasury.gov"],
+  "allowedDeps": [],
+  "requirements": "Implement two pure functions in src/core.js using only Node built-ins (no XML library).\n\n1) parseYieldCurveXml(xmlString) -> array of {date, rates} sorted by date ascending, one per <entry>. date is 'YYYY-MM-DD' taken from the d:NEW_DATE tag (drop the time part). rates maps tenor labels to JS numbers for every d:BC_* tag present: BC_1MONTH->'1M', BC_2MONTH->'2M', BC_3MONTH->'3M', BC_4MONTH->'4M', BC_6MONTH->'6M', BC_1YEAR->'1Y', BC_2YEAR->'2Y', BC_3YEAR->'3Y', BC_5YEAR->'5Y', BC_7YEAR->'7Y', BC_10YEAR->'10Y', BC_20YEAR->'20Y', BC_30YEAR->'30Y'. A tag that is empty or marked m:null=\"true\" is omitted from rates (never NaN). Never throw on missing tags.\n\n2) curveSignals(rows) where rows is the output of parseYieldCurveXml -> {latestDate, spread2s10s, inverted, changeVsPrevious} for the LAST row: spread2s10s = rates['10Y'] - rates['2Y'] rounded to 2 decimals (null if either missing), inverted = spread2s10s < 0 (false if null), changeVsPrevious = object mapping each tenor present in BOTH the last and previous row to (last - previous) rounded to 2 decimals (empty object if only one row).\n\nAlso write src/fetch.js exporting an async fetchYieldCurveXml(year, opts) that queries only treasury.gov with a descriptive User-Agent header, returning the raw XML string; dependency-free and not exercised by the offline tests. Keep everything small and readable.",
+  "acceptance": [
+    {
+      "name": "parses the Treasury OData feed",
+      "entry": "parseYieldCurveXml",
+      "inputFile": "fixtures/treasury-sample.xml",
+      "expect": [
+        { "date": "2026-09-17", "rates": { "1M": 4.2, "2Y": 3.9, "10Y": 4.1, "30Y": 4.6 } },
+        { "date": "2026-09-18", "rates": { "1M": 4.18, "2Y": 4.3, "10Y": 4.05 } }
+      ]
+    },
+    {
+      "name": "computes curve signals",
+      "entry": "curveSignals",
+      "input": [
+        { "date": "2026-09-17", "rates": { "1M": 4.2, "2Y": 3.9, "10Y": 4.1, "30Y": 4.6 } },
+        { "date": "2026-09-18", "rates": { "1M": 4.18, "2Y": 4.3, "10Y": 4.05 } }
+      ],
+      "expect": { "latestDate": "2026-09-18", "spread2s10s": -0.25, "inverted": true, "changeVsPrevious": { "1M": -0.02, "2Y": 0.4, "10Y": -0.05 } }
+    }
+  ]
+}

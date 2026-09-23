@@ -1,0 +1,400 @@
+{
+  "sec-form4-insiders": {
+    "title": "SEC Form 4 Insider Trades to JSON",
+    "seoTitle": "SEC Form 4 Insider Trades API - Buys & Sells as JSON",
+    "description": "Fetch recent SEC Form 4 insider filings for any US ticker and get clean JSON: insider, role, transaction code, shares, price, dollar value, holdings after, plus buy-vs-sell summary. Public EDGAR data, built for AI agents and research.",
+    "categories": [
+      "AGENTS",
+      "OTHER"
+    ],
+    "event": {
+      "name": "filing-parsed",
+      "title": "Filing parsed",
+      "description": "Charged once per Form 4 filing fetched and parsed",
+      "priceUsd": 0.004
+    },
+    "input": {
+      "title": "SEC Form 4 Insider Trades",
+      "type": "object",
+      "schemaVersion": 1,
+      "properties": {
+        "tickers": {
+          "title": "Tickers",
+          "type": "array",
+          "description": "US stock tickers, e.g. AAPL, MSFT",
+          "editor": "stringList",
+          "prefill": [
+            "AAPL"
+          ],
+          "default": [
+            "AAPL"
+          ]
+        },
+        "filingsPerTicker": {
+          "title": "Filings per ticker",
+          "type": "integer",
+          "description": "How many recent Form 4 filings to fetch per ticker (1-20)",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20
+        },
+        "contactEmail": {
+          "title": "Your contact email (optional)",
+          "type": "string",
+          "description": "SEC asks callers to identify themselves; if set it is sent in the User-Agent header to sec.gov",
+          "editor": "textfield"
+        }
+      },
+      "required": [
+        "tickers"
+      ]
+    },
+    "testInput": {
+      "tickers": [
+        "AAPL"
+      ],
+      "filingsPerTicker": 2
+    },
+    "dataset": {
+      "summaryRecord": true,
+      "fields": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string",
+          "description": "Issuer trading symbol"
+        },
+        "issuer": {
+          "title": "Issuer",
+          "type": "string",
+          "description": "Company name"
+        },
+        "insider": {
+          "title": "Insider",
+          "type": "string",
+          "description": "Reporting owner name"
+        },
+        "insiderRole": {
+          "title": "Insider role",
+          "type": "string",
+          "description": "Officer title, or Director"
+        },
+        "securityTitle": {
+          "title": "Security",
+          "type": "string",
+          "description": "Security title, e.g. Common Stock"
+        },
+        "date": {
+          "title": "Transaction date",
+          "type": "string",
+          "description": "Date of the transaction (YYYY-MM-DD)"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string",
+          "description": "SEC transaction code: P=open-market purchase, S=open-market sale, M=option exercise, A=award, G=gift, F=tax withholding"
+        },
+        "shares": {
+          "title": "Shares",
+          "type": "number",
+          "description": "Number of shares in the transaction"
+        },
+        "pricePerShare": {
+          "title": "Price per share",
+          "type": "number",
+          "description": "Price per share in USD (0 if not reported)"
+        },
+        "valueUsd": {
+          "title": "Value (USD)",
+          "type": "number",
+          "description": "shares x price, rounded to cents"
+        },
+        "acquiredDisposed": {
+          "title": "A/D",
+          "type": "string",
+          "description": "A = acquired, D = disposed"
+        },
+        "sharesOwnedAfter": {
+          "title": "Shares owned after",
+          "type": "number",
+          "description": "Holdings after the transaction"
+        },
+        "error": {
+          "title": "Error",
+          "type": "string",
+          "description": "Set only if a ticker could not be processed"
+        }
+      }
+    },
+    "seoDescription": "Get SEC Form 4 insider buys and sells for any US ticker as clean JSON: insider, role, shares, price, value. No API key. Built for traders and AI agents."
+  },
+  "sec-13f-holdings": {
+    "title": "SEC 13F Institutional Holdings and Quarter Diffs",
+    "seoTitle": "SEC 13F Holdings API - Institutional Positions as JSON",
+    "description": "Get any institutional filer's latest SEC 13F holdings as clean JSON and see which positions were added, exited, increased or decreased versus the prior quarter. Public EDGAR data for AI agents and research.",
+    "categories": [
+      "AGENTS",
+      "OTHER"
+    ],
+    "event": {
+      "name": "position-returned",
+      "title": "Position returned",
+      "description": "Charged once per holding row returned",
+      "priceUsd": 0.001
+    },
+    "input": {
+      "title": "SEC 13F Holdings",
+      "type": "object",
+      "schemaVersion": 1,
+      "properties": {
+        "ciks": {
+          "title": "Filer CIKs",
+          "type": "array",
+          "description": "SEC CIK numbers of 13F filers (e.g. 1067983 for Berkshire Hathaway)",
+          "editor": "stringList",
+          "prefill": [
+            "1067983"
+          ],
+          "default": [
+            "1067983"
+          ]
+        },
+        "maxRowsPerFiler": {
+          "title": "Max rows per filer",
+          "type": "integer",
+          "description": "Cap on rows returned (and charged) per filer",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "compareWithPreviousQuarter": {
+          "title": "Compare with previous quarter",
+          "type": "boolean",
+          "description": "Show new/exited/increased/decreased positions vs the prior filing",
+          "default": true
+        },
+        "contactEmail": {
+          "title": "Your contact email (optional)",
+          "type": "string",
+          "description": "Sent in the User-Agent header to sec.gov as SEC requests",
+          "editor": "textfield"
+        }
+      },
+      "required": [
+        "ciks"
+      ]
+    },
+    "testInput": {
+      "ciks": [
+        "1067983"
+      ],
+      "maxRowsPerFiler": 5
+    },
+    "dataset": {
+      "summaryRecord": false,
+      "fields": {
+        "cik": {
+          "title": "Filer CIK",
+          "type": "string",
+          "description": "SEC CIK of the 13F filer"
+        },
+        "issuer": {
+          "title": "Issuer",
+          "type": "string",
+          "description": "Name of the issuer of the held security"
+        },
+        "cusip": {
+          "title": "CUSIP",
+          "type": "string",
+          "description": "CUSIP of the held security"
+        },
+        "titleOfClass": {
+          "title": "Class",
+          "type": "string",
+          "description": "Title of class, e.g. COM"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string",
+          "description": "new / exited / increased / decreased / unchanged versus the prior quarter, or current when not comparing"
+        },
+        "previousShares": {
+          "title": "Previous shares",
+          "type": "number",
+          "description": "Shares held in the prior quarter"
+        },
+        "currentShares": {
+          "title": "Current shares",
+          "type": "number",
+          "description": "Shares held in the latest quarter"
+        },
+        "sharesDelta": {
+          "title": "Shares change",
+          "type": "number",
+          "description": "Current minus previous shares"
+        },
+        "pctChange": {
+          "title": "% change",
+          "type": "number",
+          "description": "Percent change in shares (null when there was no prior position)"
+        },
+        "shares": {
+          "title": "Shares",
+          "type": "number",
+          "description": "Shares held (when not comparing quarters)"
+        },
+        "valueUsd": {
+          "title": "Value (USD)",
+          "type": "number",
+          "description": "Reported market value of the position"
+        },
+        "shareType": {
+          "title": "Share type",
+          "type": "string",
+          "description": "SH = shares, PRN = principal amount"
+        },
+        "discretion": {
+          "title": "Discretion",
+          "type": "string",
+          "description": "Investment discretion, e.g. SOLE"
+        },
+        "error": {
+          "title": "Error",
+          "type": "string",
+          "description": "Set only if a filer could not be processed"
+        }
+      }
+    },
+    "seoDescription": "SEC 13F holdings for any fund as clean JSON, plus quarter-over-quarter new, exited, increased and decreased positions. No API key. For investors and AI agents."
+  },
+  "treasury-yield-curve": {
+    "title": "US Treasury Yield Curve to JSON",
+    "seoTitle": "US Treasury Yield Curve API - Daily Rates as JSON",
+    "description": "Daily US Treasury par yield curve rates as clean JSON with 2s10s spread, inversion flag and day-over-day changes. Public U.S. Treasury data for AI agents and macro research.",
+    "categories": [
+      "AGENTS",
+      "OTHER"
+    ],
+    "event": {
+      "name": "day-returned",
+      "title": "Day returned",
+      "description": "Charged once per trading day of curve data returned",
+      "priceUsd": 0.002
+    },
+    "input": {
+      "title": "US Treasury Yield Curve",
+      "type": "object",
+      "schemaVersion": 1,
+      "properties": {
+        "year": {
+          "title": "Year",
+          "type": "integer",
+          "description": "Calendar year of curve data (defaults to the current year)",
+          "minimum": 1990
+        },
+        "maxDays": {
+          "title": "Max days",
+          "type": "integer",
+          "description": "Most recent N trading days to return",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 400
+        },
+        "contactEmail": {
+          "title": "Your contact email (optional)",
+          "type": "string",
+          "description": "Sent in the User-Agent header",
+          "editor": "textfield"
+        }
+      }
+    },
+    "testInput": {
+      "maxDays": 3
+    },
+    "dataset": {
+      "summaryRecord": true,
+      "fields": {
+        "date": {
+          "title": "Date",
+          "type": "string",
+          "description": "Trading date (YYYY-MM-DD)"
+        },
+        "1M": {
+          "title": "1M yield",
+          "type": "number",
+          "description": "Par yield for the 1M tenor, in percent"
+        },
+        "2M": {
+          "title": "2M yield",
+          "type": "number",
+          "description": "Par yield for the 2M tenor, in percent"
+        },
+        "3M": {
+          "title": "3M yield",
+          "type": "number",
+          "description": "Par yield for the 3M tenor, in percent"
+        },
+        "4M": {
+          "title": "4M yield",
+          "type": "number",
+          "description": "Par yield for the 4M tenor, in percent"
+        },
+        "6M": {
+          "title": "6M yield",
+          "type": "number",
+          "description": "Par yield for the 6M tenor, in percent"
+        },
+        "1Y": {
+          "title": "1Y yield",
+          "type": "number",
+          "description": "Par yield for the 1Y tenor, in percent"
+        },
+        "2Y": {
+          "title": "2Y yield",
+          "type": "number",
+          "description": "Par yield for the 2Y tenor, in percent"
+        },
+        "3Y": {
+          "title": "3Y yield",
+          "type": "number",
+          "description": "Par yield for the 3Y tenor, in percent"
+        },
+        "5Y": {
+          "title": "5Y yield",
+          "type": "number",
+          "description": "Par yield for the 5Y tenor, in percent"
+        },
+        "7Y": {
+          "title": "7Y yield",
+          "type": "number",
+          "description": "Par yield for the 7Y tenor, in percent"
+        },
+        "10Y": {
+          "title": "10Y yield",
+          "type": "number",
+          "description": "Par yield for the 10Y tenor, in percent"
+        },
+        "20Y": {
+          "title": "20Y yield",
+          "type": "number",
+          "description": "Par yield for the 20Y tenor, in percent"
+        },
+        "30Y": {
+          "title": "30Y yield",
+          "type": "number",
+          "description": "Par yield for the 30Y tenor, in percent"
+        },
+        "signals": {
+          "title": "Curve signals",
+          "type": "object",
+          "description": "2s10s spread, inversion flag and change versus the previous day"
+        },
+        "error": {
+          "title": "Error",
+          "type": "string",
+          "description": "Set only if no data was returned"
+        }
+      }
+    },
+    "seoDescription": "US Treasury daily yield curve as clean JSON with 2s10s spread, inversion flag and daily changes. No API key. For macro research and AI agents."
+  }
+}

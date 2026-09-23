@@ -63,7 +63,7 @@ test('worker: real dispatch path with a fake codex, bad binary, hang timeout, tr
   assert.match(hung.stderr, /timed out/);
   assert.ok(Date.now() - t1 < 3000);
   // Missing binary -> resolves via the 'error' handler, never crashes.
-  const cfgPath = path.join(sbx.scripts, 'agents', 'codex.json');
+  const cfgPath = sbx.dir('platform', 'agents', 'codex.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   cfg.binary = '/nonexistent/definitely-not-codex';
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));

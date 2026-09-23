@@ -22,4 +22,4 @@ Wants=network-online.target
 Type=oneshot
 User=pi
 WorkingDirectory=/home/pi/AgentVault
-ExecStart=/usr/bin/node bus/scripts/pilot-supervisor.js
+ExecStart=/usr/bin/node bus/fleet/pilot-supervisor.js

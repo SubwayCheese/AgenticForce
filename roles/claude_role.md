@@ -23,14 +23,14 @@ The orchestrator role above (this Claude Code session, "you") is
 distinct from a **nested, headless Claude Code process** dispatched the
 same way Codex is -- `to: claude-agent` tasks (never `to: claude`, which
 stays reserved for orchestrator-sourced tasks), run via
-`bus/scripts/run-task-claude.js` or, via the config-driven scaffold,
-`bus/scripts/run-task-generic.js`. Same SOURCE-tag verification rules as
+`bus/platform/run-task-claude.js` or, via the config-driven scaffold,
+`bus/platform/run-task-generic.js`. Same SOURCE-tag verification rules as
 Codex (see [[ARCHITECTURE]] section 3c's `DISPATCHED_SPECIALISTS`).
 Read-only by default (`claude -p --permission-mode plan`); write-enabled
 manual sessions use `--permission-mode acceptEdits`, scoped to the
 working directory the same way Codex's write mode is scoped to
 `VAULT_ROOT` -- see section 3d for the config-driven version
-(`bus/scripts/agents/claude-agent.json`) and the real permission-model
+(`bus/platform/agents/claude-agent.json`) and the real permission-model
 differences found while testing its sandbox boundary (Bash-tool approval
 vs. native Write/Edit-tool directory scoping are two separate gates, not
 one).

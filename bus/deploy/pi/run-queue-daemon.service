@@ -1,0 +1,16 @@
+# run-queue-daemon.service -- keeps the shared task-queue daemon alive across reboots.
+# NOT installed. Today it is started by hand. Stop the hand-started process before
+# enabling this (see INSTALL-PENDING.md). It dispatches codex/claude-agent tasks, so
+# only enable it when codex use is wanted again.
+[Unit]
+Description=AgentVault queue daemon
+
+[Service]
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node bus/platform/run-queue-daemon.js
+Restart=on-failure
+RestartSec=20
+
+[Install]
+WantedBy=default.target
