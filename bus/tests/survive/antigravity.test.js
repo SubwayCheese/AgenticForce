@@ -19,6 +19,18 @@ test('parseStreamJsonResult: last result line wins; empty or non-SUCCESS respons
   sbx.cleanup();
 });
 
+test('parseStreamJsonResult: a permission-denied tool makes the answer incomplete even though the CLI says SUCCESS', () => {
+  const sbx = makeSandbox();
+  const eng = sbx.load('agent-engine');
+  const denied = JSON.stringify({ event: 'step_update', step_update: { step_type: 'tool', state: 'ERROR', tool_info: { error: { message: 'permission check failed for read_url "ai.google.dev": user denied permission for read_url(ai.google.dev)' } } } });
+  const r = eng.parseStreamJsonResult([denied, RESULT('SUCCESS', 'I will start by reading...')].join('\n'));
+  assert.equal(r.ok, false);
+  assert.match(r.output, /turn ended early: permission denied/);
+  assert.match(r.output, /read_url/);
+  assert.match(r.output, /I will start by reading/, 'the partial text is kept for diagnosis');
+  sbx.cleanup();
+});
+
 test('engine: stdin-stream-json wraps the prompt as one NDJSON user message; the stream-json answer is parsed', () => {
   const sbx = makeSandbox();
   const eng = sbx.load('agent-engine');

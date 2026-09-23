@@ -234,3 +234,31 @@ test('paid b-roll keeps the story text: the overlay filter is appended to the re
   bare.cleanup();
   sbx.cleanup();
 });
+
+test('manual clips: a hand-made scene-N clip is found, wins over paid providers, and is rendered under the text card', async () => {
+  const { sbx, sp, vp } = fresh();
+  const dir = sbx.file('media-in');
+  fs.mkdirSync(path.join(dir, 'demo'), { recursive: true });
+  const src = path.join(dir, 'demo', 'scene-2.mp4');
+  const mk = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=24:duration=2', '-pix_fmt', 'yuv420p', src]);
+  assert.equal(mk.status, 0, 'test clip created (landscape, 2s)');
+  assert.equal(vp.manualClipFor({ slug: 'demo', index: 0 }, { manualDir: dir }), null, 'scene 1 has no clip');
+  assert.equal(vp.manualClipFor({ slug: 'demo', index: 1 }, { manualDir: dir }), src, 'index 1 == scene-2');
+  assert.equal(vp.manualClipFor({ index: 1 }, { manualDir: dir }), null, 'no slug -> no manual lookup');
+  const calls = [];
+  const paid = { name: 'veo', paid: true, available: () => ({ ok: true }), async generate() { calls.push('veo'); return {}; } };
+  const run = vp.newRun();
+  const outPath = sbx.file('scene.mp4');
+  const res = await vp.makeSceneClip({ index: 1, slug: 'demo', seconds: 3, title: 'HI', lines: ['a: 1'], palette: vp.PALETTES[0], outPath }, run, { chain: [vp.manual, paid, vp.local], deps: { manualDir: dir }, spendLog: sbx.file('s.jsonl') });
+  assert.equal(res.provider, 'manual');
+  assert.deepEqual(calls, [], 'a free hand-made clip means no paid call');
+  const info = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-show_entries', 'format=duration', '-of', 'json', outPath], { encoding: 'utf8' }).stdout);
+  assert.equal(info.streams[0].width, 1080);
+  assert.equal(info.streams[0].height, 1920);
+  assert.ok(Math.abs(Number(info.format.duration) - 3) < 0.2, 'a 2s clip is looped to the 3s scene');
+  const pack = sp.promptPack({ slug: 'demo', scenes: [{ say: 'hello', visual: { prompt: 'a red door' } }] });
+  assert.match(pack, /scene-1\.mp4/);
+  assert.match(pack, /a red door/);
+  assert.ok(!pack.includes('/home/'), 'no absolute home paths in a committed prompt pack');
+  sbx.cleanup();
+});

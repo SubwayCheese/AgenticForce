@@ -261,7 +261,7 @@ async function renderShort(script, { outDir = DEFAULT_OUT, run = providers.newRu
     for (let i = 0; i < script.scenes.length; i++) {
       const vis = script.scenes[i].visual || {};
       const clip = await providers.makeSceneClip({
-        index: i, prompt: vis.prompt || script.scenes[i].say, lines: vis.lines || [], title: vis.title,
+        index: i, slug: script.slug, prompt: vis.prompt || script.scenes[i].say, lines: vis.lines || [], title: vis.title,
         seconds: timed[i].duration, palette: providers.PALETTES[i % providers.PALETTES.length],
         outPath: path.join(workDir, `scene${i}.mp4`),
       }, run, { chain, deps });
@@ -298,6 +298,18 @@ async function renderShort(script, { outDir = DEFAULT_OUT, run = providers.newRu
   }
 }
 
+// ---- prompt pack: what to paste into the Gemini app, and where the downloaded clip goes ----------------------
+function promptPack(script, clipsDir = 'courses/agentic-systems/media-in') { // relative to the products repo root
+  const lines = [`# Veo prompts for "${script.slug}"`, '',
+    'Generate each clip in the Gemini app (Veo) or Google Flow, portrait 9:16 if offered (16:9 also works: it is center-cropped).',
+    `Save each download as \`${path.join(clipsDir, script.slug)}/scene-N.mp4\` (N = scene number). Any scene you skip falls back automatically.`,
+    'Then re-run: `node bus/revenue/shorts-pipeline.js <script.json>` (voice is cached; only the video re-renders).', ''];
+  script.scenes.forEach((sc, i) => {
+    lines.push(`## Scene ${i + 1}  ->  scene-${i + 1}.mp4  (spoken: "${sc.say}")`, '', (sc.visual && sc.visual.prompt) || '(no visual.prompt in the script -- write one)', '');
+  });
+  return lines.join('\n');
+}
+
 // ---- --check (plan review I2) -----------------------------------------------------------------------------
 function check() {
   const results = [];
@@ -323,7 +335,7 @@ const BOOTSTRAP = [
   'curl -sSL -o voices-v1.0.bin https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin',
 ];
 
-module.exports = { renderShort, lintText, lintScript, validateScript, alignWords, chunkWords, buildAss, assTime, captionText, acquireLock, check, kokoroTts, ttsCacheKey, textWords, BOOTSTRAP, DEFAULT_OUT, SCENE_GAP };
+module.exports = { promptPack, renderShort, lintText, lintScript, validateScript, alignWords, chunkWords, buildAss, assTime, captionText, acquireLock, check, kokoroTts, ttsCacheKey, textWords, BOOTSTRAP, DEFAULT_OUT, SCENE_GAP };
 
 if (require.main === module) {
   (async () => {
@@ -332,6 +344,17 @@ if (require.main === module) {
       const res = check();
       for (const r of res) console.log(`${r.pass ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? `  (${r.detail})` : ''}`);
       if (res.some((r) => !r.pass)) { console.log('\nBootstrap:\n  ' + BOOTSTRAP.join('\n  ')); process.exit(1); }
+      return;
+    }
+    if (argv.includes('--prompt-pack')) {
+      const outDirPack = path.join(avPaths.PRODUCTS_REPO, 'courses', 'agentic-systems', 'marketing', 'veo-prompts');
+      fs.mkdirSync(outDirPack, { recursive: true });
+      for (const f of argv.filter((a) => a.endsWith('.json'))) {
+        const sc = JSON.parse(fs.readFileSync(f, 'utf8'));
+        const out = path.join(outDirPack, `${sc.slug}.md`);
+        fs.writeFileSync(out, promptPack(sc));
+        console.log(`wrote ${out}`);
+      }
       return;
     }
     const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };

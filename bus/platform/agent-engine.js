@@ -165,16 +165,27 @@ function dispatch(agentConfig, prompt, { mode, cwd, envOverlay }) {
 // SUCCESS and response "", which must not be recorded as a real (empty) answer.
 function parseStreamJsonResult(stdout) {
   let result = null;
+  const denied = [];
   for (const line of String(stdout).split('\n')) {
     if (!line.startsWith('{')) continue;
     try {
       const e = JSON.parse(line);
       if (e.event === 'result' && e.result) result = e.result;
+      const info = e.step_update && e.step_update.tool_info;
+      const msg = info && info.error && info.error.message;
+      // Found live 2026-09-23: agy headless auto-denies a tool with no allow rule (here read_url on a docs site) and
+      // ENDS THE TURN right there, returning only the text written so far as a SUCCESS response. That is a truncated
+      // answer, not a real one -- so a denied tool makes the whole dispatch fail with a message saying what to allow.
+      if (msg && /permission check failed|user denied permission/i.test(msg) && !denied.includes(msg)) denied.push(msg);
     } catch (_) { /* partial or non-JSON line */ }
   }
   if (!result) return { ok: false, output: '' };
-  const output = String(result.response || '').trim();
-  return { ok: result.status === 'SUCCESS' && output.length > 0, output, usage: result.usage, status: result.status, error: result.error };
+  let output = String(result.response || '').trim();
+  if (denied.length) {
+    const what = denied.map((m) => (/(?:read_url|read_file|write_file|command)\S*\s+"?[^\s"]*"?/.exec(m) || [m.slice(0, 80)])[0]).join('; ');
+    output = `[antigravity turn ended early: permission denied (${what}). Allow it in ~/.gemini/antigravity-cli/settings.json (permissions.allow) and retry. Partial text follows.]\n${output}`;
+  }
+  return { ok: result.status === 'SUCCESS' && output.length > 0 && !denied.length, output, usage: result.usage, status: result.status, error: result.error, denied };
 }
 
 // --- Write-mode auditing: reused from run-task-collab.js's proven
