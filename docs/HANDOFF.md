@@ -115,6 +115,11 @@ Agent-doable (ask first if it touches live systems):
    only if a bot-friendly, legit prop firm appears; MCP servers list (awesome-mcp-servers) for future integrations.
 
 ## Gotchas and rules that matter
+- **Git identity:** this Pi's git config says `agent-comms <agent-comms@localhost>`, which GitHub cannot map to any account, so
+  the first 109 commits credit nobody (the repo showed no contributors and Claude's open-source program form said "couldn't
+  find any public repositories you've contributed to"). Commit with the owner's identity going forward:
+  `git -c user.name=SubwayCheese -c user.email=70560270+SubwayCheese@users.noreply.github.com commit ...` (or set it once with
+  `git config user.name/user.email` in the repo). Re-attributing the old commits would need a history rewrite + force push: owner's call.
 - Hard rules are in `AGENTS.md`: never `git checkout/switch/reset --hard/clean/commit -a/add -A` in this tree; stage
   explicit paths only; never print/commit secrets (`bus/secrets.local.json`, gitignored); real-money and outward
   actions are the owner's; no fabricated results; big builds = plan -> independent (codex) review -> build.
