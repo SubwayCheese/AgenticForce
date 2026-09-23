@@ -89,10 +89,15 @@ Owner-only (I must not do these):
 3. **Course launch:** watch the 6 shorts; create/price the Whop product (`courses/agentic-systems/whop/SETUP.md`);
    post with each platform's AI-disclosure toggle on (`marketing/POSTING-CHECKLIST.md`). Verify the suggested price
    against real market data first (it is an estimate).
-4. **Video billing (unblocks AI b-roll):** the Antigravity-built `gemini-video` CLI works but Veo needs a billed
-   Gemini API plan (link billing at aistudio.google.com/app/plan_and_billing; ~$9 for all 30 scenes on Lite). Then:
-   `node bus/revenue/shorts-pipeline.js ~/AgentVault-products/courses/agentic-systems/marketing/shorts/0*.json --max-ai 30`
-   (voice is cached; expect Veo latency + ffmpeg). Review the first clip's look before the full batch. Vyro is dead.
+4. **Unblock AI video (worked out with agy + codex, Round 32).** Your Google AI Pro plan includes **$10/month of Google Cloud
+   credits** (redeem via the Google Developer Program: developers.google.com/profile/help/benefits, apply to a billing
+   account); Veo 3.1 Lite is ~$0.30 per 6s clip, so $10 ~ the whole 30-scene batch. A card on the billing account is
+   still needed. Then EITHER link that billing to your AI Studio project (aistudio.google.com/plan_and_billing; the existing
+   key then works) OR use Vertex: put a service-account key at `~/.gemini/veo-service-account.json` and run
+   `gemini-video auth set-project <project-id>`. Verify with one clip, then run
+   `node bus/revenue/shorts-pipeline.js ~/AgentVault-products/courses/agentic-systems/marketing/shorts/0*.json --max-ai 30`.
+   **Works today with no setup (zero cost):** paste the prompts in `marketing/veo-prompts/*.md` into the Gemini app / Flow, save
+   clips as `media-in/<slug>/scene-N.mp4`, re-run the pipeline (any missing scene falls back).
 5. Decide whether Antigravity joins C1's mission rotation, and whether to run the change gate on Rounds 27-31
    (protected paths were touched; gate would say human-review-required).
 Agent-doable (ask first if it touches live systems):

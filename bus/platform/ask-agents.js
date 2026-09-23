@@ -28,8 +28,16 @@ function safePayload(text) {
   return String(text).split('\n').map((l) => (RESERVED_FIELD_RE.test(l.trim()) ? ` ${l}` : l)).join('\n').trim();
 }
 
+// Antigravity ends its whole turn (with a truncated answer) if it tries a tool the read-only session denies, and it
+// likes to finish research by writing a "plan artifact" file -- so tell it up front to answer inline.
+function withAgentNotes(agent, payload) {
+  return agent === 'antigravity'
+    ? `${payload}\n\nThis is a read-only session: answer INLINE in your reply. Do not create files, plan artifacts or notes, and do not run commands.`
+    : payload;
+}
+
 function taskText(taskId, { to, payload, dependsOnTaskId, now }) {
-  const lines = [`## ${taskId}`, 'from: ask-agents', `to: ${to}`, 'type: request', 'status: pending', `payload: ${safePayload(payload)}`, `timestamp: ${now.toISOString()}`];
+  const lines = [`## ${taskId}`, 'from: ask-agents', `to: ${to}`, 'type: request', 'status: pending', `payload: ${safePayload(withAgentNotes(to, payload))}`, `timestamp: ${now.toISOString()}`];
   if (dependsOnTaskId) lines.push(`dependsOnTaskId: ${dependsOnTaskId}`);
   return lines.join('\n') + '\n';
 }

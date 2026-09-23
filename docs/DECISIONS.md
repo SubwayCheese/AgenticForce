@@ -264,3 +264,31 @@ cinematic `visual.prompt`s (no people/text). Test-isolation bug found and fixed:
 in-process, so a chain test spawned the REAL Veo CLI (harmless 429); tests now cut it off via deps. Suite 80/80.
 To finish once billing is on: `node bus/revenue/shorts-pipeline.js <scripts> --max-ai 30` (voice is cached, so only ffmpeg
 + Veo run). Unverified until billing exists: real Veo output quality, resolution upscale look, per-clip latency.
+
+## 2026-09-23 Round 32: Veo access -- diagnosis with agy + codex, a working route found, zero-cost route built
+Owner asked for a real fix, "no is not an answer". Antigravity researched (its own handoff `docs/research/gemini-video-agy-handoff.md`
+was the input), codex independently fact-checked its claims, and I verified the key facts myself.
+**Diagnosis (all three agree):** the Gemini Pro subscription's Veo is for the Gemini web app / Flow; the developer API is
+billed per project and the free tier's Veo quota is 0. `gemini-video auth login` can never work: it borrows the gcloud
+public OAuth client, which Google rejects (`invalid_client`); a home-made client would still need billing.
+**The route that works (codex found, I verified on Google's pages):** Google AI Pro includes **$10/month of Google Cloud
+credits** (Pro; $40/$100 for Ultra) that can pay for Vertex AI and Google's GenMedia models; credits are redeemed against a
+billing account (needs `billing.accounts.redeemPromotion`), expire after 1 year. Veo 3.1 Lite is $0.05/s (Gemini API paid tier,
+audio included) -> ~$0.30 per 6s clip -> $10 covers ~33 clips, i.e. the whole 30-scene batch in one month. A billing account
+(card) is still required, but usage inside the credit is not charged. Caveat: Google lists "GenMedia such as Imagen", not Veo
+by name -- likely covered, unproven until a real clip is generated. Separate: the $300 new-customer trial covers Vertex but
+NOT the Gemini API (excluded since Mar 2026) and eligibility depends on account history. fal.ai also resells Veo (partner);
+agy's "$5 free credit, no card" claim for fal is UNVERIFIED.
+**Built:** (1) `gemini-video` auth.py (agy's project, backup `auth.py.bak-2026-09-23`): Vertex backend now uses Application
+Default Credentials (self-refreshing) -- drop-in service-account key at `~/.gemini/veo-service-account.json` or
+`gcloud auth application-default login`; auto-resolution prefers Vertex when a project + ADC exist; tested offline with fake
+credentials (both paths). Antigravity's hourly token remains only a fallback. (2) Zero-cost route: `manual` provider in
+`video-providers.js` (drop Gemini-app clips at `media-in/<slug>/scene-N.mp4`) + `--prompt-pack` paste sheets in
+`marketing/veo-prompts/` -- works TODAY with the Pro subscription, no API. (3) Engine: agy turns that hit a permission-denied
+tool now fail loudly (they end early with a truncated SUCCESS); ask-agents tells agy to answer inline; agy settings allow
+read_url for Google docs domains (ai.google.dev, cloud.google.com, docs.cloud.google.com, developers.google.com, blog.google,
+support.google.com, aistudio.google.com). Daemon quirk noted: any failed task whose text contains "429"/"quota" is treated as
+rate-limited and requeued 15 min later -- neutralize such tasks by setting `to: claude`.
+**Owner steps (money/account, not mine):** join the Google Developer Program with the AI Pro account, redeem the $10 credit
+to a billing account, link that billing to the AI Studio project (aistudio.google.com/plan_and_billing) -- then the existing
+API key just works; or use Vertex with a service-account key.
