@@ -35,10 +35,10 @@ does not fit this repo -- see Failed attempts #9 and Next steps #5.
   C1's live state is on this SD card. Renders are capped to 2 cores. Owner action: official 5.1V/3A USB-C supply.
 - **GitHub:** `github.com/SubwayCheese/AgenticForce` is PUBLIC and current (README, MIT LICENSE, domain layout, 119 tests pass in
   a fresh clone). The course repo `~/AgentVault-products` is deliberately NOT published (it is the product being sold).
-- **Course + shorts:** built, reviewed, launch-ready; nothing published yet. 9 lessons, starter (6 tests), 6 shorts.
+- **Course + shorts:** course LIVE on Whop (below); shorts not posted yet. 9 lessons, starter (6 tests), 6 shorts.
   Round 34 (2026-09-23): codex reviewed the lessons (24 issues) and antigravity did a second pass (3 more); all fixed.
   Price set at $19 launch / $29 later (research in `whop/listing.md`). Landing page `landing/index.html` (private preview
-  https://claude.ai/artifact/MKzSakTaAGTe4r29jdepVi; `STORE_URL` empty until Whop is live). `marketing/AUDIENCE-PLAN.md`
+  https://claude.ai/artifact/MKzSakTaAGTe4r29jdepVi; `STORE_URL` set to the live store). `marketing/AUDIENCE-PLAN.md`
   (2-week launch sequence) and a dev.to draft (`marketing/posts/devto-failure-stories.md`).
   **LIVE ON WHOP since 2026-09-23 16:03 PDT:** https://whop.com/biz_PPKuEPjr6iEsPB/agents-that-run-themselves/ ($19 one-time,
   plan `plan_QqPQ5RSVI3txk`, business "Workforce"; 9 chapters / 10 lessons, verified by read-back). Published by
