@@ -1,6 +1,6 @@
 # HANDOFF -- read this first in a new session
 
-Last refreshed 2026-09-23 ~12:10 PDT. This repo already has a vault of context, so this file is a pointer-heavy briefing:
+Last refreshed 2026-09-23 ~15:05 PDT. This repo already has a vault of context, so this file is a pointer-heavy briefing:
 where we are, what is unsafe, what is next. It does not repeat `AGENTS.md` (rules, commands), `docs/DECISIONS.md` (every
 decision and why; newest at the BOTTOM despite its header), or `docs/SYSTEM-MAP.md` (generated map). Read `AGENTS.md` first.
 **First action in a new session: check C1's live state (below) before doing anything else.**
@@ -13,15 +13,15 @@ so **new effort goes to general revenue**: first a course ("Agents That Run Them
 keeps running as the proof-of-concept. The owner wants a Claude Max plan; the only avenue they found (Claude for Open Source)
 does not fit this repo -- see Failed attempts #9 and Next steps #5.
 
-## Current state (verified 2026-09-23 ~12:05 PDT)
+## Current state (verified 2026-09-23 ~15:05 PDT)
 - **C1 (live Alpaca, $50 account):** running unattended, `survive-supervisor.timer` every 2h (Round 28), missions alternate
   codex (odd) / claude-agent (even). **It HOLDS a real position: SGOV 0.198672205 sh, entered at $100.618 by mission010
   (cash $30, equity ~$49.99).** The executor's own stop failed (it used the entry bid as the stop; 422). A day stop at
-  $100.11 was placed by hand on the owner's delegation and **expires at the 13:00 PDT close** (Alpaca allows only day stops
-  on fractional qty), so overnight the position has no stop. Next wake 13:01 PDT (mission011, after the close) will judge
-  hold/exit. The executor stop bug is FIXED (Round 33, `resolveStopPrice`, 35 tests) and takes effect on C1's next entry --
-  **watch that entry's stop lands.** History: 007 no-action; 008 (first claude-agent mission) limit entry into a closed market,
-  canceled, no money moved; 009 no-action; 010 entered SGOV. Check read-only: `bus/survive-supervisor.log` and
+  $100.11 was placed by hand on the owner's delegation; **it EXPIRED at the 13:00 PDT close (Alpaca allows only day stops on
+  fractional qty), so the position currently has NO stop** (0 open orders, market closed, verified 15:02 PDT). Mission011
+  (authored 13:02, executed 15:03) decided HOLD. The executor stop bug is FIXED (Round 33, `resolveStopPrice`, 35 tests) and
+  takes effect on C1's next entry -- **watch that entry's stop lands.** History: 007 no-action; 008 (first claude-agent mission) limit entry into a closed market,
+  canceled, no money moved; 009 no-action; 010 entered SGOV; 011 hold. Check read-only: `bus/survive-supervisor.log` and
   `bus/city/survive-alpaca-live-client.js` (never place orders yourself; see rule 2).
 - **Timers (user systemd):** supervisor (2h), `market-scan-cycle` (daily 09:00), `survive-shadow-score` (daily 16:30 PDT; first
   run due today -- it scores past decisions against real prices, C1's "learning" data).
@@ -61,6 +61,15 @@ does not fit this repo -- see Failed attempts #9 and Next steps #5.
   `gemini-video` auth now supports Application Default Credentials / `~/.gemini/veo-service-account.json`.
 - **R33:** repo published; Phase 3 reorganization committed; executor stop-price fix applied; private alert topics; README,
   LICENSE, `docs/BUILT-WITH-CLAUDE.md`; git-identity fix.
+
+## Strategy lesson (2026-09-23): demand, not agents, is the bottleneck
+The owner asked why "an AI agent raised $30M" (Polsia) is possible when this project keeps hitting walls. Checked: the raise is
+real (Fortune, Pulse 2.0), but it is a PLATFORM sold to ~7,600 customers ($49/mo + 20% of revenue); the "$10M ARR" is a 30-day
+run-rate that includes one-off payments and customers' ad spend; churn is ~50% in month one, ~94% of the ~120,000 "companies"
+created are abandoned, the best customer business earned ~$3-4k, Trustpilot 2.9/5. The money comes from selling "AI runs your
+company" to hopeful founders, not from an agent autonomously earning. What transfers: distribution and a clear promise. Our
+Apify products and the course share the same bottleneck (building is easy; getting people to want and pay is hard), so the
+course only matters if it reaches buyers -- a landing page and an audience plan come before more content.
 
 ## Failed attempts and dead ends (do not repeat)
 1. **More trading capital:** leveraged ETFs (needs $2,000 margin; decay); Kraken Funded (mobile-only, no API); Velotrade (real
