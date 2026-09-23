@@ -292,3 +292,19 @@ rate-limited and requeued 15 min later -- neutralize such tasks by setting `to: 
 **Owner steps (money/account, not mine):** join the Google Developer Program with the AI Pro account, redeem the $10 credit
 to a billing account, link that billing to the AI Studio project (aistudio.google.com/plan_and_billing) -- then the existing
 API key just works; or use Vertex with a service-account key.
+
+## 2026-09-23 Round 33: publish the repo (public), executor stop fix applied, alert topics made private
+Owner (applying to a creator program that requires a public GitHub repo) delegated all decisions. State found: the repo
+(`SubwayCheese/AgenticForce`) was already public but last pushed 2026-09-13, 18 commits behind, no README/LICENSE, and the
+Phase 3 reorganization (785 untracked + 114 changed files) had never been committed, so the public tree was the OLD flat
+layout. **Audit before publishing** (all clean): 12 real secret values + 9 key/token patterns across all history and every
+staged file; emails, private IPs, home paths. Fixed: owner email in a research doc, Pi LAN IP in INSTALL-PENDING.md, Pi
+user@host in ARCHITECTURE.md. **Alert topics:** ntfy.sh topics have no auth (name = secret) and the code named them in
+public; alerts are outbound-only (nothing reads instructions from a topic), so the risk was privacy/spam, not injection.
+`ntfy.js` now resolves logical names to unguessable topics from `NTFY_TOPIC_<NAME>` keys in the gitignored secrets file;
+both channels rotated. The long-running queue daemon (started Sept 20) keeps the OLD ntfy code until it is restarted, so
+its own failure alerts still use the legacy public `ClaudeTeam` topic. **Executor fix APPLIED:** `resolveStopPrice`
+(docs/proposals/2026-09-23-executor-stop-price.md), 35 regression tests, suite 119/119. **Published:** committed the
+reorganization by explicit folder (runtime state, logs, task files, vault notes, `.claude/`, secrets excluded), MIT LICENSE,
+README; verified in a throwaway `git clone` that the suite passes with only tracked files. **Decision:** the COURSE repo
+(`AgentVault-products`) is NOT published -- the course is the product being sold; the starter kit inside it is MIT already.

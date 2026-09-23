@@ -21,9 +21,8 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
   `manual-delegated-by-owner`) was placed by hand on the owner's delegation; it EXPIRES at the 13:00 PDT close (Alpaca only
   allows day stops on fractional qty) -- overnight the position has no stop. Mission011 (13:01 wake, after the close) will
   evaluate hold/exit. Earlier: 007 no-action; 008 (first claude-agent mission) limit entry into a closed market, canceled;
-  009 no-action. **Fix ready for review, NOT applied (protected file):** `docs/proposals/2026-09-23-executor-stop-price.md`
-  + `docs/proposals/executor-stop-price/` (patch + 36 scratch-copy tests, codex-reviewed in 3 rounds). Apply it before C1's
-  next market-hours entry (tomorrow's open) or it will repeat. Check live state read-only with
+  009 no-action. **Fix APPLIED (Round 33):** `resolveStopPrice` in `survive-executor.js` (35 tests in `bus/tests/survive/stop-price.test.js`;
+  record in `docs/proposals/2026-09-23-executor-stop-price.md`). Watch the first entry after it to confirm the stop lands. Check live state read-only with
   `bus/city/survive-alpaca-live-client.js` and `bus/survive-supervisor.log`.
 - **Timers (user systemd):** supervisor (2h), `market-scan-cycle` (daily 09:00), `survive-shadow-score` (daily
   16:30 PDT; first run due today -- it scores past decisions against real prices, C1's "learning" data).
@@ -36,7 +35,11 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
   supply). C1's live state is on this SD card.
 - **Course + shorts:** all built and committed; nothing published. 6 videos rendered in
   `~/AgentVault-products/courses/agentic-systems/media/` (git-ignored).
-- **Tests:** `node bus/platform/run-survive-tests.js` = 80 passed. Both repos committed (city repo HEAD `1c3678e`; products repo `3fff4e5`).
+- **GitHub:** repo is public at github.com/SubwayCheese/AgenticForce and current as of Round 33 (README, MIT LICENSE, full
+  domain layout). The course repo `AgentVault-products` is deliberately NOT published (it is the product). Alert topics are
+  private: subscribe the ntfy app to the values of `NTFY_TOPIC_AGENTVAULTSURVIVE` / `NTFY_TOPIC_CLAUDETEAM` in
+  `bus/secrets.local.json`. The queue daemon still uses the old ntfy code until restarted.
+- **Tests:** `node bus/platform/run-survive-tests.js` = 119 passed. Both repos committed (city repo HEAD `1c3678e`; products repo `3fff4e5`).
 
 ## Active field (where work was happening)
 - `~/AgentVault-products/courses/agentic-systems/` (course, starter, whop/, marketing/, PLAN.md)
@@ -89,8 +92,7 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
 ## Next steps
 Owner-only (I must not do these):
 1. **Power supply:** official 5.1V/3A USB-C for the Pi 4.
-2. **Review + apply** `docs/proposals/2026-09-23-executor-stop-price.md` (URGENT: the stop bug) and decide
-   `docs/proposals/2026-09-23-executor-market-hours.md` (executor submits entries into closed markets; cancel is best-effort). `survive-executor.js` is protected -- never edit it unilaterally.
+2. **Decide** `docs/proposals/2026-09-23-executor-market-hours.md` (executor submits entries into closed markets; cancel is best-effort). `survive-executor.js` is protected -- never edit it unilaterally.
 3. **Course launch:** watch the 6 shorts; create/price the Whop product (`courses/agentic-systems/whop/SETUP.md`);
    post with each platform's AI-disclosure toggle on (`marketing/POSTING-CHECKLIST.md`). Verify the suggested price
    against real market data first (it is an estimate).
