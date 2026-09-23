@@ -246,3 +246,21 @@ spawns run-task-generic.js per task). Live, through the real queue daemon: antig
 Protected paths touched (agent-engine.js, run-task.js, agents/**, tests): gate would say human-review-required.
 Not done: antigravity is not in dispatch-budget.js's counts (it only counts codex), and it is not in C1's mission
 alternation -- adding a third provider to live missions is the owner's call.
+
+## 2026-09-23 Round 31: Veo video via Antigravity's `gemini-video` CLI -- wired in, blocked on billing
+Owner had agy build a CLI + MCP server (`~/.local/share/gemini-video`, registered in `~/.gemini/config/mcp_config.json`,
+key in `~/.gemini/video-config.json`, ~1,400 lines wrapping Google's `google-genai` SDK). Read it before running: no
+network calls other than the SDK, no exec beyond ffprobe. `doctor`/`auth status`/`list-models` pass; the key is valid and
+lists veo-3.1 (standard/fast/lite). **A real generate call returned 429 RESOURCE_EXHAUSTED in 0.3s (zero spend): Veo via
+the Gemini API needs a billed plan; the key is on the free tier.** Owner-only fix: link billing at
+aistudio.google.com/app/plan_and_billing. Price (Google, 2026): Veo 3.1 Lite $0.05/s 720p, Fast $0.10/s, Standard $0.40/s.
+~$9 covers AI backgrounds for all 30 scenes of the 6 shorts on Lite.
+
+Built: `video-providers.js` chain is now veo -> vyro -> local. `veo` shells out to `gemini-video generate -m
+veo-3.1-lite-generate-preview -a 9:16 -d 4|6|8 --no-audio`, 429/quota/auth -> ProviderDown for the run (zero-cost
+fallthrough to local), spend-logged and capped by MAX_AI_CLIPS (default 6; use `--max-ai 30` for a full run). Paid clips
+are BACKGROUNDS: the title + terminal card is drawn over them (the text carries the story). All 30 scene scripts got
+cinematic `visual.prompt`s (no people/text). Test-isolation bug found and fixed: the sandbox blocks network only
+in-process, so a chain test spawned the REAL Veo CLI (harmless 429); tests now cut it off via deps. Suite 80/80.
+To finish once billing is on: `node bus/revenue/shorts-pipeline.js <scripts> --max-ai 30` (voice is cached, so only ffmpeg
++ Veo run). Unverified until billing exists: real Veo output quality, resolution upscale look, per-clip latency.

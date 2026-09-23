@@ -2,7 +2,11 @@
 //   available() -> {ok, reason}   and   generate({prompt, lines, title, seconds, palette, outPath}) -> outPath
 // makeSceneClip() walks the chain in order and falls through on "unavailable" / provider-down, so a video
 // always renders: AI b-roll when a working key exists, ffmpeg motion graphics otherwise.
-//   1. antigravity -- placeholder: agy is installed and wired as a text specialist, but has no video tool yet
+//   1. veo         -- Google Veo through the `gemini-video` CLI that Antigravity built (2026-09-23, MCP server
+//                     `gemini-video`, own venv in ~/.local/share/gemini-video). It calls Google's Gemini API with the
+//                     key in ~/.gemini/video-config.json (this module never reads that key). Veo over the API needs
+//                     a billed plan: on the free tier every call is 429 RESOURCE_EXHAUSTED, which takes the provider
+//                     out of the run at zero cost. A billed plan pays per generated second -- see MAX_AI_CLIPS.
 //   2. vyro        -- ImagineArt text-to-video; only when VYRO_API_KEY exists. 401 (bad key) and 402 (out of
 //                     credits) take it out of the chain for the rest of the run. Every paid call is appended to
 //                     the spend log, and MAX_AI_CLIPS caps paid calls per run.
@@ -15,7 +19,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const https = require('https');
-const { spawnSync } = require('child_process');
+const { spawnSync, execFile } = require('child_process');
 const secrets = require('../platform/secrets-broker.js');
 
 const W = 1080;
@@ -87,6 +91,14 @@ function localFilter({ lines = [], title, seconds, palette, tmpDir }) {
   return f.length ? f.join(',') : 'null';
 }
 
+// AI b-roll is only a BACKGROUND: the same title + terminal card the local provider draws goes on top, because
+// that text carries each short's actual story. Returns { vf, cleanup } for the final re-encode.
+function withOverlay(scene, baseFilter) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'av-overlay-'));
+  const overlay = localFilter({ lines: scene.lines || [], title: scene.title, seconds: Number(scene.seconds), palette: scene.palette, tmpDir });
+  return { vf: overlay === 'null' ? baseFilter : `${baseFilter},${overlay}`, cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
+}
+
 const local = {
   name: 'local',
   paid: false,
@@ -111,13 +123,63 @@ const local = {
   },
 };
 
-// ---- antigravity: placeholder -------------------------------------------------------------------------
-const antigravity = {
-  name: 'antigravity',
+// ---- veo (Google, via the gemini-video CLI) ------------------------------------------------------------
+const GEMINI_VIDEO_BIN = path.join(os.homedir(), '.local', 'share', 'gemini-video', 'venv', 'bin', 'gemini-video');
+const GEMINI_VIDEO_CONFIG = path.join(os.homedir(), '.gemini', 'video-config.json');
+const VEO_MODEL = 'veo-3.1-lite-generate-preview'; // cheapest Veo 3.1 tier; change here to trade cost for quality
+const VEO_TIMEOUT_MS = 12 * 60 * 1000;
+
+function veoDuration(seconds) { return seconds <= 4 ? 4 : seconds <= 6 ? 6 : 8; } // Veo renders 4, 6 or 8 s
+
+function runVeoCli(args) {
+  return new Promise((resolve) => {
+    execFile(GEMINI_VIDEO_BIN, args, { timeout: VEO_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, env: { ...process.env } }, (err, stdout, stderr) => {
+      resolve({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+
+function parseVeoJson(stdout) {
+  const i = stdout.indexOf('{');
+  if (i < 0) return null;
+  try { return JSON.parse(stdout.slice(i)); } catch (_) { return null; }
+}
+
+const veo = {
+  name: 'veo',
   paid: true,
-  // agy 1.2.9 (installed 2026-09-23) exposes generate_image but no video-generation tool in headless mode.
-  available: () => ({ ok: false, reason: 'agy CLI installed, but it has no video-generation tool yet (1.2.9: generate_image only)' }),
-  async generate() { throw new ProviderDown('antigravity', 'not configured'); },
+  available: (deps = {}) => {
+    const exists = deps.fileExists || fs.existsSync;
+    if (!exists(GEMINI_VIDEO_BIN)) return { ok: false, reason: 'gemini-video CLI not installed' };
+    let hasKey = false;
+    try { hasKey = !!JSON.parse((deps.readConfig || ((f) => fs.readFileSync(f, 'utf8')))(GEMINI_VIDEO_CONFIG)).api_key; } catch (_) { /* no config */ }
+    return hasKey ? { ok: true } : { ok: false, reason: 'no api_key in ~/.gemini/video-config.json' };
+  },
+  async generate(scene, deps = {}) {
+    const { prompt, seconds, outPath } = scene;
+    const runCli = deps.runVeoCli || runVeoCli;
+    const ff = deps.runFfmpeg || runFfmpeg;
+    const raw = `${outPath}.veo.mp4`;
+    const r = await runCli(['generate', prompt, '-m', VEO_MODEL, '-a', '9:16', '-r', '720p', '-d', String(veoDuration(seconds)), '--no-audio', '-o', raw, '--json']);
+    const res = parseVeoJson(r.stdout);
+    const err = (res && res.error) || r.stderr || '';
+    if (/RESOURCE_EXHAUSTED|429|Quota/i.test(err)) throw new ProviderDown('veo', 'quota/billing (429): Veo API needs a billed plan');
+    if (/API key|PERMISSION_DENIED|401|403|UNAUTHENTICATED/i.test(err)) throw new ProviderDown('veo', 'auth rejected');
+    if (r.exitCode !== 0 || !res || !res.success || !(deps.fileExists || fs.existsSync)(raw)) throw new Error(`veo generation failed: ${String(err).slice(0, 200) || 'no output'}`);
+    const part = `${outPath}.part.mp4`;
+    const ov = withOverlay(scene, `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${FPS}`);
+    try {
+      const d = Number(seconds).toFixed(3);
+      // Loop/trim the 4-8 s clip to the scene length, cover-crop 720x1280 up to 1080x1920, draw the text card on top.
+      ff(['-stream_loop', '-1', '-i', raw, '-t', d, '-an', '-vf', ov.vf, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', part]);
+      fs.renameSync(part, outPath);
+    } finally {
+      ov.cleanup();
+      fs.rmSync(raw, { force: true });
+      fs.rmSync(part, { force: true });
+    }
+    return { outPath, id: res.operation_name || null };
+  },
 };
 
 // ---- vyro (ImagineArt) --------------------------------------------------------------------------------
@@ -189,7 +251,8 @@ const vyro = {
   name: 'vyro',
   paid: true,
   available: (deps = {}) => ((deps.hasSecret || secrets.hasSecret)('VYRO_API_KEY') ? { ok: true } : { ok: false, reason: 'VYRO_API_KEY not set' }),
-  async generate({ prompt, seconds, outPath }, deps = {}) {
+  async generate(scene, deps = {}) {
+    const { prompt, seconds, outPath } = scene;
     const http = deps.httpJson || httpJson;
     const dl = deps.download || download;
     const ff = deps.runFfmpeg || runFfmpeg;
@@ -214,10 +277,12 @@ const vyro = {
         const d = Number(seconds).toFixed(3);
         // Loop the (typically 5s) clip to cover the scene, then cover-crop to 1080x1920.
         const part = `${outPath}.part.mp4`;
+        const ov = withOverlay(scene, `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${FPS}`);
         try {
-          ff(['-stream_loop', '-1', '-i', raw, '-t', d, '-an', '-vf', `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${FPS}`, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', part]);
+          ff(['-stream_loop', '-1', '-i', raw, '-t', d, '-an', '-vf', ov.vf, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', part]);
           fs.renameSync(part, outPath);
         } finally {
+          ov.cleanup();
           fs.rmSync(raw, { force: true });
           fs.rmSync(part, { force: true });
         }
@@ -229,7 +294,7 @@ const vyro = {
   },
 };
 
-const DEFAULT_CHAIN = [antigravity, vyro, local];
+const DEFAULT_CHAIN = [veo, vyro, local];
 
 // Walks the chain for one scene. `run` is per-pipeline-run state: {down:Set, aiClips:number, maxAiClips, noAi, log[]}.
 async function makeSceneClip(scene, run, { chain = DEFAULT_CHAIN, deps = {}, spendLog = SPEND_LOG } = {}) {
@@ -261,4 +326,4 @@ function newRun({ maxAiClips = MAX_AI_CLIPS_DEFAULT, noAi = false } = {}) {
   return { down: new Set(), aiClips: 0, maxAiClips, noAi, log: [] };
 }
 
-module.exports = { titleFontSize, RENDER_CPUS, niced, MAX_LINE_CHARS, makeSceneClip, newRun, local, vyro, antigravity, DEFAULT_CHAIN, ProviderDown, PALETTES, localFilter, runFfmpeg, W, H, FPS, MAX_AI_CLIPS_DEFAULT, BOLD_FONT };
+module.exports = { withOverlay, titleFontSize, RENDER_CPUS, niced, MAX_LINE_CHARS, makeSceneClip, newRun, local, vyro, veo, veoDuration, DEFAULT_CHAIN, ProviderDown, PALETTES, localFilter, runFfmpeg, W, H, FPS, MAX_AI_CLIPS_DEFAULT, BOLD_FONT };

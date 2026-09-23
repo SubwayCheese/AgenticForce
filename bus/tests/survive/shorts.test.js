@@ -73,8 +73,10 @@ test('provider chain: no key -> local; 401 marks provider down for the run; cap 
   const local = { name: 'local', paid: false, available: () => ({ ok: true }), async generate(s) { calls.push(`local:${s.index}`); return s.outPath; } };
 
   let run = vp.newRun();
-  const r0 = await vp.makeSceneClip({ index: 0, outPath: 'x' }, run, { chain: vp.DEFAULT_CHAIN.filter((p) => p.name !== 'local').concat(local), spendLog: spend });
-  assert.equal(r0.provider, 'local', 'antigravity unconfigured and vyro has no key in the sandbox');
+  // deps cut the real Veo CLI off: it runs as a separate process, so the sandbox's in-process network block
+  // would NOT stop it (this test once made a real, zero-cost 429 call because of that).
+  const r0 = await vp.makeSceneClip({ index: 0, outPath: 'x' }, run, { chain: vp.DEFAULT_CHAIN.filter((p) => p.name !== 'local').concat(local), spendLog: spend, deps: { fileExists: () => false } });
+  assert.equal(r0.provider, 'local', 'veo has no CLI/config in the sandbox and vyro has no key');
   assert.ok(run.log.some((l) => l.provider === 'vyro' && /VYRO_API_KEY/.test(l.skipped)));
 
   calls.length = 0;
@@ -192,5 +194,43 @@ test('TTS cache: a fully cached script never starts the voice model', () => {
   assert.equal(res[0].duration, 1.5);
   assert.equal(fs.readFileSync(res[0].wav, 'utf8'), 'RIFF-fake');
   assert.notEqual(sp.ttsCacheKey('Hello there.', 'af_heart', 1.2), key, 'speed is part of the key');
+  sbx.cleanup();
+});
+
+test('veo provider: 429 quota is provider-down at zero cost; success loops the clip into the scene; no key -> unavailable', async () => {
+  const { sbx, vp } = fresh();
+  assert.equal(vp.veoDuration(3), 4);
+  assert.equal(vp.veoDuration(5.5), 6);
+  assert.equal(vp.veoDuration(9), 8);
+  assert.equal(vp.veo.available({ fileExists: () => true, readConfig: () => '{"api_key":"x"}' }).ok, true);
+  assert.equal(vp.veo.available({ fileExists: () => true, readConfig: () => '{}' }).ok, false);
+  assert.equal(vp.veo.available({ fileExists: () => false }).ok, false);
+  const quota = async () => ({ exitCode: 1, stdout: JSON.stringify({ success: false, error: 'API request failed: 429 Quota Exceeded (RESOURCE_EXHAUSTED).' }), stderr: '' });
+  await assert.rejects(vp.veo.generate({ prompt: 'p', seconds: 4, outPath: sbx.file('a.mp4') }, { runVeoCli: quota }), (e) => e instanceof vp.ProviderDown && /429/.test(e.message));
+  const calls = [];
+  const ok = async (args) => { calls.push(args); fs.writeFileSync(args[args.indexOf('-o') + 1], 'raw'); return { exitCode: 0, stdout: JSON.stringify({ success: true, operation_name: 'op-1' }), stderr: '' }; };
+  const out = sbx.file('b.mp4');
+  const res = await vp.veo.generate({ prompt: 'a scene', seconds: 5.2, outPath: out }, { runVeoCli: ok, runFfmpeg: (a) => fs.writeFileSync(a[a.length - 1], 'mp4') });
+  assert.equal(res.id, 'op-1');
+  assert.ok(fs.existsSync(out));
+  assert.ok(!fs.existsSync(`${out}.veo.mp4`), 'raw clip cleaned up');
+  assert.deepEqual(calls[0].slice(calls[0].indexOf('-a'), calls[0].indexOf('-a') + 2), ['-a', '9:16']);
+  assert.equal(calls[0][calls[0].indexOf('-d') + 1], '6');
+  sbx.cleanup();
+});
+
+test('paid b-roll keeps the story text: the overlay filter is appended to the re-encode of both paid providers', async () => {
+  const { sbx, vp } = fresh();
+  const scene = { prompt: 'p', seconds: 4, title: 'THE BUG', lines: ['bid: 1', 'ask: 0'], palette: vp.PALETTES[0] };
+  const seen = [];
+  const ff = (args) => { seen.push(args[args.indexOf('-vf') + 1]); fs.writeFileSync(args[args.length - 1], 'mp4'); };
+  const cli = async (args) => { fs.writeFileSync(args[args.indexOf('-o') + 1], 'raw'); return { exitCode: 0, stdout: JSON.stringify({ success: true }), stderr: '' }; };
+  await vp.veo.generate({ ...scene, outPath: sbx.file('v.mp4') }, { runVeoCli: cli, runFfmpeg: ff });
+  assert.match(seen[0], /crop=1080:1920/);
+  assert.match(seen[0], /drawtext=.*textfile=/, 'title/terminal lines are drawn over the clip');
+  assert.match(seen[0], /drawbox=/);
+  const bare = vp.withOverlay({ seconds: 4, lines: [], palette: vp.PALETTES[0] }, 'BASE');
+  assert.equal(bare.vf, 'BASE', 'no text -> no overlay filter');
+  bare.cleanup();
   sbx.cleanup();
 });

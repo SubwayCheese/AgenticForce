@@ -24,6 +24,8 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
   16:30 PDT; first run due today -- it scores past decisions against real prices, C1's "learning" data).
 - **Queue daemon:** running as a hand-started process (PID from Sept 20), NOT under systemd. A Pi reboot would
   silently stop C1's pipeline.
+- **Video:** `gemini-video` (Veo) CLI/MCP installed by Antigravity, wired into `video-providers.js` (Round 31); returns
+  429 until billing is linked. Local-visuals versions of the 6 shorts already exist and are usable as-is.
 - **Codex:** healthy. **Antigravity `agy` 1.2.9:** installed, wired as a third text specialist (see Changes).
 - **Pi hardware:** Raspberry Pi 4, `get_throttled = 0x50005` -- under-voltage continuously since Sept 20 (bad power
   supply). C1's live state is on this SD card.
@@ -56,7 +58,7 @@ short AI-voiced videos. C1 keeps running as the proof-of-concept.
 1. **More trading capital:** leveraged ETFs (needs $2,000 margin; decay); Kraken Funded (mobile-only, no API);
    Velotrade (real API but suppressed Trustpilot, false "founded 2016"); Breakout (good legitimacy, but sources say
    its terminal bans bots/EAs -- unconfirmed); Amboras (no API). Don't re-research; ask before reopening.
-2. **AI video via "Vyro":** there is NO working Vyro key. The key the owner labelled Vyro is an Opus.pro key
+2. **AI video via "Vyro":** (superseded by Veo, Round 31) there is NO working Vyro key. The key the owner labelled Vyro is an Opus.pro key
    (`OPUS_PRO_API_KEY`); `VYRO_API_KEY` was never saved. An earlier "verified" claim was wrong (sent `Bearer
    undefined`; api.vyro.ai validates the request before auth). Shorts therefore use local ffmpeg visuals.
 3. **edge-tts for voice:** rejected (unofficial Microsoft endpoint = commercial ToS risk). Kokoro is used.
@@ -79,7 +81,10 @@ Owner-only (I must not do these):
 3. **Course launch:** watch the 6 shorts; create/price the Whop product (`courses/agentic-systems/whop/SETUP.md`);
    post with each platform's AI-disclosure toggle on (`marketing/POSTING-CHECKLIST.md`). Verify the suggested price
    against real market data first (it is an estimate).
-4. **Video key:** a real ImagineArt/Vyro key (imagine.art gen-api) or an agy version with a video tool.
+4. **Video billing (unblocks AI b-roll):** the Antigravity-built `gemini-video` CLI works but Veo needs a billed
+   Gemini API plan (link billing at aistudio.google.com/app/plan_and_billing; ~$9 for all 30 scenes on Lite). Then:
+   `node bus/revenue/shorts-pipeline.js ~/AgentVault-products/courses/agentic-systems/marketing/shorts/0*.json --max-ai 30`
+   (voice is cached; expect Veo latency + ffmpeg). Review the first clip's look before the full batch. Vyro is dead.
 5. Decide whether Antigravity joins C1's mission rotation, and whether to run the change gate on Rounds 27-30
    (protected paths were touched; gate would say human-review-required).
 Agent-doable (ask first if it touches live systems):
