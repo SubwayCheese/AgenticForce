@@ -2,7 +2,7 @@
 //   available() -> {ok, reason}   and   generate({prompt, lines, title, seconds, palette, outPath}) -> outPath
 // makeSceneClip() walks the chain in order and falls through on "unavailable" / provider-down, so a video
 // always renders: AI b-roll when a working key exists, ffmpeg motion graphics otherwise.
-//   1. antigravity -- placeholder until the owner has access (no public API details yet)
+//   1. antigravity -- placeholder: agy is installed and wired as a text specialist, but has no video tool yet
 //   2. vyro        -- ImagineArt text-to-video; only when VYRO_API_KEY exists. 401 (bad key) and 402 (out of
 //                     credits) take it out of the chain for the rest of the run. Every paid call is appended to
 //                     the spend log, and MAX_AI_CLIPS caps paid calls per run.
@@ -115,7 +115,8 @@ const local = {
 const antigravity = {
   name: 'antigravity',
   paid: true,
-  available: () => ({ ok: false, reason: 'not configured (owner access pending; no API details yet)' }),
+  // agy 1.2.9 (installed 2026-09-23) exposes generate_image but no video-generation tool in headless mode.
+  available: () => ({ ok: false, reason: 'agy CLI installed, but it has no video-generation tool yet (1.2.9: generate_image only)' }),
   async generate() { throw new ProviderDown('antigravity', 'not configured'); },
 };
 

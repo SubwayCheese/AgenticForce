@@ -83,6 +83,10 @@
       "domain": "revenue",
       "status": "manual"
     },
+    "ask-agents.js": {
+      "domain": "platform",
+      "status": "manual"
+    },
     "authority.js": {
       "domain": "org",
       "status": "library",

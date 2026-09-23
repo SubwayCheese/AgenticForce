@@ -225,3 +225,24 @@ Not done (owner-only): Whop product creation/pricing, posting to social accounts
   cores. Owner action: official 5.1V/3A USB-C supply (or a short, thick cable).
 - Shorts: 6 rendered (1080x1920, 26-29s, -14 LUFS), QC'd frame by frame; fixes found by QC and shipped: clipped CTA
   title (auto-fit), quiet audio (loudnorm), misleading "history: gone" line in short 03. TTS cache cut re-renders ~2x.
+
+## 2026-09-23 Round 30: Antigravity (`agy`) as a third specialist + ask-agents.js pathway
+Owner installed the Antigravity CLI and asked for a codex <-> antigravity pathway using existing infra. Followed
+`bus/platform/agents/README.md`'s checklist, every capability confirmed live: `agy` 1.2.9 (ARM64 ELF) answers in
+headless print mode (~14s); stdin only works as stream-json (`{"event":"user","message":{"content":...}}`, `-p=`);
+permissions come ONLY from `~/.gemini/antigravity-cli/settings.json` (a cwd `.agents/settings.json` is ignored) and
+headless mode auto-denies anything not allowed. Settings now allow exactly `read_file(/home/subwaycheese/AgentVault)`
+(backup: `settings.json.bak-2026-09-23`). Verified: vault read works, `search_web` works with no rule, write_to_file
+and run_command are denied and nothing is written. Quirk: a denied tool ends the turn with SUCCESS + empty response.
+
+Built: `agent-engine.js` gains `promptDelivery: "stdin-stream-json"` and `outputMethod: "stream-json-result"` (empty
+answer = failed dispatch); `agents/antigravity.json`; `run-task.js` adds antigravity to LIVE_FILE_READ_CAPABLE,
+WEB_SEARCH_CAPABLE and DISPATCHED_SPECIALISTS (so it gets the SOURCE-tag gate); `ask-agents.js` writes an answer task
++ an optional reviewer task that depends on it, dispatched by the existing daemon. No daemon restart needed (it
+spawns run-task-generic.js per task). Live, through the real queue daemon: antigravity answered -> codex reviewed
+("partly accurate", caught a numbering error); codex answered -> antigravity reviewed ("accurate", with line refs).
+6 new tests; suite 78/78. agy has `generate_image` but no video tool yet, so the video provider stub stays off.
+
+Protected paths touched (agent-engine.js, run-task.js, agents/**, tests): gate would say human-review-required.
+Not done: antigravity is not in dispatch-budget.js's counts (it only counts codex), and it is not in C1's mission
+alternation -- adding a third provider to live missions is the owner's call.

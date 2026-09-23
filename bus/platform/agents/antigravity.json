@@ -1,0 +1,19 @@
+{
+  "_comment": "Google Antigravity CLI (`agy`, v1.2.9 at setup, ~/.local/bin/agy, a real ARM64 ELF -- not a wrapper). Set up 2026-09-23 per agents/README.md's checklist, everything confirmed live, not assumed: (1) Prompt delivery: `agy -p` will NOT read piped text; stdin works only as stream-json, one NDJSON line {\"event\":\"user\",\"message\":{\"content\":...}} with --input-format stream-json --output-format stream-json -p= (empty -p). The answer is the final {\"event\":\"result\"} line. (2) Permissions: headless mode auto-denies every tool not allowed in ~/.gemini/antigravity-cli/settings.json (a .agents/settings.json in the cwd is NOT read). The owner's settings allow exactly read_file(/home/subwaycheese/AgentVault); nothing else. Confirmed live: vault file read works, search_web works (no rule needed), write_to_file and run_command are denied and nothing is written. (3) Caveat: a denied tool ends the turn with status SUCCESS and an EMPTY response -- agent-engine.js's stream-json-result parser treats an empty response as a failure. (4) The `write` mode is defined for shape but has NOT been exercised; writes stay denied by the settings allow-list regardless of --mode. No model flag: uses the CLI's default model.",
+  "id": "antigravity",
+  "displayName": "Antigravity (Gemini)",
+  "binary": "agy",
+  "isWindowsCmdWrapper": false,
+  "outputMethod": "stream-json-result",
+  "promptDelivery": "stdin-stream-json",
+  "boundaryTestMethod": "write-tool",
+  "boundaryTestMethodNote": "Confirmed 2026-09-23: agy gates its native write_to_file tool and run_command separately via settings.json permission rules; the write-tool attempt is the direct test of the write boundary.",
+  "modes": {
+    "readOnly": {
+      "args": ["--mode", "plan", "--input-format", "stream-json", "--output-format", "stream-json", "--print-timeout", "900s", "-p="]
+    },
+    "write": {
+      "args": ["--mode", "accept-edits", "--input-format", "stream-json", "--output-format", "stream-json", "--print-timeout", "900s", "-p="]
+    }
+  }
+}

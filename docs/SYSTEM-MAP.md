@@ -8,7 +8,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 
 | Domain | Meaning | Files | Live | Paused | Manual | Library | Legacy |
 |---|---|---|---|---|---|---|---|
-| platform | shared infrastructure | 28 | 2 | 0 | 7 | 11 | 8 |
+| platform | shared infrastructure | 29 | 2 | 0 | 8 | 11 | 8 |
 | ops | dashboard and status aggregators (may read every domain) | 5 | 1 | 0 | 1 | 3 | 0 |
 | fleet | paper-trading fleet | 26 | 0 | 4 | 2 | 17 | 3 |
 | city | real-money agent city (survive) | 23 | 0 | 1 | 4 | 17 | 1 |
@@ -26,7 +26,8 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 
 | File | Status | Used by | Purpose (from file header) |
 |---|---|---|---|
-| agent-engine | library | 8 | the actual Phase 2 scaffold deliverable. |
+| agent-engine | library | 9 | the actual Phase 2 scaffold deliverable. |
+| ask-agents | manual | 0 | a command-line pathway between specialists (codex, antigravity, claude-agent), built on the existing task queue rather than beside it: it only writes... |
 | build-system-map | manual | 0 | generates docs/SYSTEM-MAP.md and bus/lib/locations.json from bus/components.json, each script's header comment and the real relative-require graph,... **Note:** generates docs/SYSTEM-MAP.md |
 | check-inbox | legacy | 0 | message-reading agent, SINGLE-CHECK ONLY (see run-research-crew.js header for why continuous scheduling isn't wired yet). |
 | check-schedules | manual | 0 | READ-ONLY. Compares bus/deploy/schedules.json (what SHOULD be scheduled or running) with systemd, crontab and the process list, and prints any drift. **Note:** read-only drift checker against deploy/schedules.json |
@@ -48,7 +49,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | run-task-claude | legacy | 0 | dispatches a task to a nested headless Claude Code specialist (`claude -p`), read-only by default. |
 | run-task-collab | library | 1 | MANUAL-ONLY, write-enabled Codex dispatch for supervised collaboration on the vault itself (e.g. |
 | run-task-generic | live | 0 | config-driven task dispatch. Reads a task's `to:` field, loads the matching bus/platform/agents/<to>.json config, and dispatches through... **Note:** spawned by run-queue-daemon for every task |
-| run-task | library | 24 | deterministic dependency resolution + Codex dispatch for the /bus/ protocol. |
+| run-task | library | 25 | deterministic dependency resolution + Codex dispatch for the /bus/ protocol. |
 | secrets-broker | library | 13 | Phase 3 piece 4: the credential/secrets broker boundary. |
 | survive-change-gate | manual | 0 | Pure code, no LLM. The only allowed path for an automated change (a later improver agent, or a human using the same checks) to reach the live... |
 | validate-agent-config | library | 2 | checks a bus/platform/agents/<id>.json config against the shape agent-engine.js actually requires, before anyone trusts it to dispatch a real task. |
