@@ -45,3 +45,6 @@ Nothing runs against real accounts unless you supply your own keys in `bus/secre
 ## Status and limits
 A personal research project on modest hardware. Some parts are paused, some are proposals awaiting review
 (`docs/proposals/`), and the live agent trades a tiny account. Read `docs/HANDOFF.md` for the current state.
+
+## License
+MIT (see `LICENSE`).
