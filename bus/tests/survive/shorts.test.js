@@ -174,9 +174,9 @@ test('end to end: real ffmpeg render of a 2-scene short with a deterministic fak
 
 test('long titles shrink to fit the frame; short ones keep full size', () => {
   const { sbx, vp } = fresh();
-  assert.equal(vp.titleFontSize('REAL MONEY'), 76);
+  assert.equal(vp.titleFontSize('REAL MONEY'), 84);
   const size = vp.titleFontSize('AGENTS THAT RUN THEMSELVES');
-  assert.ok(size < 76 && 26 * 0.68 * size <= 980, 'the CTA that clipped in the first batch now fits');
+  assert.ok(size < 84 && 26 * 0.68 * size <= 980, 'the CTA that clipped in the first batch now fits');
   assert.ok(vp.titleFontSize('X'.repeat(200)) >= 36, 'never shrinks below a readable floor');
   sbx.cleanup();
 });

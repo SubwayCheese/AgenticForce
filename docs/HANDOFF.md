@@ -45,13 +45,17 @@ does not fit this repo -- see Failed attempts #9 and Next steps #5.
   `bus/revenue/whop-publisher.js`; ids in `bus/whop-publish-state.json`. Gotchas found: the key's business is GET /accounts/me
   (NOT /companies/me, which answers with a different business, "Me" -- that caused every 403); POST /products silently
   ignores plan_options/experience_ids (use /plans and /experiences/{id}/attach); new courses get a seed "Chapter 1".
-  **Posting:** Opus.pro API can post to YT/TikTok/IG/X, key works, but 0 social accounts connected (owner OAuth).
+  **Shorts (2026-09-23 evening):** re-rendered with typed-terminal visuals (v1 text cards kept in `media/v1-textcards/`).
+  Posting plan = by hand, one a day (`marketing/POSTING-SCHEDULE.md`). Automation checked: `bus/revenue/opus-poster.js`
+  (upload untouched -> schedule; codex-reviewed, 5 fixes) works, BUT the Opus account is TRIAL tier: forced watermark and
+  it burned its own captions over ours (poster now sends enableCaption:false). YouTube Data API: unaudited projects upload
+  private-only. Upload-Post: free 10/mo without TikTok, young company with mixed trust signals -- owner's call.
 - **AI video:** blocked on Google billing (see Next steps #4). The shorts use local ffmpeg text-card visuals and are usable as-is.
 - **Agents:** Codex healthy; Claude headless (`to: claude-agent`); Antigravity `agy` 1.2.9 wired as a third text specialist.
   On 2026-09-23 the owner asked for broader agent shell access: agy now also reads `~/AgentVault-products` and may run
   read-only commands (cat/head/tail/grep/wc/find/stat/diff/jq...; no git/rm/node). Codex left as-is (its read-only sandbox
   already runs any command; `write` mode exists).
-- **Tests:** `node bus/platform/run-survive-tests.js` = 124 passed. City repo HEAD is pushed; products repo is local only.
+- **Tests:** `node bus/platform/run-survive-tests.js` = 128 passed. City repo HEAD is pushed; products repo is local only.
 
 ## Active field (where work was happening)
 - `~/AgentVault-products/courses/agentic-systems/` (course, starter, whop/, marketing/, PLAN.md)

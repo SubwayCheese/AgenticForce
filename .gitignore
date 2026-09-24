@@ -28,6 +28,7 @@ bus/survive-*.jsonl
 bus/builder-state.json
 bus/codex-health.json
 bus/whop-publish-state.json
+bus/opus-post-state.json
 bus/dispatch-calibration.jsonl
 bus/apify-stats.jsonl
 bus/superteam-scout.jsonl

@@ -524,6 +524,10 @@
     "whop-publisher.js": {
       "domain": "revenue",
       "status": "manual"
+    },
+    "opus-poster.js": {
+      "domain": "revenue",
+      "status": "manual"
     }
   },
   "compatSymlinks": {

@@ -33,7 +33,7 @@ const VYRO_MAX_WAIT_MS = 8 * 60 * 1000;
 const SPEND_LOG = avPaths.bus('revenue-video-spend.jsonl');
 const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
 const MONO_FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
-const MAX_LINE_CHARS = 34; // DejaVu Sans Mono at 44px is ~26.5px/char; 34 chars fit the 925px card interior
+const MAX_LINE_CHARS = 27; // DejaVu Sans Mono at 54px is ~32.5px/char; 27 chars fit the ~900px card interior
 const BOLD_FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
 
 const PALETTES = [
@@ -59,13 +59,18 @@ function runFfmpeg(args) {
 }
 
 // ---- local: ffmpeg motion graphics -------------------------------------------------------------------
-// Lines appear one by one across the first ~60% of the scene (a "typing" feel without per-character cost).
-// Text goes through textfile= with expansion=none so no user text is ever parsed as an ffmpeg expression.
-// Shrink long titles to fit: DejaVu Sans Bold caps average ~0.68em wide, and the frame leaves ~980px.
-// (First batch clipped "AGENTS THAT RUN THEMSELVES" at a fixed 76px.)
+// A terminal window (title bar + three dots) whose lines TYPE in, character by character, with a blinking block
+// cursor -- motion from the first second, which is what keeps a short watched. The typing is a card-coloured mask
+// sliding right off each line (one drawbox per line), so it costs nothing per character. Line starts are spread
+// over the first ~60% of the scene. Text goes through textfile= with expansion=none so no user text is ever parsed
+// as an ffmpeg expression. Shrink long titles to fit: DejaVu Sans Bold caps average ~0.68em wide, and the frame
+// leaves ~980px. (First batch clipped "AGENTS THAT RUN THEMSELVES" at a fixed 76px.)
 function titleFontSize(title) {
-  return Math.max(36, Math.min(76, Math.floor(980 / (String(title).length * 0.68))));
+  return Math.max(36, Math.min(84, Math.floor(980 / (String(title).length * 0.68))));
 }
+
+const CARD = { x: 48, w: 984, bar: 64, pad: 110, lineH: 92, font: 54, charW: 32.5, bg: '0x070b14' }; // mono advance 0.602em
+const TYPE_SEC_PER_CHAR = 0.035;
 
 function localFilter({ lines = [], title, seconds, palette, tmpDir }) {
   const p = palette || PALETTES[0];
@@ -74,19 +79,28 @@ function localFilter({ lines = [], title, seconds, palette, tmpDir }) {
   if (title) {
     const tf = path.join(tmpDir, 'title.txt');
     fs.writeFileSync(tf, title);
-    f.push(`drawtext=fontfile=${BOLD_FONT}:textfile=${tf}:expansion=none:fontsize=${titleFontSize(title)}:fontcolor=white:x=(w-text_w)/2:y=190:borderw=5:bordercolor=black@0.6`);
+    f.push(`drawtext=fontfile=${BOLD_FONT}:textfile=${tf}:expansion=none:fontsize=${titleFontSize(title)}:fontcolor=white:x=(w-text_w)/2:y=230:borderw=6:bordercolor=black@0.6`);
   }
   if (shown.length) {
-    const boxY = title ? 330 : 280;
-    const boxH = 100 + shown.length * 74;
-    f.push(`drawbox=x=60:y=${boxY}:w=960:h=${boxH}:color=0x000000@0.6:t=fill`);
-    f.push(`drawbox=x=60:y=${boxY}:w=960:h=46:color=0xffffff@0.08:t=fill`);
-    const step = shown.length > 1 ? (seconds * 0.6) / shown.length : 0;
+    const boxY = title ? 400 : 330;
+    const boxH = CARD.bar + 70 + shown.length * CARD.lineH;
+    f.push(`drawbox=x=${CARD.x}:y=${boxY}:w=${CARD.w}:h=${boxH}:color=${CARD.bg}@1:t=fill`);
+    f.push(`drawbox=x=${CARD.x}:y=${boxY}:w=${CARD.w}:h=${CARD.bar}:color=0x1c2433@1:t=fill`);
+    ['0xff5f57', '0xfebc2e', '0x28c840'].forEach((c, i) => f.push(`drawbox=x=${84 + i * 32}:y=${boxY + 23}:w=18:h=18:color=${c}@1:t=fill`));
+    const step = shown.length > 1 ? (seconds * 0.6) / shown.length : seconds * 0.6;
     shown.forEach((line, i) => {
+      const text = String(line).slice(0, MAX_LINE_CHARS);
       const lf = path.join(tmpDir, `line${i}.txt`);
-      fs.writeFileSync(lf, String(line).slice(0, MAX_LINE_CHARS));
-      const at = (0.15 + i * step).toFixed(2);
-      f.push(`drawtext=fontfile=${MONO_FONT}:textfile=${lf}:expansion=none:fontsize=44:fontcolor=${p.ink}:x=92:y=${boxY + 74 + i * 74}:enable='gte(t,${at})'`);
+      fs.writeFileSync(lf, text);
+      const y = boxY + CARD.pad + i * CARD.lineH;
+      const at = 0.15 + i * step;
+      const dur = Math.max(0.1, Math.min(text.length * TYPE_SEC_PER_CHAR, step * 0.8));
+      const width = (text.length * CARD.charW).toFixed(1);
+      const s0 = at.toFixed(2); const s1 = (at + dur).toFixed(2); const d = dur.toFixed(3);
+      f.push(`drawtext=fontfile=${MONO_FONT}:textfile=${lf}:expansion=none:fontsize=${CARD.font}:fontcolor=${p.ink}:x=90:y=${y}:enable='gte(t,${s0})'`);
+      // The mask uncovers the line left to right while it "types"; the cursor rides its left edge and blinks.
+      f.push(`drawbox=x='90+(t-${s0})/${d}*${width}':y=${y - 8}:w=${CARD.w - 50}:h=${CARD.lineH - 12}:color=${CARD.bg}@1:t=fill:enable='between(t,${s0},${s1})'`);
+      f.push(`drawbox=x='90+min((t-${s0})/${d},1)*${width}':y=${y - 4}:w=26:h=60:color=${p.ink}@1:t=fill:enable='between(t,${s0},${(at + dur + 0.4).toFixed(2)})*lt(mod(t,0.5),0.3)'`);
     });
   }
   return f.length ? f.join(',') : 'null';

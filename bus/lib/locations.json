@@ -55,6 +55,7 @@
  "memory-store.js": "platform/memory-store.js",
  "monitor-paper-trades.js": "fleet/monitor-paper-trades.js",
  "ntfy.js": "platform/ntfy.js",
+ "opus-poster.js": "revenue/opus-poster.js",
  "performance-scorecard.js": "fleet/performance-scorecard.js",
  "pilot-supervisor.js": "fleet/pilot-supervisor.js",
  "portfolio-risk-envelope.js": "fleet/portfolio-risk-envelope.js",
