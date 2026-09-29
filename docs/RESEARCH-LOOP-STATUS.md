@@ -1,17 +1,18 @@
 # Research loop status (auto-updated every cycle)
 
-Last updated: 2026-09-29 ~12:00 PDT, after cycle 4 (SIP data), both reviews, and creating the cloud routine. Full history:
+Last updated: 2026-09-29 ~1:05 PM PDT, after cycle 5 (the one-shot out-of-sample test). Full history:
 `bus/fleet/data/research-loop-log.jsonl`. Loop mechanics and boundaries: `docs/HANDOFF.md`.
 
-## Bottom line right now
-- **The $20 cap, not the trend rules, is why S1/S2 "failed."** At C1's real $20 per-entry cap both lose to plain
-  buy-and-hold QQQ on CAGR (13.9% / 15.2% vs 15.5%). At a **$30 cap** they win at *matched risk*: S1 17.8% CAGR with a
-  34.8% max drawdown (QQQ: 15.5%, 35.0%); S2 19.6% (18.1% at 15 bps costs) with ~30% drawdown. Higher caps return more but
-  with more drawdown than QQQ. Reports: `bus/fleet/data/lev-backtest-descriptive-results.cap{30,40,50}.md`.
-- **Why this is not yet a recommendation:** one ~5-year sample whose edge comes mostly from sidestepping 2022; S1 made 3
-  trades, S2 113 (cost-sensitive); 3 caps were tried (mild data-snooping); deflated Sharpe ~0.2-0.3 (not significant);
-  no 2008-style stress in the data. Raising C1's cap changes the protected budget envelope: the owner's call, and only
-  after longer data confirms it.
+## Bottom line right now (after cycle 5, 2026-09-29)
+- **The leveraged-ETF trend idea did not survive its out-of-sample test.** On the never-examined 2016-12-29..2021-08-05
+  window (Alpaca SIP, prereg v3, run once), at a $30 cap: S1 (200-day trend) returned 34.1%/yr vs QQQ's 28.7% but with a
+  31.0% max drawdown vs QQQ's 28.6% (limit 30.6%, missed by 0.4pp); S2 (fast exit) returned only 21.3%/yr. Verdict per
+  the frozen rules: **DOES NOT HOLD**. Report: `bus/fleet/data/lev-backtest-holdout-results.md`.
+- **Honest reading:** S1 looks like leveraged QQQ with a trend exit -- more return for about QQQ-level drawdown -- not a
+  risk-adjusted edge. The earlier in-sample "$30 cap beats QQQ at matched risk" (cycle 3) did not replicate, especially
+  for S2. **Do not raise C1's $20 cap on this evidence.** The 2016-2021 window is now spent as out-of-sample.
+- **Where the revenue search goes next:** the cloud queue below (exit-side bug fix, a third strategy family, S2's
+  whipsaw, and whether this research pipeline is sellable as its own product).
 
 ## Cloud schedule (plan approved 2026-09-29, `/home/subwaycheese/.claude/plans/inherited-crunching-emerson.md`)
 - Step 1 done: branch `cloud-sync-2026-09-29` pushed (2 commits: research infra; protected C1 fixes). PR created by the owner
@@ -38,7 +39,7 @@ Last updated: 2026-09-29 ~12:00 PDT, after cycle 4 (SIP data), both reviews, and
    docs/proposals/<date>-pipeline-product.md with honest demand evidence and risks. No publishing, no accounts.
 
 ## Local-only work (this Pi; the cloud must not do these)
-- The one-shot out-of-sample test on 2016-01-04..2021-08-05 (docs/proposals/2026-09-29-unseen-window-test.md).
+- DONE 2026-09-29 (cycle 5): the one-shot out-of-sample test -- H DOES NOT HOLD. Never rerun it or tune on that window.
 - Refreshing SIP/IEX price caches (needs the Pi's keys) and pushing them to the PR branch.
 - Reading each cloud run (RemoteTrigger list_runs / get_run_log), re-verifying it, applying unprotected changes after
   tests pass here, sending protected ones to the owner.

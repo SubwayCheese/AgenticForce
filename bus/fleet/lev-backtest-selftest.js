@@ -835,6 +835,15 @@ async function main() {
     assert.equal(fs.existsSync(path.join(tmp, 'h-cap.md')), false);
   });
 
+  await test('holdout summary line names each condition (regression 2026-09-29: it said "FAILS both conditions" when only max DD failed)', () => {
+    const x = (cagr, dd) => ({ strat: { cagr, maxDD: dd }, underBH: { cagr: 0.287, maxDD: 0.286 } });
+    const j = cli.judgeHoldout({ S1: { base: x(0.341, 0.310), stress: x(0.340, 0.311) }, S2: { base: x(0.213, 0.297), stress: x(0.199, 0.313) } });
+    const s1 = cli.describeHoldoutFamily(j.S1, 5, 15), s2 = cli.describeHoldoutFamily(j.S2, 5, 15);
+    assert.ok(/5 bps: CAGR ok, max DD FAIL/.test(s1) && /15 bps: CAGR ok, max DD FAIL/.test(s1), s1);
+    assert.ok(/5 bps: CAGR FAIL, max DD ok/.test(s2) && /15 bps: CAGR FAIL, max DD FAIL/.test(s2), s2);
+    assert.equal(/both conditions/.test(s1 + s2), false);
+  });
+
   await test('judgeHoldout truth table: both hold at both costs -> HOLDS; 5 bps only -> PARTLY HOLDS; one strategy only -> PARTLY HOLDS; neither -> DOES NOT HOLD; the +2pp boundary exactly', () => {
     const row = (cagr, maxDD, underCagr = 0.1, underDD = 0.3) => ({ strat: { cagr, maxDD }, underBH: { cagr: underCagr, maxDD: underDD } });
     const holdRow = () => row(0.2, 0.28); // cagr 0.2 > 0.1; maxDD 0.28 <= 0.3 + 0.02

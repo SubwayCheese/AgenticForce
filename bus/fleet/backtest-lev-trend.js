@@ -588,6 +588,13 @@ function holdoutSpans(prereg, al, warmupBars) {
 
 // Hypothesis H's judge. Can ONLY return one of the three verdicts below, whatever the inputs.
 // inp = {S1:{base:{strat:{cagr,maxDD}, underBH:{cagr,maxDD}}, stress:{same}}, S2:{...}}; tolerancePp is a FRACTION (0.02 = 2pp).
+// One console line per strategy naming each condition's result (the old line said "FAILS both conditions" even when
+// only one condition failed -- found on the first real run, 2026-09-29).
+function describeHoldoutFamily(j, base, stress) {
+  const c = (x) => `CAGR ${x.cagrPass ? 'ok' : 'FAIL'}, max DD ${x.ddPass ? 'ok' : 'FAIL'}`;
+  return `  ${j.family}: ${base} bps: ${c(j.base)}; ${stress} bps: ${c(j.stress)}`;
+}
+
 function judgeHoldout(inp, tolerancePp = 0.02) {
   const crit = (x) => ({ cagrPass: x.strat.cagr > x.underBH.cagr, ddPass: x.strat.maxDD <= x.underBH.maxDD + tolerancePp + 1e-9, values: x });
   const mk = (fam) => {
@@ -679,8 +686,7 @@ async function runHoldout(ctx) {
   log('');
   log(`Hypothesis H (S1 & S2 on ${prereg.primaryHypothesis.pair}, cap $${primaryCap}): ${judgement.verdict}`);
   for (const fam of ['S1', 'S2']) {
-    const j = judgement[fam];
-    log(`  ${fam}: at ${base} bps ${j.base.pass ? 'meets' : 'FAILS'} both conditions; at ${stress} bps ${j.stress.pass ? 'meets' : 'FAILS'} both conditions`);
+    log(describeHoldoutFamily(judgement[fam], base, stress));
   }
   log(prereg.verdictVocabulary);
   log(`prereg commit: ${commitSha}`);
@@ -804,7 +810,7 @@ async function main(argv, deps = {}) {
   return res.code;
 }
 
-module.exports = { verifyPrereg, loadPrereg, gridFor, neighbours, pairsOf, trialCount, commonWarmup, betterOnTune, judgePrimary, judgeDescriptive, shaPathFor, loadDescriptiveData, judgeHoldout, loadHoldoutData, holdoutN, preregCommitSha, main, PATHS };
+module.exports = { verifyPrereg, loadPrereg, gridFor, neighbours, pairsOf, trialCount, commonWarmup, betterOnTune, judgePrimary, judgeDescriptive, shaPathFor, loadDescriptiveData, judgeHoldout, describeHoldoutFamily, loadHoldoutData, holdoutN, preregCommitSha, main, PATHS };
 
 if (require.main === module) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(`backtest-lev-trend: ${e && e.message ? e.message : e}`); process.exit(1); });
