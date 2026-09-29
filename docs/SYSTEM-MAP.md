@@ -10,7 +10,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 |---|---|---|---|---|---|---|---|
 | platform | shared infrastructure | 29 | 2 | 0 | 8 | 11 | 8 |
 | ops | dashboard and status aggregators (may read every domain) | 5 | 1 | 0 | 1 | 3 | 0 |
-| fleet | paper-trading fleet | 26 | 0 | 4 | 2 | 17 | 3 |
+| fleet | paper-trading fleet | 33 | 0 | 4 | 6 | 20 | 3 |
 | city | real-money agent city (survive) | 23 | 0 | 1 | 4 | 17 | 1 |
 | swarm | research swarm | 4 | 0 | 1 | 0 | 3 | 0 |
 | revenue | product builder, Apify and bounty tooling | 11 | 0 | 0 | 7 | 4 | 0 |
@@ -50,7 +50,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | run-task-collab | library | 1 | MANUAL-ONLY, write-enabled Codex dispatch for supervised collaboration on the vault itself (e.g. |
 | run-task-generic | live | 0 | config-driven task dispatch. Reads a task's `to:` field, loads the matching bus/platform/agents/<to>.json config, and dispatches through... **Note:** spawned by run-queue-daemon for every task |
 | run-task | library | 25 | deterministic dependency resolution + Codex dispatch for the /bus/ protocol. |
-| secrets-broker | library | 16 | Phase 3 piece 4: the credential/secrets broker boundary. |
+| secrets-broker | library | 19 | Phase 3 piece 4: the credential/secrets broker boundary. |
 | survive-change-gate | manual | 0 | Pure code, no LLM. The only allowed path for an automated change (a later improver agent, or a human using the same checks) to reach the live... |
 | validate-agent-config | library | 2 | checks a bus/platform/agents/<id>.json config against the shape agent-engine.js actually requires, before anyone trusts it to dispatch a real task. |
 | vault-search | library | 3 | Phase 3 groundwork: shared, queryable access to the vault's own knowledge for any script in /bus/, not just something a human browses in Obsidian. |
@@ -71,6 +71,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | File | Status | Used by | Purpose (from file header) |
 |---|---|---|---|
 | alpaca-client | library | 18 | Alpaca paper-trading REST client -- the execution layer for the trading-fleet pilot's paper phase (fleet_pilot_20260903, see... |
+| backtest-lev-trend | manual | 1 | CLI for the leveraged-ETF trend backtest: prereg check, tune-window selection, frozen test-window verdict and report. |
 | backtest-parameter-search | library | 1 | the "learning" layer (ARCHITECTURE.md section 13, added 2026-09-13): treats computeScreenScore()'s weights as parameters fit to data via a real grid... |
 | backtest-screen-score-v2 | library | 1 | Deeper historical walk-forward test of the LIVE screen score. |
 | backtest-screen-score | legacy | 0 | Historical walk-forward backtest of the LIVE equity screen score. |
@@ -88,6 +89,12 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | fmp-client | legacy | 0 | Financial Modeling Prep REST client -- UNUSED as of 2026-09-11. |
 | generate-backtest-tasks | library | 1 | authors the weekly deep multi-agent entry/exit backtest batch (ARCHITECTURE.md section 9's recurring- backtest gap, closed 2026-09-13). |
 | generate-pilot-tasks | library | 6 | authors the day's fleet_pilot_*/crypto_pilot_* task files so pilot-supervisor.js never has to. |
+| lev-backtest-engine | library | 2 | Pure, dependency-free engine for the leveraged-ETF trend backtest (signals, next-open fills, costs, metrics, DSR, bootstrap). |
+| lev-backtest-selftest | manual | 0 | Self-checks for the leveraged-ETF trend backtest engine and CLI using synthetic bars (no network, no live data). |
+| lev-bars-cache-selftest | manual | 0 | Offline self-checks for lev-bars-cache.js (injected fetch, temp dir, no network, no real keys). |
+| lev-bars-cache | library | 4 | Fetch and cache split+dividend-adjusted Alpaca IEX daily bars for the leveraged-ETF trend backtest (read-only market data). |
+| lev-bars-tiingo-selftest | manual | 0 | Offline self-checks for lev-bars-tiingo.js (injected fetch, temp dir, no network, dummy token). |
+| lev-bars-tiingo | library | 1 | Fetch and cache split+dividend-adjusted Tiingo daily bars (1999+) for the leveraged-ETF trend backtest, and cross-check them against the Alpaca IEX... |
 | monitor-paper-trades | paused | 0 | General-purpose exit monitor for research-driven paper positions logged in bus/paper-trades.jsonl. |
 | performance-scorecard | library | 1 | the EVALUATION LAYER the multi-agent self-review found missing (roadmap item 6, 2026-09-11). |
 | pilot-supervisor | paused | 0 | the coarse-grained "is today's cycle due yet" decision for the 24/7 unattended paper-trading pilot (ARCHITECTURE.md section 9). |
@@ -122,7 +129,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | survive-market-scan | library | 2 | bus/city/survive-market-scan.js -- Round 27. **Note:** Round 27: proposes candidates beyond the fixed baseline; the real codex dispatch is decoupled onto market-scan-cycle.js, never called from survive-supervisor.js directly |
 | survive-mechanism-research | legacy | 0 | "this is NOT only a trading bot" (ARCHITECTURE.md section 19, direct user requirement). **Note:** retired in place, replaced by the research swarm |
 | survive-shadow-score | manual | 0 | Daily, no LLM, no codex. Scores every snapshot whose horizons have elapsed (idempotent: one score event per snapshot per run key) and prints the... |
-| survive-shadow | library | 2 | Credit-free, real-money-free evidence for "was that decision good". |
+| survive-shadow | library | 3 | Credit-free, real-money-free evidence for "was that decision good". |
 | survive-supervisor | paused | 1 | the schedule-invoked cadence/authoring script for the "survive" branch (ARCHITECTURE.md section 19), mirroring pilot-supervisor.js's own shape: not a... |
 
 ## swarm (bus/swarm/)
