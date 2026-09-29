@@ -877,8 +877,15 @@ async function main() {
   });
 
   await test('preregCommitSha: read-only, never fabricates; UNCOMMITTED for an untracked prereg or a nonexistent path', () => {
-    assert.equal(cli.preregCommitSha(v3Path), 'UNCOMMITTED', 'v3 prereg is not committed yet, so this must read UNCOMMITTED, never a fabricated sha');
+    // Environment-independent (fixed 2026-09-29: the old check assumed the real v3 prereg was uncommitted, which is false
+    // in any clone where it is committed). An untracked temp file and a missing path must read UNCOMMITTED; the real v3
+    // prereg must read either UNCOMMITTED or a real 40-hex sha, never anything else.
+    const untracked = path.join(tmp, 'untracked-prereg.json');
+    fs.writeFileSync(untracked, '{}\n');
+    assert.equal(cli.preregCommitSha(untracked), 'UNCOMMITTED', 'an untracked file must read UNCOMMITTED, never a fabricated sha');
     assert.equal(cli.preregCommitSha('/nonexistent/path/x.json'), 'UNCOMMITTED');
+    const real = cli.preregCommitSha(v3Path);
+    assert.ok(real === 'UNCOMMITTED' || /^[0-9a-f]{40}$/.test(real), `unexpected value ${real}`);
   });
 
   // Synthetic world for holdout: identical up to windowEnd, independently random AFTER it (mirrors the tune/tuneEnd
