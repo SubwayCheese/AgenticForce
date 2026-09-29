@@ -704,6 +704,36 @@ async function main() {
     }
   });
 
+  await test('--cap <dollars> (descriptive only): reaches the simulator, writes a separate .capN.md report with a sensitivity banner, validates input', async () => {
+    const world = descWorld(bullBear).world;
+    const s1TotalReturn = (md) => {
+      const m = /\| S1 \{"n":200,"bandPct":2\} \(5 bps\) \| (-?[\d.]+)% \|/.exec(md);
+      assert.ok(m, 'S1 (5 bps) row missing from the report');
+      return Number(m[1]);
+    };
+    // Default run: canonical path, no banner.
+    const def = await runDesc(world, 'cap-default');
+    assert.equal(def.code, 0, def.logs.join('\n'));
+    assert.equal(def.md.includes('SENSITIVITY RUN'), false, 'the default (prereg) run must not carry a sensitivity banner');
+    // Explicit --cap 50: separate file, banner, and a different (larger, on this profitable world) S1 result.
+    const logs = [];
+    const res = path.join(tmp, 'cap-run.md');
+    const code = await cli.main(['--prereg', v2Path, '--descriptive', '--cap', '50'], { paths: { descResults: res, frozen: path.join(tmp, 'cap-frozen.json') }, loadBars: (sym) => world[sym], log: (x) => logs.push(x) });
+    assert.equal(code, 0, logs.join('\n'));
+    const capPath = path.join(tmp, 'cap-run.cap50.md');
+    assert.equal(fs.existsSync(res), false, '--cap must not overwrite the canonical report path');
+    assert.ok(fs.existsSync(capPath), '--cap 50 writes <report>.cap50.md');
+    const capMd = fs.readFileSync(capPath, 'utf8');
+    assert.ok(/SENSITIVITY RUN: position cap \$50/.test(capMd), 'banner states the cap');
+    assert.equal(/\bPASS\b/.test(capMd), false);
+    assert.ok(s1TotalReturn(capMd) > s1TotalReturn(def.md), `cap 50 must invest more than cap 20 on a profitable world (${s1TotalReturn(capMd)} vs ${s1TotalReturn(def.md)}) -- if equal, the cap never reached the simulator`);
+    // Input validation: descriptive only, positive finite number, value required.
+    for (const bad of [['--descriptive', '--cap', '0'], ['--descriptive', '--cap', '-5'], ['--descriptive', '--cap', 'abc'], ['--descriptive', '--cap'], ['--tune', '--cap', '50'], ['--test', '--cap', '50'], ['--verify-prereg', '--cap', '50']]) {
+      const pre = bad[0] === '--tune' || bad[0] === '--test' ? preregPath : v2Path;
+      assert.notEqual(await cli.main(['--prereg', pre, ...bad], { paths: { descResults: path.join(tmp, 'bad.md') }, loadBars: noBars, log: () => {} }), 0, `should refuse: ${bad.join(' ')}`);
+    }
+  });
+
   await test('sensitivity grid: labelled descriptive, all 186 configs listed, nothing selected or promoted', async () => {
     const { md } = await runDesc(descWorld(bullBear).world, 'sens');
     const i = md.indexOf('## Sensitivity grid');

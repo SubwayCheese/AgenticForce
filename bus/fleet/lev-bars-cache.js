@@ -4,7 +4,7 @@
 // duplication is the repo precedent). Data endpoint only: no account, order or position access of any kind.
 //
 // CLI:
-//   node bus/fleet/lev-bars-cache.js refresh [--symbols QQQ,SPY,...]   fetch + write bus/fleet/data/lev-bars/<SYM>.json, run sanity check
+//   node bus/fleet/lev-bars-cache.js refresh [--symbols QQQ,SPY,...] [--feed iex|sip]   fetch + write bus/fleet/data/lev-bars[-sip]/<SYM>.json, run sanity check
 //   node bus/fleet/lev-bars-cache.js report                            per symbol: first/last date, bar count, gaps
 // Default symbols = data.symbols in bus/fleet/data/lev-backtest-prereg.json.
 
@@ -21,6 +21,11 @@ const PREREG_PATH = avPaths.fleetData('lev-backtest-prereg.json');
 const SANITY = { trackingTol: 0.10, logRetMax: 0.70 }; // from prereg data.sanity; deliberately NO fixed 0.35 cap
 
 function defaultDir() { return avPaths.fleetData('lev-bars'); }
+// Alpaca feeds: 'iex' (default; free history starts 2020-07-27) or 'sip' (consolidated; history from 2016-01-04 on free keys,
+// verified 2026-09-29 -- free plans may not query the most recent SIP data, so a sip fetch always sends a past end date).
+// Each feed caches to its own directory so the IEX cache and every report built from it stay reproducible.
+const FEEDS = ['iex', 'sip'];
+function defaultDirFor(feed = 'iex') { return feed === 'sip' ? avPaths.fleetData('lev-bars-sip') : defaultDir(); }
 
 // ---- secret hygiene -------------------------------------------------------------------------------------------------
 // Replace every literal occurrence (not regex) of any key value, in any text that may reach an error message or stdout.
@@ -49,7 +54,9 @@ function toBar(b) {
   return { date: String(b.t).slice(0, 10), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v };
 }
 
-async function fetchAdjustedBars(symbol, { start = DEFAULT_START, end, fetchFn = globalThis.fetch, keys, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+async function fetchAdjustedBars(symbol, { start = DEFAULT_START, end, fetchFn = globalThis.fetch, keys, timeoutMs = DEFAULT_TIMEOUT_MS, feed = 'iex' } = {}) {
+  if (!FEEDS.includes(feed)) throw new Error(`unknown feed ${JSON.stringify(feed)} (use ${FEEDS.join(' or ')})`);
+  if (feed === 'sip' && !end) end = new Date(Date.now() - 86400000).toISOString().slice(0, 10); // yesterday (UTC)
   const k = resolveKeys(keys);
   const byDate = new Map();
   let pageToken = null;
@@ -57,7 +64,7 @@ async function fetchAdjustedBars(symbol, { start = DEFAULT_START, end, fetchFn =
   try {
     do {
       if (++pages > MAX_PAGES) throw new Error(`pagination exceeded ${MAX_PAGES} pages`);
-      const params = new URLSearchParams({ timeframe: '1Day', adjustment: 'all', feed: 'iex', limit: '10000', sort: 'asc' });
+      const params = new URLSearchParams({ timeframe: '1Day', adjustment: 'all', feed, limit: '10000', sort: 'asc' });
       if (start) params.set('start', start);
       if (end) params.set('end', end);
       if (pageToken) params.set('page_token', pageToken);
@@ -115,7 +122,7 @@ function writeCache(symbol, bars, dir, extra = {}) {
 }
 
 function loadDoc(symbol, opts = {}) {
-  const p = cachePath(symbol, opts.dataDir);
+  const p = cachePath(symbol, opts.dataDir || defaultDirFor(opts.feed));
   if (!fs.existsSync(p)) throw new Error(`lev-bars-cache: no cached bars for ${symbol} at ${p}; run: node bus/fleet/lev-bars-cache.js refresh`);
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
@@ -253,7 +260,8 @@ async function refresh(symbols, opts = {}) {
   for (const s of syms) {
     const bars = await fetchAdjustedBars(s, opts);
     if (!bars.length) throw new Error(`bars ${s}: API returned no bars`);
-    const doc = writeCache(s, bars, opts.dataDir);
+    const feed = opts.feed || 'iex';
+    const doc = writeCache(s, bars, opts.dataDir || defaultDirFor(feed), { source: `alpaca-${feed}` });
     barsBySymbol[s] = bars;
     summary[s] = { firstDate: doc.firstDate, lastDate: doc.lastDate, barCount: doc.barCount };
     log(`${s}: ${doc.firstDate} .. ${doc.lastDate}  ${doc.barCount} bars`);
@@ -283,22 +291,25 @@ function report(symbols, opts = {}) {
 
 async function main(argv) {
   const cmd = argv[0];
+  const fi = argv.indexOf('--feed');
+  const feed = fi >= 0 ? argv[fi + 1] : 'iex';
+  if (!FEEDS.includes(feed)) { console.log(`--feed must be ${FEEDS.join(' or ')}`); process.exitCode = 2; return; }
   const si = argv.indexOf('--symbols');
   const symbols = si >= 0 && argv[si + 1] ? argv[si + 1].split(',').map((s) => s.trim().toUpperCase()).filter(Boolean) : null;
   if (cmd === 'refresh') {
-    const { summary, flags } = await refresh(symbols, { log: console.log });
+    const { summary, flags } = await refresh(symbols, { log: console.log, feed });
     console.log(flags.length ? `sanity flags (${flags.length}) -- files were still written:` : 'sanity flags: none');
     for (const f of flags) console.log(`  ${f.symbol} ${f.date} ${f.kind} ${f.value.toFixed(4)}`);
     void summary;
   } else if (cmd === 'report') {
-    console.log(report(symbols));
+    console.log(report(symbols, { feed }));
   } else {
-    console.log('usage: node bus/fleet/lev-bars-cache.js refresh [--symbols A,B] | report [--symbols A,B]');
+    console.log('usage: node bus/fleet/lev-bars-cache.js refresh [--symbols A,B] [--feed iex|sip] | report [--symbols A,B] [--feed iex|sip]');
     process.exitCode = 2;
   }
 }
 
-module.exports = { fetchAdjustedBars, refresh, loadBars, loadDoc, writeCache, sanityCheck, findGaps, isTradingDay, redactWith, report, toBar };
+module.exports = { FEEDS, defaultDirFor, fetchAdjustedBars, refresh, loadBars, loadDoc, writeCache, sanityCheck, findGaps, isTradingDay, redactWith, report, toBar };
 
 if (require.main === module) {
   main(process.argv.slice(2)).catch((e) => {

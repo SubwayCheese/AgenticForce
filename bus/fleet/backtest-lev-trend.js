@@ -1,6 +1,7 @@
 // CLI for the leveraged-ETF trend backtest: prereg check, tune-window selection, frozen test-window verdict and report.
 //
-// Usage:  node bus/fleet/backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive
+// Usage:  node bus/fleet/backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive [--cap <dollars>]
+//   --cap            descriptive only: per-entry position cap what-if (default $20 = prereg/C1 rule); writes <report>.cap<N>.md
 //   --prereg <path>  use another prereg file (default: v1, data/lev-backtest-prereg.json).  Its hash file is derived by replacing
 //                    the trailing ".json" with ".sha256": lev-backtest-prereg.json -> lev-backtest-prereg.sha256 (v1) and
 //                    lev-backtest-prereg.v2.json -> lev-backtest-prereg.v2.sha256 (v2).  Every mode refuses on a hash mismatch.
@@ -364,12 +365,17 @@ function spansFor(prereg, al, warmupBars) {
   ];
 }
 
-function safeEval(al, spec, span, bps, variant, warmupBars) {
-  try { return engine.evaluateConfig(al, spec, { window: span.window, slippageBps: bps, variant, warmupBars }); } catch (e) { return { error: e.message }; }
+// cap: per-entry position cap in dollars for the strategy (undefined = the engine default, $20, which is the prereg's and
+// C1's real budget-envelope rule). Benchmarks ignore it (the engine gives them cap: Infinity).
+function safeEval(al, spec, span, bps, variant, warmupBars, cap) {
+  const opts = { window: span.window, slippageBps: bps, variant, warmupBars };
+  if (cap !== undefined) opts.cap = cap;
+  try { return engine.evaluateConfig(al, spec, opts); } catch (e) { return { error: e.message }; }
 }
 
 async function runDescriptive(ctx) {
   const { prereg, deps, hash, log } = ctx;
+  const cap = ctx.cap; // undefined unless --cap was given (sensitivity run)
   const data = await loadDescriptiveData(prereg, deps);
   if (data.flags.length) return { code: 2, message: `sanity flags in data, stopping for manual review: ${JSON.stringify(data.flags.slice(0, 10))}` };
   const N = trialCount(prereg);
@@ -386,7 +392,7 @@ async function runDescriptive(ctx) {
       const cell = { span, configs: {} };
       for (const { family, def } of DESC_FAMILIES) {
         const spec = specOf(family, prereg.strategies[def].canonical, pair.leverage);
-        const r = { spec, b5: safeEval(al, spec, span, base, 'fractional', warmupBars), b15: safeEval(al, spec, span, stress, 'fractional', warmupBars), w5: safeEval(al, spec, span, base, 'wholeShare', warmupBars), w15: safeEval(al, spec, span, stress, 'wholeShare', warmupBars) };
+        const r = { spec, b5: safeEval(al, spec, span, base, 'fractional', warmupBars, cap), b15: safeEval(al, spec, span, stress, 'fractional', warmupBars, cap), w5: safeEval(al, spec, span, base, 'wholeShare', warmupBars, cap), w15: safeEval(al, spec, span, stress, 'wholeShare', warmupBars, cap) };
         if (family === 'S1' && !r.b5.error) cell.bh = { traded: r.b5.benchmarks.traded, underlying: r.b5.benchmarks.underlying, window: r.b5.window };
         if (!r.b5.error) r.dsr = engine.deflatedSharpeFromReturns(r.b5.returns, N);
         cell.configs[family] = r;
@@ -396,7 +402,7 @@ async function runDescriptive(ctx) {
     // sensitivity: full span, base cost, idealized fractional; DESCRIPTIVE only, feeds nothing
     for (const { family, def } of DESC_FAMILIES) {
       for (const params of gridFor(prereg, family)) {
-        const r = safeEval(al, specOf(family, params, pair.leverage), spans[0], base, 'fractional', warmupBars);
+        const r = safeEval(al, specOf(family, params, pair.leverage), spans[0], base, 'fractional', warmupBars, cap);
         const canonical = paramKey(params) === paramKey(prereg.strategies[def].canonical);
         out.sensitivity.push({ pair: pair.key, family, params, canonical, error: r.error, metrics: r.error ? null : pick(r.metrics, ['cagr', 'maxDD', 'calmar', 'sharpe', 'roundTrips']) });
       }
@@ -412,24 +418,26 @@ async function runDescriptive(ctx) {
   for (const f of ['S1', 'S2']) inp[f] = { base: grab(full.configs[f].b5), stress: grab(full.configs[f].b15), roundTrips: full.configs[f].b5.metrics.roundTrips };
   out.judgement = judgeDescriptive(inp);
   if (!['INCONCLUSIVE', 'FAIL'].includes(out.judgement.verdict)) throw new Error('internal error: descriptive verdict must be INCONCLUSIVE or FAIL');
-  const md = renderDescriptive({ prereg, data, out, hash, base, stress, warmupBars });
+  const md = renderDescriptive({ prereg, data, out, hash, base, stress, warmupBars, cap });
   if (/\bPASS\b/.test(md)) throw new Error('internal error: the descriptive report must never contain a pass verdict');
-  fs.writeFileSync(ctx.paths.descResults, md);
+  const outPath = cap === undefined ? ctx.paths.descResults : ctx.paths.descResults.replace(/\.md$/, '') + `.cap${cap}.md`;
+  fs.writeFileSync(outPath, md);
   log('');
   for (const h of out.judgement.hypotheses) {
     log(`${h.label} [canonical ${paramKey(prereg.strategies[h.family === 'S1' ? 'S1_trend_band' : 'S2_dual_fast_exit'].canonical)}]: ${h.met ? 'both criteria met' : 'criteria NOT met'} (round trips ${h.roundTrips})`);
     for (const c of h.criteria) log(`   ${c.met ? 'met' : 'NOT met'}  ${c.name}: ${c.value}`);
   }
-  log(`DESCRIPTIVE VERDICT (INCONCLUSIVE or FAIL only; nothing here can establish a durable edge): ${out.judgement.verdict}`);
-  log(`report written to ${ctx.paths.descResults}`);
+  log(`DESCRIPTIVE VERDICT (INCONCLUSIVE or FAIL only; nothing here can establish a durable edge)${cap === undefined ? '' : ` [SENSITIVITY: cap $${cap}]`}: ${out.judgement.verdict}`);
+  log(`report written to ${outPath}`);
   return { code: 0, verdict: out.judgement.verdict, out };
 }
 
-function renderDescriptive({ prereg, data, out, hash, base, stress, warmupBars }) {
+function renderDescriptive({ prereg, data, out, hash, base, stress, warmupBars, cap }) {
   const L = [];
   const { N } = out;
   const listDates = (d) => (d.length <= 20 ? d.join(', ') : `${d.slice(0, 20).join(', ')}, ... (${d.length} total)`);
   L.push('# Leveraged-ETF trend backtest: DESCRIPTIVE results (prereg v2)', '');
+  if (cap !== undefined) L.push(`> **SENSITIVITY RUN: position cap $${cap}** per strategy entry, instead of the prereg's $20 (C1's real budget-envelope rule). This is a what-if on the cap only; it is not the prereg's canonical run, and C1's live cap is unchanged. Benchmarks are uncapped as always.`, '');
   L.push(`Prereg v2 sha256 (verified): \`${hash}\`. Mode: descriptive. Canonical configs fixed in advance; nothing was tuned and no config was picked from any table. Cost model: ${base} bps/side base, ${stress} bps/side stress, no added expense ratio, cash leg BIL. Warm-up ${warmupBars} aligned bars.`, '');
   L.push(`## Verdict on the two primary hypotheses: ${out.judgement.verdict}`, '');
   L.push('> This mode can only return INCONCLUSIVE or FAIL. Even INCONCLUSIVE means only that the canonical rules beat the benchmarks on one short sample; it is not evidence the strategy will work going forward.', '');
@@ -521,7 +529,7 @@ function renderDescriptive({ prereg, data, out, hash, base, stress, warmupBars }
 // ---------------------------------------------------------------- main
 async function main(argv, deps = {}) {
   const log = deps.log || ((s) => console.log(s));
-  const usage = () => { log('usage: backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive'); return 1; };
+  const usage = () => { log('usage: backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive [--cap <dollars>]'); return 1; };
   const paths = { ...PATHS, ...(deps.paths || {}) };
   const modes = ['--verify-prereg', '--tune', '--test', '--descriptive'].filter((m) => argv.includes(m));
   if (modes.length !== 1) return usage();
@@ -532,13 +540,22 @@ async function main(argv, deps = {}) {
     paths.prereg = path.resolve(p);
     if (!(deps.paths && deps.paths.sha)) paths.sha = shaPathFor(paths.prereg);
   }
+  // --cap <dollars>: descriptive-mode sensitivity only (what-if on C1's $20 per-entry cap); positive finite number.
+  let cap;
+  const ci = argv.indexOf('--cap');
+  if (ci >= 0) {
+    if (modes[0] !== '--descriptive') { log('REFUSED: --cap is only allowed with --descriptive (a cap what-if must never feed --tune/--test).'); return 1; }
+    const raw = argv[ci + 1];
+    cap = Number(raw);
+    if (raw === undefined || raw.startsWith('--') || !Number.isFinite(cap) || cap <= 0) return usage();
+  }
   const v = verifyPrereg(paths.prereg, paths.sha);
   if (!v.ok) { log(`REFUSED: ${v.reason} (actual ${v.actual}, expected ${v.expected})`); return 1; }
   if (modes[0] === '--verify-prereg') { log(`prereg OK sha256 ${v.actual}`); return 0; }
   const prereg = loadPrereg(paths.prereg);
   if (modes[0] === '--descriptive' && prereg.mode !== 'descriptive') { log(`REFUSED: --descriptive needs a prereg with mode "descriptive" (this one has ${prereg.mode === undefined ? 'no mode' : `mode "${prereg.mode}"`}); pass --prereg <the v2 file>.`); return 1; }
   if (modes[0] !== '--descriptive' && prereg.mode === 'descriptive') { log(`REFUSED: ${modes[0]} needs a tune/test prereg; this prereg is descriptive (use --descriptive).`); return 1; }
-  const ctx = { prereg, deps, hash: v.actual, log, paths };
+  const ctx = { prereg, deps, hash: v.actual, log, paths, cap };
   const res = modes[0] === '--tune' ? await runTune(ctx) : modes[0] === '--test' ? await runTest(ctx) : await runDescriptive(ctx);
   if (res.message) log(res.message);
   return res.code;

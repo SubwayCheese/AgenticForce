@@ -169,6 +169,41 @@ check('findGaps ignores weekends/holidays, flags only > 5 missing trading days',
   assert.equal(small.gaps.length, 0);
 });
 
+check('feed option: sip sends feed=sip with an explicit past end date; iex stays the default; bad feed refused before any fetch', async () => {
+  const urls = [];
+  const fetchFn = async (url) => { urls.push(url); return okRes({ bars: [apiBar('2016-01-04T05:00:00Z', 100)], next_page_token: null }); };
+  await cache.fetchAdjustedBars('QQQ', { fetchFn, keys: KEYS });
+  assert.ok(urls[0].includes('feed=iex'), 'default feed must stay iex (existing cache and reports unchanged)');
+  await cache.fetchAdjustedBars('QQQ', { fetchFn, keys: KEYS, feed: 'sip' });
+  assert.ok(urls[1].includes('feed=sip'), urls[1]);
+  const m = /[?&]end=(\d{4}-\d{2}-\d{2})/.exec(urls[1]);
+  assert.ok(m, 'sip without an explicit end must send one (free plans may not query the most recent SIP data)');
+  assert.ok(m[1] < new Date().toISOString().slice(0, 10), `sip end ${m[1]} must be before today`);
+  await cache.fetchAdjustedBars('QQQ', { fetchFn, keys: KEYS, feed: 'sip', end: '2016-12-31' });
+  assert.ok(urls[2].includes('end=2016-12-31'), 'an explicit end is kept');
+  let called = false;
+  await assert.rejects(cache.fetchAdjustedBars('QQQ', { fetchFn: async () => { called = true; return okRes({ bars: [] }); }, keys: KEYS, feed: 'otc' }), /feed/);
+  assert.equal(called, false, 'an unknown feed must be refused before any network call');
+});
+
+check('feed=sip caches to its own directory with source alpaca-sip; iex cache untouched; loadBars reads per feed', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'levbars-feed-'));
+  try {
+    const fetchFn = async () => okRes({ bars: [apiBar('2016-01-04T05:00:00Z', 100), apiBar('2016-01-05T05:00:00Z', 101)], next_page_token: null });
+    const prereg = { data: { symbols: ['QQQ'] }, pairs: [] };
+    const dirs = { sip: path.join(root, 'lev-bars-sip'), iex: path.join(root, 'lev-bars') };
+    assert.equal(path.basename(cache.defaultDirFor('sip')), 'lev-bars-sip');
+    assert.equal(path.basename(cache.defaultDirFor('iex')), 'lev-bars');
+    await cache.refresh(['QQQ'], { fetchFn, keys: KEYS, prereg, feed: 'sip', dataDir: dirs.sip });
+    const doc = cache.loadDoc('QQQ', { dataDir: dirs.sip });
+    assert.equal(doc.source, 'alpaca-sip');
+    assert.equal(doc.firstDate, '2016-01-04');
+    assert.equal(fs.existsSync(path.join(dirs.iex, 'QQQ.json')), false, 'a sip refresh must not write the iex cache');
+    await cache.refresh(['QQQ'], { fetchFn, keys: KEYS, prereg, dataDir: dirs.iex });
+    assert.equal(cache.loadDoc('QQQ', { dataDir: dirs.iex }).source, 'alpaca-iex');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 (async () => {
   for (const [name, fn] of tests) {
     try { await fn(); console.log(`PASS  ${name}`); } catch (e) { failed++; console.log(`FAIL  ${name}\n      ${e && e.message}`); }
