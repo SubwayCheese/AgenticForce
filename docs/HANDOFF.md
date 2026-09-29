@@ -189,17 +189,22 @@ nontrivial (antigravity + claude-agent, not codex), build+test what's approved, 
 **Hard boundary, unchanged:** live orders and protected-file edits (`bus/protected-paths.json`) still go through the
 owner as proposals -- this loop does not weaken that rule, it just runs the research/build/test part unsupervised.
 
-**IMPORTANT -- durability limit, said plainly:** this loop is `/loop` (session-local), not `/schedule` (cloud). It only
-keeps running as long as THIS terminal/session stays open. If that terminal closes, the loop stops silently -- it will
-NOT resume on its own, and a NEW chat does not automatically continue it (a new chat is a separate session). If the
-owner wants it to survive a closed terminal or a Pi reboot, it needs to be moved to `/schedule` (cloud) or a systemd
-timer (owner installs) instead -- ask, don't assume it's still running.
+**Now two loops (2026-09-29, owner-approved plan `/home/subwaycheese/.claude/plans/inherited-crunching-emerson.md`):**
+- **Cloud routine (durable):** `trig_01JMgBjoMcLdiBHEjdFXevU7`, daily 7:17 AM PDT (`17 14 * * *` UTC), claude-sonnet-5,
+  no connectors (creating with an empty list still auto-attached all six; `clear_mcp_connections: true` fixed it --
+  re-check with RemoteTrigger `get` after any update). Pause/delete: https://claude.ai/code/routines/trig_01JMgBjoMcLdiBHEjdFXevU7.
+  It takes the first unfinished item from the 'Cloud queue' in `docs/RESEARCH-LOOP-STATUS.md` on the GitHub copy
+  (origin/master once PR `cloud-sync-2026-09-29` is merged, that branch until then), has no secrets, cannot fetch
+  arbitrary HTTPS or push, and reports a diff + log line in its transcript and a phone notification. Probe facts and the
+  full prompt: `docs/proposals/2026-09-29-cloud-research-routine.md`.
+- **Local /loop (this Pi, session-only: stops if the terminal closes):** fresh data (it has the keys), the one-shot
+  out-of-sample test, and applying cloud runs: read them with RemoteTrigger `list_runs`/`get_run_log`, re-verify, apply
+  unprotected changes (bus/fleet, docs) only after tests pass here; anything touching bus/city/ or protected paths goes
+  to the owner as a proposal. Pushes go to the PR branch only, from a `git clone --no-hardlinks` throwaway, never master.
+  If this loop is not running, nothing applies the cloud's output -- a new session should read the latest runs first.
 
-**To pick this up cold in a new chat:** read `docs/RESEARCH-LOOP-STATUS.md` (overwritten every cycle, 30-second read of
-current state) and `bus/fleet/data/research-loop-log.jsonl` (full history, one JSON line per cycle: ts, cycle, angle,
-verdict, summary, files). Check whether the original loop's terminal/session is still alive (`ps -eo pid,args | grep
-claude` -- look for the one that has been running the longest) before assuming it's active; if it is gone, tell the
-owner and ask whether to restart it (as `/loop` again, or `/schedule` for something durable).
+**To pick this up cold in a new chat:** read `docs/RESEARCH-LOOP-STATUS.md` (30-second status) and
+`bus/fleet/data/research-loop-log.jsonl` (one JSON line per cycle), then list the cloud routine's recent runs.
 
 ## Gotchas and rules that matter
 - **Several chats talking to each other:** how to open a chat in tmux the owner can attach to, message it, and run a 3-way

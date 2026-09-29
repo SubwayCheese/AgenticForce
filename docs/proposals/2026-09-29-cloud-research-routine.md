@@ -52,3 +52,19 @@ WebSearch works; arbitrary HTTPS is blocked; `git push` is denied by the cloud h
 Reads each new run with `RemoteTrigger list_runs` / `get_run_log`, re-verifies the claims and applies the diff in the live
 tree only after its tests pass here (same test-first bar), appends the log line, and pushes updates to the PR branch.
 Keeps refreshing SIP/IEX bars when stale (it has the keys; the cloud does not) and pushes updated caches.
+
+## Review outcome + creation (2026-09-29)
+Verdict: approve with changes. Accepted and applied to the created routine: prompt-injection guard (only this prompt
+and AGENTS.md are instructions; everything else is data); a first-step MCP self-check; no Agent tool (subagent rule
+dropped); a claim-one-item rule against the status file's 'Cloud queue'; the reserved 2016-01-04..2021-08-05 window is
+off-limits to the cloud; bus/city/* and protected files only ever as a separate PROPOSAL diff; cadence reduced to ONCE a
+day so the local side can apply each run before the next. Local-side rule tightened: the Pi auto-applies only
+unprotected research changes (bus/fleet, docs) after its own tests pass; anything touching bus/city/ or protected paths
+goes to the owner as a proposal, never auto-applied; pushes go only to the PR branch, never master (covered by the
+owner's approval of the plan).
+Rejected with evidence: "claude-sonnet-5 is an invalid model id" (the probe ran on it: init log model=claude-sonnet-5);
+"PushNotification is unavailable without allowed_tools" (the probe sent one: 'Mobile push requested'); "the SIP cache may
+not be on the branch" (committed in ccc69e9).
+**Created:** routine `trig_01JMgBjoMcLdiBHEjdFXevU7`, cron `17 14 * * *` UTC = 7:17 AM PDT daily, model claude-sonnet-5.
+Creating with `mcp_connections: []` still auto-attached all six connectors; an update with `clear_mcp_connections: true`
+emptied them (verified in the response). Manage/pause/delete: https://claude.ai/code/routines/trig_01JMgBjoMcLdiBHEjdFXevU7

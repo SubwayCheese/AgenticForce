@@ -46,3 +46,21 @@ window and sub-spans; a `judgeHoldout()` that can only return HOLDS / PARTLY HOL
 `bus/fleet/data/lev-backtest-holdout-results.md`. Selftests (written first, shown to fail first): refuses any other
 prereg mode; never evaluates a bar after 2021-08-05 (mutating later bars changes nothing); the judge's truth table; the
 report contains every disclosure and never the word PASS.
+
+## Review outcome (2026-09-29, antigravity answer + claude-agent verification) -- binding for v3
+Verdict: approve with changes. Accepted, and part of the frozen rules:
+1. **Starting equity fixed at $50** (C1's lifetime allocation); the $30 cap is meaningless without it.
+2. **`warmupBars: 250`** written into the prereg (hash-locked).
+3. **BIL SIP depth:** confirmed 2016-01-04..2026-09-28, 2699 bars, 0 missing days (cycle-4 fetch); stated in the prereg.
+4. **Window cut before simulation:** bars after 2021-08-05 are removed BEFORE signals are computed, so no post-window
+   state can leak (selftest: mutating post-window bars changes nothing). **No return is attributed before warm-up ends**
+   (selftest).
+5. **Run lock:** `--holdout` refuses if `bus/fleet/data/lev-backtest-holdout-results.md` already exists; the prereg v3 +
+   `.sha256` are committed (and pushed to the PR branch) before the run, and the report prints that commit's SHA.
+6. **Added disclosures:** (a) 2020-07-27..2021-08-05 prices (IEX) were used as indicator warm-up by the v2 runs and in
+   the cycle-4 SIP-vs-IEX price comparison -- used, never scored; (b) the cycle-4 SIP fetch was a raw price pull with a
+   gap/sanity check only, no signal/return/equity computed on 2016-2021; (c) hindsight: everyone involved knows how 2018
+   and 2020 played out, and 200-day trend rules are known to have sidestepped parts of both; the configs are canonical,
+   which limits but does not remove this bias.
+Rejected with evidence: none of the reviewer's Draft-A points were rejected; its QQQ 2020 drawdown figure is irrelevant
+to the design (the tolerance is relative to whatever QQQ's measured drawdown is).
