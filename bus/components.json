@@ -100,6 +100,34 @@
       "domain": "fleet",
       "status": "library"
     },
+    "backtest-lev-trend.js": {
+      "domain": "fleet",
+      "status": "manual"
+    },
+    "lev-backtest-engine.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "lev-backtest-selftest.js": {
+      "domain": "fleet",
+      "status": "manual"
+    },
+    "lev-bars-cache.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "lev-bars-cache-selftest.js": {
+      "domain": "fleet",
+      "status": "manual"
+    },
+    "lev-bars-tiingo.js": {
+      "domain": "fleet",
+      "status": "library"
+    },
+    "lev-bars-tiingo-selftest.js": {
+      "domain": "fleet",
+      "status": "manual"
+    },
     "backtest-screen-score.js": {
       "domain": "fleet",
       "status": "legacy"

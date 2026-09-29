@@ -1,0 +1,62 @@
+--- a/bus/city/survive-executor.js
++++ b/bus/city/survive-executor.js
+@@ -22,6 +22,7 @@
+ const cityRegistry = require('./city-registry.js');
+ const ntfy = require('../platform/ntfy.js');
+ const { parseStopPrice } = require('../fleet/execute-portfolio-setup.js');
++const shadow = require('./survive-shadow.js');
+ 
+ const VAULT_ROOT = avPaths.ROOT;
+ const TASKS_SURVIVE_DIR = path.join(VAULT_ROOT, 'tasks', 'survive');
+@@ -79,7 +80,18 @@
+   throw new Error(`No parseable decision JSON block found in ${taskPath}`);
+ }
+ 
+-function validateDecision(decision) {
++// The symbols a mission's research was actually shown: the fixed baseline universe plus that mission's scan symbols that
++// passed the liquidity floor, i.e. exactly the candidates recorded in the mission's shadow snapshot (written by
++// authorNewMission before the tasks are created). Returns a Set of upper-case symbols, or null when no snapshot exists.
++function allowedEntrySymbols(citizenId, missionId) {
++  const snap = shadow.readShadowEvents().filter((e) => e.type === 'snapshot' && e.citizenId === citizenId && e.missionId === missionId).pop();
++  return snap && Array.isArray(snap.candidates) ? new Set(snap.candidates.map((c) => String(c.symbol).trim().toUpperCase())) : null;
++}
++
++// opts.allowedSymbols (Set|null): when the key is present, an 'enter' must name one of them (null = fail closed: no
++// snapshot to check against). Omitting the key keeps the old shape-only check, so existing callers behave the same.
++// On success the symbol is normalized to trimmed upper case, because that exact string is what gets sent to Alpaca.
++function validateDecision(decision, opts = {}) {
+   const allowed = ['enter', 'exit', 'hold', 'no-action'];
+   if (!allowed.includes(decision.decision)) {
+     throw new Error(`decision field must be one of ${allowed.join('/')}, got: ${decision.decision}`);
+@@ -88,6 +100,14 @@
+     if (!decision.symbol || typeof decision.notionalUsd !== 'number' || decision.notionalUsd <= 0) {
+       throw new Error(`'enter' decision requires a symbol and a positive numeric notionalUsd -- refusing to guess a malformed decision`);
+     }
++    if ('allowedSymbols' in opts) {
++      if (!opts.allowedSymbols) throw new Error(`'enter' refused: no candidate snapshot recorded for this mission, so symbol ${JSON.stringify(decision.symbol)} cannot be checked against the universe the research saw`);
++      const sym = String(decision.symbol).trim().toUpperCase();
++      if (!opts.allowedSymbols.has(sym)) {
++        throw new Error(`'enter' refused: symbol ${JSON.stringify(decision.symbol)} is not in this mission's candidate universe (${[...opts.allowedSymbols].join(', ')})`);
++      }
++      decision.symbol = sym;
++    }
+   }
+ }
+ 
+@@ -429,7 +449,7 @@
+   let decision;
+   try {
+     decision = extractSurviveDecision(taskId);
+-    validateDecision(decision);
++    validateDecision(decision, decision.decision === 'enter' ? { allowedSymbols: allowedEntrySymbols(citizenId, missionId) } : {});
+   } catch (err) {
+     appendMissionEvent({ type: 'mission-resolved', citizenId, missionId, outcome: 'error', reason: `could not parse/validate decision: ${err.message}` });
+     return { ranAnything: true, outcome: 'error', reason: err.message };
+@@ -459,6 +479,7 @@
+   readMissionEvents,
+   extractSurviveDecision,
+   validateDecision,
++  allowedEntrySymbols,
+   findLatestUnresolvedDecision,
+   runForCitizen,
+   executeExit,

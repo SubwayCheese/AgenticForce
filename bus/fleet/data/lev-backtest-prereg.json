@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "frozenOn": "2026-09-26",
+  "purpose": "Predeclared rules for the leveraged-ETF trend backtest. Edited only by adding a new version file; the CLI refuses to run if lev-backtest-prereg.sha256 does not match this file.",
+  "data": {
+    "source": "Alpaca IEX daily bars, adjustment=all (split+dividend adjusted), via fleet paper keys",
+    "symbols": ["QQQ", "SPY", "TQQQ", "QLD", "UPRO", "SSO", "BIL", "SHY"],
+    "excluded": ["SQQQ", "UVXY", "SOXL", "SGOV"],
+    "excludedWhy": "SQQQ/UVXY reverse splits and short exposure; SOXL sector-specific (limits multiplicity); SGOV only trades from 2020 so the cash leg is BIL for the whole period",
+    "firstDatePerSymbolRecorded": true,
+    "sanity": "flag a day when |ret_etf - L * ret_underlying| exceeds 0.10, or |log return| exceeds 0.70; a flag stops the run for manual review. There is NO fixed 0.35 cap (TQQQ fell ~35% on 2020-03-16)."
+  },
+  "windows": { "tuneEnd": "2021-12-31", "testStart": "2022-01-03", "note": "tune ~2016-2021, test 2022 onward; selection uses the tune window only" },
+  "pairs": [
+    { "underlying": "QQQ", "traded": ["TQQQ", "QLD", "QQQ"], "leverage": [3, 2, 1] },
+    { "underlying": "SPY", "traded": ["UPRO", "SSO", "SPY"], "leverage": [3, 2, 1] }
+  ],
+  "cashLeg": "BIL (adjusted total return) while out of market",
+  "execution": "signal on the underlying's close at t; fill at the traded ETF's open at t+1 (bars[i+1].open); no fill at the same bar as the signal",
+  "warmup": "no signal until the longest SMA window has a full set of closes; the first max(window) bars only fill the window",
+  "strategies": {
+    "S1_trend_band": { "rule": "long when underlying close > SMA(n)*(1+band); flat when close < SMA(n)*(1-band); otherwise keep the prior state", "grid": { "n": [150, 175, 200, 225, 250], "bandPct": [0, 1, 2, 3] } },
+    "S2_dual_fast_exit": { "rule": "long when SMA(50) > SMA(slow) and close > SMA(slow); exit when underlying close < SMA(50) OR the underlying's close falls trailingDD below its high since entry; re-enter only when the entry condition is true again", "grid": { "slow": [150, 200, 250], "trailingDDPct": [8, 10, 15] }, "trailingDDMeasuredOn": "underlying close" },
+    "S3_vol_target": { "rule": "S1(n=200, band=2) gate; when long, weight = min(1, targetVol / (leverage * realizedVol20(underlying))); rest in cash leg", "grid": { "targetVolPct": [15, 20] }, "note": "secondary; weak fit for a $50 account" },
+    "benchmarks": ["buy-and-hold each traded ETF", "buy-and-hold underlying"]
+  },
+  "selection": "For each strategy family and each pair, choose the ONE config with the highest Calmar on the tune window (ties: the larger n / band). Freeze it. Evaluate only that config on the test window. The grid neighbours are then evaluated on the test window ONLY to report stability, never to select.",
+  "primaryHypotheses": ["S1 on QQQ->TQQQ", "S2 on QQQ->TQQQ"],
+  "primaryWhy": "limits the number of pass/fail claims; everything else is reported as secondary with no pass claim",
+  "costs": {
+    "expenseRatio": "NOT added: adjusted prices already net the fund's expense ratio out of NAV (adding it would double-count)",
+    "slippagePerSideBps": { "base": 5, "stress": 15 },
+    "cash": "BIL adjusted returns already include its yield"
+  },
+  "cashAccountRules": "engine forbids a round trip that opens and closes on the same day (no selling a position bought with unsettled funds). A same-open swap between traded ETF and BIL is allowed. Whether Alpaca applies further rules is UNVERIFIED.",
+  "variants": ["idealized fractional", "whole-share with the $20 position cap (report the traded ETF's price against the cap; if one share exceeds $20 the variant can never buy and is reported as such)"],
+  "passRule": {
+    "evaluatedOn": "test window, the frozen config, primary hypotheses only",
+    "all_of": [
+      "max drawdown smaller than buy-and-hold of the traded ETF AND Calmar higher than that buy-and-hold",
+      "after-cost CAGR higher than buy-and-hold of the underlying (QQQ)",
+      "still true with 15 bps/side slippage",
+      "at least 5 completed round trips in the TEST window (fewer => verdict INCONCLUSIVE, never PASS)",
+      "neighbour stability: for every one-step neighbour of the frozen config (one grid step in either direction, one dimension at a time), test-window Sharpe differs from the frozen config's by less than 0.15"
+    ],
+    "reportedNotGating": ["bootstrap CI of excess return (illustrative: too few trades to be meaningful)", "deflated Sharpe ratio", "worst month", "ulcer index", "trades per year", "decomposition: strategy vs traded-ETF buy-and-hold (drawdown avoidance vs timing)"],
+    "meaning": "PASS means only that the rule survived these predeclared tests on past data; it is not evidence the strategy will work going forward"
+  },
+  "multipleTesting": {
+    "deflatedSharpe": "Bailey & Lopez de Prado (2014): DSR = Phi( (SR_hat - SR0) * sqrt(T-1) / sqrt(1 - g3*SR_hat + ((g4-1)/4)*SR_hat^2) ), SR0 = sqrt(V[SR]) * ((1-gamma)*Phi^-1(1-1/N) + gamma*Phi^-1(1-1/(N*e))), gamma = 0.5772",
+    "N": "count of every config evaluated on any window, uncorrelated (conservative): (20 + 9 + 2) configs x 6 pairs = 186",
+    "stepSizes": "n in steps of 25; band in steps of 1 percentage point; slow in {150,200,250}; trailingDD in {8,10,15}"
+  },
+  "disclosures": [
+    "Stress period 2008-2009 is absent from Alpaca IEX history; maximum-drawdown figures are NOT the historical worst case for these instruments.",
+    "IEX bars are one exchange's prints; the 'open' is IEX's first trade, not the official opening auction.",
+    "Round-trip counts in the test window will be small; confidence intervals are illustrative only."
+  ],
+  "unverified": ["Alpaca free-tier history start date (recorded at first fetch)", "fractionability of traded ETFs (getAsset)", "cash-account good-faith/settlement handling beyond the same-day rule"],
+  "forwardLog": { "gateC": ">=60 trading days AND >=1 completed entry->exit round trip in the forward log, or an explicit owner waiver with a documented reason", "mustNotImport": "any order-submission path (survive-executor.js, alpaca submitOrder); selftest asserts no order calls" },
+  "secrets": "error messages must redact APCA-API-KEY-ID and APCA-API-SECRET-KEY values; selftest asserts no key substring in any thrown error"
+}

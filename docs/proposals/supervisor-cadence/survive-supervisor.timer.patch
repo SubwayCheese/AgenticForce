@@ -1,0 +1,19 @@
+--- a/bus/deploy/pi/survive-supervisor.timer
++++ b/bus/deploy/pi/survive-supervisor.timer
+@@ -1,6 +1,13 @@
+-# Companion timer for survive-supervisor.service -- fires every 2 hours,
+-# matching survive-supervisor.js's own MISSION_COOLDOWN_HOURS constant.
+-# Round 28: 4h -> 2h, offset by survive-supervisor.js alternating each
++# Companion timer for survive-supervisor.service -- WAKES every 2 hours.
++# A wake does ONE thing per citizen: execute a finished decision, or else author
++# a new mission (survive-supervisor.js main(): the loop `continue`s after an
++# execution). So a mission is authored on one wake and executed on the next:
++# about ONE MISSION EVERY 4 HOURS (~6 a day, strictly alternating author /
++# execute in bus/survive-supervisor.log), not every 2. MISSION_COOLDOWN_HOURS=2
++# is measured from the last mission-resolved, which is written at execution time,
++# so it is satisfied by exactly one timer interval. Consequence: a decision waits
++# up to 2h after it is written before it is executed.
++# Round 28: 4h -> 2h wakes, offset by survive-supervisor.js alternating each
+ # mission's whole task chain between codex and claude-agent so this does
+ # not simply double codex load. Still much less frequent than the trading
+ # fleet's 30-min timer -- this is real money on a hard-capped stake with a

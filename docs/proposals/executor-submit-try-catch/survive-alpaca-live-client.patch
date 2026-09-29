@@ -1,0 +1,23 @@
+--- a/bus/city/survive-alpaca-live-client.js	2026-09-26 02:15:16.300097760 -0700
++++ b/bus/city/survive-alpaca-live-client.js	2026-09-26 02:15:33.672759690 -0700
+@@ -100,6 +100,12 @@
+   return apiRequest('GET', `/orders/${encodeURIComponent(orderId)}`);
+ }
+ 
++// Exact lookup by our own client order id (Alpaca: GET /orders:by_client_order_id). Answers "did that submit land?" after a
++// timeout or lost response without paging through the order list. A 404 means no such order (this client throws on it).
++function getOrderByClientOrderId(clientOrderId) {
++  return apiRequest('GET', `/orders:by_client_order_id?client_order_id=${encodeURIComponent(normalizeClientOrderId(clientOrderId))}`);
++}
++
+ // Round 15: real asset metadata (tradable/fractionable/status) and the
+ // real market clock -- read-only, used to ground research in verified
+ // facts instead of LLM-guessed ones.
+@@ -179,6 +185,7 @@
+   getAsset, getClock,
+   submitOrder, cancelOrder, assertLongOnlyOrder, normalizeClientOrderId, CLIENT_ORDER_ID_MAX,
+ };
++module.exports.getOrderByClientOrderId = getOrderByClientOrderId;
+ 
+ // CLI: node survive-alpaca-live-client.js account|positions|orders|asset <SYM>|clock
+ if (require.main === module) {
