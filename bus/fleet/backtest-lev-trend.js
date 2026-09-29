@@ -1,6 +1,6 @@
 // CLI for the leveraged-ETF trend backtest: prereg check, tune-window selection, frozen test-window verdict and report.
 //
-// Usage:  node bus/fleet/backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive [--cap <dollars>]
+// Usage:  node bus/fleet/backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive [--cap <dollars>] | --holdout
 //   --cap            descriptive only: per-entry position cap what-if (default $20 = prereg/C1 rule); writes <report>.cap<N>.md
 //   --prereg <path>  use another prereg file (default: v1, data/lev-backtest-prereg.json).  Its hash file is derived by replacing
 //                    the trailing ".json" with ".sha256": lev-backtest-prereg.json -> lev-backtest-prereg.sha256 (v1) and
@@ -10,6 +10,13 @@
 //                    5 and 15 bps, idealized and whole-share, adds a sensitivity table (descriptive only) and writes
 //                    data/lev-backtest-descriptive-results.md.  Its verdict is INCONCLUSIVE or FAIL and can never be a pass.
 //                    --tune/--test refuse a descriptive prereg; --descriptive refuses a prereg whose mode is not "descriptive".
+//   --holdout        requires a prereg with mode "holdout" (v3) and a matching hash; ONE-SHOT: refuses if
+//                     data/lev-backtest-holdout-results.md already exists (run lock). Loads SIP bars via lev-bars-cache
+//                     (feed 'sip'), cuts every series at windows.windowEnd BEFORE any signal/return is computed, evaluates
+//                     the fixed configs at both caps and both slippage levels (fractional, initialEquity 50) on the full
+//                     window and both sub-spans, judges hypothesis H (judgeHoldout: HOLDS/PARTLY HOLDS/DOES NOT HOLD only)
+//                     and writes data/lev-backtest-holdout-results.md. --cap is refused with --holdout (caps are fixed by
+//                     the prereg); --descriptive/--tune/--test refuse a holdout prereg and --holdout refuses any other mode.
 //   --verify-prereg  sha256(lev-backtest-prereg.json) must equal lev-backtest-prereg.sha256, else EVERY mode refuses.
 //   --tune           tune window only (date <= windows.tuneEnd): per strategy family and pair, evaluate the whole prereg grid,
 //                    keep the ONE config with the highest Calmar (ties: larger n/slow/targetVol, then larger band/DD), and
@@ -25,6 +32,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 const avPaths = require('../lib/paths.js');
 const engine = require('./lev-backtest-engine.js');
 
@@ -34,6 +42,7 @@ const PATHS = {
   frozen: avPaths.fleetData('lev-backtest-frozen-configs.json'),
   results: avPaths.fleetData('lev-backtest-results.md'),
   descResults: avPaths.fleetData('lev-backtest-descriptive-results.md'),
+  holdoutResults: avPaths.fleetData('lev-backtest-holdout-results.md'),
 };
 const STABILITY_TOLERANCE = 0.15;
 const MIN_TEST_ROUND_TRIPS = 5;
@@ -367,9 +376,10 @@ function spansFor(prereg, al, warmupBars) {
 
 // cap: per-entry position cap in dollars for the strategy (undefined = the engine default, $20, which is the prereg's and
 // C1's real budget-envelope rule). Benchmarks ignore it (the engine gives them cap: Infinity).
-function safeEval(al, spec, span, bps, variant, warmupBars, cap) {
+function safeEval(al, spec, span, bps, variant, warmupBars, cap, initialEquity) {
   const opts = { window: span.window, slippageBps: bps, variant, warmupBars };
   if (cap !== undefined) opts.cap = cap;
+  if (initialEquity !== undefined) opts.initialEquity = initialEquity;
   try { return engine.evaluateConfig(al, spec, opts); } catch (e) { return { error: e.message }; }
 }
 
@@ -526,12 +536,243 @@ function renderDescriptive({ prereg, data, out, hash, base, stress, warmupBars, 
   return L.join('\n');
 }
 
+// ---------------------------------------------------------------- holdout mode (prereg v3, one-shot)
+// docs/proposals/2026-09-29-unseen-window-test.md (binding review outcome at its bottom). Fixed configs, fixed caps
+// ($20, $30), fixed window; no tuning, no selection; a run lock refuses a second run against the same results file.
+
+// N = caps x 3 families x pairs (defensive check against the text in prereg.multipleTesting.N, mirrors trialCount()).
+function holdoutN(prereg) {
+  const n = prereg.caps.length * 3 * pairsOf(prereg).length;
+  const m = /N\s*=\s*(\d+)/.exec(prereg.multipleTesting.N);
+  if (m && Number(m[1]) !== n) throw new Error(`prereg N mismatch: text says ${m[1]}, computed ${n}`);
+  return n;
+}
+
+// Load SIP bars and cut every series at windows.windowEnd BEFORE any signal or return is computed -- nothing after that
+// date is ever seen by a signal generator or the simulator. Mirrors loadDescriptiveData's pre-computation drop, but drops
+// the FUTURE tail instead of a past head.
+async function loadHoldoutData(prereg, deps) {
+  let loadBars = deps.loadBars;
+  if (!loadBars) loadBars = (sym, opts) => require('./lev-bars-cache.js').loadBars(sym, opts); // lazy: engine/selftest never need it
+  const windowEnd = prereg.windows.windowEnd;
+  const bars = {}, firstDates = {}, lastDates = {}, rawCounts = {}, droppedPost = {};
+  for (const sym of prereg.data.symbols) {
+    const raw = await loadBars(sym, { feed: prereg.data.feed || 'sip' });
+    if (!Array.isArray(raw) || !raw.length) throw new Error(`no bars for ${sym}`);
+    firstDates[sym] = raw[0].date;
+    rawCounts[sym] = raw.length;
+    droppedPost[sym] = raw.filter((b) => b.date > windowEnd).map((b) => b.date);
+    const kept = raw.filter((b) => b.date <= windowEnd); // CUT before any computation: no bar after windowEnd is ever kept
+    if (!kept.length) throw new Error(`no bars for ${sym} on or before ${windowEnd}`);
+    bars[sym] = kept;
+    lastDates[sym] = kept[kept.length - 1].date;
+  }
+  const cash = prereg.cashLeg.split(' ')[0];
+  const aligned = {}, flags = [];
+  for (const p of pairsOf(prereg)) {
+    aligned[p.key] = engine.alignBars(bars[p.underlying], bars[p.traded], bars[cash]);
+    for (const f of engine.sanityCheckPair(bars[p.underlying], bars[p.traded], p.leverage)) flags.push({ pair: p.key, ...f });
+  }
+  return { bars, firstDates, lastDates, rawCounts, droppedPost, aligned, flags, cash, windowEnd };
+}
+
+function holdoutSpans(prereg, al, warmupBars) {
+  const ss = prereg.subSpans;
+  const full = engine.windowIndices(al.dates, {}, warmupBars - 1);
+  return [
+    { key: 'full', label: `full evaluation window (${full.startDate} to ${full.endDate})`, window: {} },
+    { key: 'y2018', label: `calendar 2018 (${ss.y2018.start} to ${ss.y2018.end})`, window: { start: ss.y2018.start, end: ss.y2018.end } },
+    { key: 'crash2020', label: `2020 crash and recovery (${ss.crash2020.start} to ${ss.crash2020.end})`, window: { start: ss.crash2020.start, end: ss.crash2020.end } },
+  ];
+}
+
+// Hypothesis H's judge. Can ONLY return one of the three verdicts below, whatever the inputs.
+// inp = {S1:{base:{strat:{cagr,maxDD}, underBH:{cagr,maxDD}}, stress:{same}}, S2:{...}}; tolerancePp is a FRACTION (0.02 = 2pp).
+function judgeHoldout(inp, tolerancePp = 0.02) {
+  const crit = (x) => ({ cagrPass: x.strat.cagr > x.underBH.cagr, ddPass: x.strat.maxDD <= x.underBH.maxDD + tolerancePp + 1e-9, values: x });
+  const mk = (fam) => {
+    const base = crit(inp[fam].base), stress = crit(inp[fam].stress);
+    return {
+      family: fam,
+      base: { ...base, pass: base.cagrPass && base.ddPass },
+      stress: { ...stress, pass: stress.cagrPass && stress.ddPass },
+      fullHolds: base.cagrPass && base.ddPass && stress.cagrPass && stress.ddPass,
+    };
+  };
+  const S1 = mk('S1'), S2 = mk('S2');
+  const bothAt5 = S1.base.pass && S2.base.pass;
+  const bothAt15 = S1.stress.pass && S2.stress.pass;
+  const holds = bothAt5 && bothAt15;
+  const partly = !holds && (bothAt5 || (S1.fullHolds !== S2.fullHolds));
+  const verdict = holds ? 'HOLDS' : partly ? 'PARTLY HOLDS' : 'DOES NOT HOLD';
+  if (!['HOLDS', 'PARTLY HOLDS', 'DOES NOT HOLD'].includes(verdict)) throw new Error('internal error: judgeHoldout verdict out of range');
+  return { verdict, S1, S2 };
+}
+
+// Read-only, best-effort: the commit that last touched the prereg file. Never mutates anything (no add/commit/push);
+// 'UNCOMMITTED' if git has no record of it (untracked file, or this tree is not a git checkout).
+function preregCommitSha(preregPath, cwd) {
+  try {
+    const res = spawnSync('git', ['log', '-1', '--format=%H', '--', preregPath], { cwd: cwd || avPaths.ROOT, encoding: 'utf8', timeout: 5000 });
+    const sha = res.status === 0 ? (res.stdout || '').trim() : '';
+    return sha || 'UNCOMMITTED';
+  } catch (e) { return 'UNCOMMITTED'; }
+}
+
+async function runHoldout(ctx) {
+  const { prereg, deps, hash, log } = ctx;
+  if (fs.existsSync(ctx.paths.holdoutResults)) {
+    return { code: 3, message: `REFUSED: ${ctx.paths.holdoutResults} already exists. --holdout is a one-shot run lock (prereg "oneShot" rule); delete/move the file only to knowingly allow a documented rerun (regression test shown to fail on the pre-fix code, both reports kept).` };
+  }
+  const data = await loadHoldoutData(prereg, deps);
+  if (data.flags.length) return { code: 2, message: `sanity flags in data, stopping for manual review: ${JSON.stringify(data.flags.slice(0, 10))}` };
+  const N = holdoutN(prereg);
+  const base = prereg.costs.slippagePerSideBps.base, stress = prereg.costs.slippagePerSideBps.stress;
+  const warmupBars = prereg.warmupBars;
+  const equity0 = prereg.startingEquity;
+  const pairs = pairsOf(prereg);
+  const out = { pairs: {}, N };
+
+  for (const pair of pairs) {
+    const al = data.aligned[pair.key];
+    const spans = holdoutSpans(prereg, al, warmupBars);
+    const pr = { pair, spanList: spans, caps: {}, window: null };
+    for (const cap of prereg.caps) {
+      const capOut = { spans: {} };
+      for (const span of spans) {
+        const cell = { span, configs: {} };
+        for (const { family, def } of DESC_FAMILIES) {
+          const spec = specOf(family, prereg.strategies[def].canonical, pair.leverage);
+          const b5 = safeEval(al, spec, span, base, 'fractional', warmupBars, cap, equity0);
+          const b15 = safeEval(al, spec, span, stress, 'fractional', warmupBars, cap, equity0);
+          const r = { spec, b5, b15 };
+          if (span.key === 'full' && !b5.error) r.dsr = engine.deflatedSharpeFromReturns(b5.returns, N);
+          cell.configs[family] = r;
+        }
+        capOut.spans[span.key] = cell;
+      }
+      pr.caps[cap] = capOut;
+    }
+    const anyFull = pr.caps[prereg.caps[0]].spans.full.configs.S1.b5;
+    if (!anyFull.error) pr.window = { startDate: anyFull.window.startDate, endDate: anyFull.window.endDate };
+    out.pairs[pair.key] = pr;
+  }
+
+  const primaryPair = out.pairs[prereg.primaryHypothesis.pair];
+  const primaryCap = prereg.primaryHypothesis.cap;
+  const full = primaryPair && primaryPair.caps[primaryCap] && primaryPair.caps[primaryCap].spans.full;
+  if (!full || ['S1', 'S2'].some((f) => full.configs[f].b5.error || full.configs[f].b15.error)) {
+    return { code: 2, message: `cannot evaluate hypothesis H on ${prereg.primaryHypothesis.pair} at cap $${primaryCap} (see the data)` };
+  }
+  const grab = (x) => ({ strat: { cagr: x.metrics.cagr, maxDD: x.metrics.maxDD }, underBH: { cagr: x.benchmarks.underlying.metrics.cagr, maxDD: x.benchmarks.underlying.metrics.maxDD } });
+  const inp = {
+    S1: { base: grab(full.configs.S1.b5), stress: grab(full.configs.S1.b15) },
+    S2: { base: grab(full.configs.S2.b5), stress: grab(full.configs.S2.b15) },
+  };
+  const judgement = judgeHoldout(inp, prereg.primaryHypothesis.drawdownTolerancePp / 100);
+  out.judgement = judgement;
+
+  const commitSha = preregCommitSha(ctx.paths.prereg);
+  const md = renderHoldout({ prereg, data, out, hash, base, stress, warmupBars, equity0, commitSha });
+  if (/\bPASS\b/.test(md)) throw new Error('internal error: the holdout report must never contain the word PASS');
+  fs.writeFileSync(ctx.paths.holdoutResults, md);
+  log('');
+  log(`Hypothesis H (S1 & S2 on ${prereg.primaryHypothesis.pair}, cap $${primaryCap}): ${judgement.verdict}`);
+  for (const fam of ['S1', 'S2']) {
+    const j = judgement[fam];
+    log(`  ${fam}: at ${base} bps ${j.base.pass ? 'meets' : 'FAILS'} both conditions; at ${stress} bps ${j.stress.pass ? 'meets' : 'FAILS'} both conditions`);
+  }
+  log(prereg.verdictVocabulary);
+  log(`prereg commit: ${commitSha}`);
+  log(`report written to ${ctx.paths.holdoutResults}`);
+  return { code: 0, verdict: judgement.verdict };
+}
+
+function renderHoldout({ prereg, data, out, hash, base, stress, warmupBars, equity0, commitSha }) {
+  const L = [];
+  const { N, judgement } = out;
+  const listDates = (d) => (d.length <= 20 ? d.join(', ') : `${d.slice(0, 20).join(', ')}, ... (${d.length} total)`);
+  L.push('# Leveraged-ETF trend backtest: HOLDOUT results (prereg v3, one-shot)', '');
+  L.push(`Prereg v3 sha256 (verified): \`${hash}\`. Prereg commit (read-only \`git log\`): \`${commitSha}\`.`, '');
+  L.push(`Mode: holdout. Fixed configs and the $20/$30 caps were chosen before this window was examined (S1/S2/S3 unchanged from the cycle-3 run and prereg v2); no tuning or selection happens here. Evaluation window: first fill after the ${warmupBars}-bar common warm-up through ${prereg.windows.windowEnd} (every series is cut at that date BEFORE any signal or return is computed, so nothing after it can influence any number below). Starting equity $${equity0}. Cost model: ${base} bps/side base, ${stress} bps/side stress, no added expense ratio, cash leg BIL.`, '');
+
+  L.push(`## Verdict on hypothesis H: ${judgement.verdict}`, '');
+  L.push(`> H: ${prereg.primaryHypothesis.text}`, '');
+  L.push(`> HOLDS: ${prereg.primaryHypothesis.verdictRules.HOLDS}. PARTLY HOLDS: ${prereg.primaryHypothesis.verdictRules['PARTLY HOLDS']}. DOES NOT HOLD: otherwise.`, '');
+  L.push(`> ${prereg.verdictVocabulary}`, '');
+
+  L.push(`### Primary criteria (${prereg.primaryHypothesis.pair}, cap $${prereg.primaryHypothesis.cap}, full evaluation window)`, '');
+  L.push('| config | cost | after-cost CAGR | vs QQQ buy-and-hold CAGR | CAGR pass | max DD | vs QQQ buy-and-hold maxDD + 2pp | maxDD pass | both pass |', '|---|---|---|---|---|---|---|---|---|');
+  for (const fam of ['S1', 'S2']) {
+    for (const [costLabel, c] of [[`${base} bps`, judgement[fam].base], [`${stress} bps`, judgement[fam].stress]]) {
+      const v = c.values;
+      L.push(`| ${fam} | ${costLabel} | ${pct(v.strat.cagr)} | ${pct(v.underBH.cagr)} | ${c.cagrPass ? 'pass' : 'FAIL'} | ${pct(v.strat.maxDD)} | ${pct(v.underBH.maxDD + prereg.primaryHypothesis.drawdownTolerancePp / 100)} | ${c.ddPass ? 'pass' : 'FAIL'} | ${c.pass ? 'pass' : 'FAIL'} |`);
+    }
+  }
+  L.push('');
+
+  L.push('## Disclosures (verbatim from the prereg)', '');
+  for (const d of prereg.disclosures) L.push(`- ${d}`);
+  L.push('');
+
+  L.push('## Data', '');
+  L.push(`Bars dated after ${prereg.windows.windowEnd} are dropped before any computation. Cached bars per symbol:`, '');
+  L.push('| symbol | cached bars | first cached date | dropped (after window end) | last date used |', '|---|---|---|---|---|');
+  for (const s of prereg.data.symbols) L.push(`| ${s} | ${data.rawCounts[s]} | ${data.firstDates[s]} | ${data.droppedPost[s].length ? listDates(data.droppedPost[s]) : 'none'} | ${data.lastDates[s]} |`);
+  L.push('', 'Each pair is aligned by INTERSECTION of underlying, traded ETF and BIL dates:', '');
+  for (const [k, a] of Object.entries(data.aligned)) L.push(`- ${k}: ${a.dates.length} aligned days (${a.dates[0]} to ${a.dates[a.dates.length - 1]})`);
+  L.push('', `Signals use the underlying's close at t and fill at the traded ETF's open at t+1; the full-window equity curve starts at the close before its first possible fill (common warm-up of ${warmupBars} bars, so every config is scored from the same start; no return is attributed before that). Sharpe is daily, annualised by sqrt(252), rf=0; CAGR uses years = daily returns / 252; ulcer index is in percent units. Fills are SIP first prints.`, '');
+  L.push(`Multiple testing: N = ${N} (${prereg.caps.length} caps x 3 configs x ${pairsOf(prereg).length} pairs). Deflated Sharpe uses V[SR] = 1/(T-1).`, '');
+
+  L.push('## By pair, cap and window (all caps, all pairs, both sub-spans)', '');
+  for (const pr of Object.values(out.pairs)) {
+    L.push(`### ${pr.pair.key} (leverage ${pr.pair.leverage})${pr.window ? `; full evaluation window ${pr.window.startDate} to ${pr.window.endDate}` : ''}`, '');
+    for (const cap of prereg.caps) {
+      const capOut = pr.caps[cap];
+      L.push(`#### cap $${cap}`, '');
+      for (const span of pr.spanList) {
+        const cell = capOut.spans[span.key];
+        const errs = Object.entries(cell.configs).flatMap(([f, r]) => ['b5', 'b15'].filter((k) => r[k].error).map((k) => `${f} ${k}: ${r[k].error}`));
+        L.push(`##### ${span.label}`, '');
+        const anyGood = Object.values(cell.configs).find((r) => !r.b5.error);
+        if (!anyGood) { L.push(`Not evaluable: ${errs.join('; ') || 'no data'}.`, ''); continue; }
+        L.push(HEADER);
+        for (const { family, def } of DESC_FAMILIES) {
+          const r = cell.configs[family];
+          const tag = `${family} ${paramKey(prereg.strategies[def].canonical)}`;
+          if (!r.b5.error) L.push(mrow(`${tag} (${base} bps)`, r.b5.metrics));
+          if (!r.b15.error) L.push(mrow(`${tag} (${stress} bps stress)`, r.b15.metrics));
+        }
+        L.push(mrow(`buy-and-hold ${pr.pair.traded}`, anyGood.b5.benchmarks.traded.metrics));
+        L.push(mrow(`buy-and-hold ${pr.pair.underlying}`, anyGood.b5.benchmarks.underlying.metrics));
+        L.push('');
+      }
+    }
+  }
+
+  L.push(`## Deflated Sharpe (N=${N}, full evaluation window, ${base} bps, fractional)`, '');
+  L.push('| pair | cap | config | round trips | daily SR | SR0 | SR0 (annualised) | DSR |', '|---|---|---|---|---|---|---|---|');
+  for (const pr of Object.values(out.pairs)) {
+    for (const cap of prereg.caps) {
+      const full = pr.caps[cap].spans.full;
+      for (const { family } of DESC_FAMILIES) {
+        const r = full.configs[family];
+        if (r.dsr) L.push(`| ${pr.pair.key} | $${cap} | ${family} | ${r.b5.metrics.roundTrips} | ${fmt(r.dsr.sr, 4)} | ${fmt(r.dsr.sr0, 4)} | ${fmt(r.dsr.sr0Annualised, 2)} | ${fmt(r.dsr.dsr, 3)} |`);
+      }
+    }
+  }
+  L.push('', 'Round-trip counts this small are too few for confidence intervals to mean anything, so none are computed.', '');
+
+  L.push('## Not verified', '', ...prereg.unverified.map((u) => `- ${u}`), '');
+  return L.join('\n');
+}
+
 // ---------------------------------------------------------------- main
 async function main(argv, deps = {}) {
   const log = deps.log || ((s) => console.log(s));
-  const usage = () => { log('usage: backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive [--cap <dollars>]'); return 1; };
+  const usage = () => { log('usage: backtest-lev-trend.js [--prereg <path>] --verify-prereg | --tune | --test | --descriptive [--cap <dollars>] | --holdout'); return 1; };
   const paths = { ...PATHS, ...(deps.paths || {}) };
-  const modes = ['--verify-prereg', '--tune', '--test', '--descriptive'].filter((m) => argv.includes(m));
+  const modes = ['--verify-prereg', '--tune', '--test', '--descriptive', '--holdout'].filter((m) => argv.includes(m));
   if (modes.length !== 1) return usage();
   const pi = argv.indexOf('--prereg');
   if (pi >= 0) {
@@ -544,7 +785,7 @@ async function main(argv, deps = {}) {
   let cap;
   const ci = argv.indexOf('--cap');
   if (ci >= 0) {
-    if (modes[0] !== '--descriptive') { log('REFUSED: --cap is only allowed with --descriptive (a cap what-if must never feed --tune/--test).'); return 1; }
+    if (modes[0] !== '--descriptive') { log('REFUSED: --cap is only allowed with --descriptive (a cap what-if must never feed --tune/--test/--holdout; the holdout caps ($20, $30) are fixed by the prereg).'); return 1; }
     const raw = argv[ci + 1];
     cap = Number(raw);
     if (raw === undefined || raw.startsWith('--') || !Number.isFinite(cap) || cap <= 0) return usage();
@@ -553,15 +794,17 @@ async function main(argv, deps = {}) {
   if (!v.ok) { log(`REFUSED: ${v.reason} (actual ${v.actual}, expected ${v.expected})`); return 1; }
   if (modes[0] === '--verify-prereg') { log(`prereg OK sha256 ${v.actual}`); return 0; }
   const prereg = loadPrereg(paths.prereg);
-  if (modes[0] === '--descriptive' && prereg.mode !== 'descriptive') { log(`REFUSED: --descriptive needs a prereg with mode "descriptive" (this one has ${prereg.mode === undefined ? 'no mode' : `mode "${prereg.mode}"`}); pass --prereg <the v2 file>.`); return 1; }
-  if (modes[0] !== '--descriptive' && prereg.mode === 'descriptive') { log(`REFUSED: ${modes[0]} needs a tune/test prereg; this prereg is descriptive (use --descriptive).`); return 1; }
+  const pmode = prereg.mode; // undefined (v1 tune/test), 'descriptive' (v2), 'holdout' (v3)
+  if (modes[0] === '--descriptive' && pmode !== 'descriptive') { log(`REFUSED: --descriptive needs a prereg with mode "descriptive" (this one has ${pmode === undefined ? 'no mode' : `mode "${pmode}"`}); pass --prereg <the v2 file>.`); return 1; }
+  if (modes[0] === '--holdout' && pmode !== 'holdout') { log(`REFUSED: --holdout needs a prereg with mode "holdout" (this one has ${pmode === undefined ? 'no mode' : `mode "${pmode}"`}); pass --prereg <the v3 file>.`); return 1; }
+  if ((modes[0] === '--tune' || modes[0] === '--test') && (pmode === 'descriptive' || pmode === 'holdout')) { log(`REFUSED: ${modes[0]} needs a tune/test prereg; this prereg is ${pmode} (use --${pmode}).`); return 1; }
   const ctx = { prereg, deps, hash: v.actual, log, paths, cap };
-  const res = modes[0] === '--tune' ? await runTune(ctx) : modes[0] === '--test' ? await runTest(ctx) : await runDescriptive(ctx);
+  const res = modes[0] === '--tune' ? await runTune(ctx) : modes[0] === '--test' ? await runTest(ctx) : modes[0] === '--holdout' ? await runHoldout(ctx) : await runDescriptive(ctx);
   if (res.message) log(res.message);
   return res.code;
 }
 
-module.exports = { verifyPrereg, loadPrereg, gridFor, neighbours, pairsOf, trialCount, commonWarmup, betterOnTune, judgePrimary, judgeDescriptive, shaPathFor, loadDescriptiveData, main, PATHS };
+module.exports = { verifyPrereg, loadPrereg, gridFor, neighbours, pairsOf, trialCount, commonWarmup, betterOnTune, judgePrimary, judgeDescriptive, shaPathFor, loadDescriptiveData, judgeHoldout, loadHoldoutData, holdoutN, preregCommitSha, main, PATHS };
 
 if (require.main === module) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(`backtest-lev-trend: ${e && e.message ? e.message : e}`); process.exit(1); });

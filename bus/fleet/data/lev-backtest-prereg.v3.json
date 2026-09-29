@@ -1,0 +1,84 @@
+{
+  "version": 3,
+  "frozenOn": "2026-09-29",
+  "mode": "holdout",
+  "purpose": "One-shot out-of-sample corroboration check of the cycle-3 cap-$30 finding (docs/proposals/2026-09-26-c1-leveraged-backtest-plan.md) on the 2016-01-04..2021-08-05 SIP window, which the canonical trend rules have never been evaluated on before. Rules, configs and the $30 cap were fixed before this window was examined (docs/proposals/2026-09-29-unseen-window-test.md, reviewed 2026-09-29 by antigravity + claude-agent -- binding). Runs exactly once: the CLI refuses if the results file already exists (run lock).",
+  "priorWork": {
+    "cycle3Window": "2021-08-06..2026-09-25 (already examined many times; cannot confirm anything further on its own)",
+    "cycle3Finding": "at C1's real $20 per-entry cap the canonical trend rules lose to buy-and-hold QQQ, but at a $30 cap both S1 and S2 beat QQQ at roughly matched drawdown on 2021-08-06..2026-09-25 (S1 17.8% CAGR / 34.8% max DD, S2 19.6% / 29.9%, vs QQQ 15.5% / 35.0%)",
+    "descriptivePrereg": "lev-backtest-prereg.v2.json (mode descriptive, Alpaca IEX feed, 2020-07-27 start; superseded no strategy conclusion, only established the cap-sizing bug fix)"
+  },
+  "data": {
+    "source": "Alpaca SIP daily bars, adjustment=all (split+dividend adjusted), via fleet paper keys, read from the local cache bus/fleet/data/lev-bars-sip/ (no network at backtest time)",
+    "feed": "sip",
+    "symbols": ["QQQ", "SPY", "TQQQ", "QLD", "UPRO", "SSO", "BIL", "SHY"],
+    "cashLegDepth": "BIL SIP depth confirmed 2016-01-04..2026-09-28, 2699 bars, 0 missing days (cycle-4 fetch); this is what makes the 2016-2021 window usable as the cash leg."
+  },
+  "pairs": [
+    { "underlying": "QQQ", "traded": ["TQQQ", "QLD", "QQQ"], "leverage": [3, 2, 1] },
+    { "underlying": "SPY", "traded": ["UPRO", "SSO", "SPY"], "leverage": [3, 2, 1] }
+  ],
+  "cashLeg": "BIL (adjusted total return) while out of market",
+  "execution": "signal on the underlying's close at t; fill at the traded ETF's open at t+1 (bars[i+1].open); no fill at the same bar as the signal",
+  "startingEquity": 50,
+  "warmupBars": 250,
+  "windows": {
+    "windowEnd": "2021-08-05",
+    "description": "the evaluation window is the first fill after the common 250-bar warm-up (about 2017-01) through 2021-08-05 inclusive -- the last day before the v2/cycle-3 evaluation span began. Every series is cut at windowEnd BEFORE any signal or return is computed, so nothing after 2021-08-05 can influence any number in the report; no return is attributed before the 250-bar warm-up completes."
+  },
+  "subSpans": {
+    "y2018": { "start": "2018-01-01", "end": "2018-12-31", "note": "calendar 2018 (the Feb-2018 volatility spike and the Q4-2018 drawdown), reported separately, not gating" },
+    "crash2020": { "start": "2020-02-19", "end": "2020-12-31", "note": "the 2020 crash and recovery, reported separately, not gating" }
+  },
+  "strategies": {
+    "S1_trend_band": { "rule": "long when underlying close > SMA(n)*(1+band); flat when close < SMA(n)*(1-band); otherwise keep the prior state", "canonical": { "n": 200, "bandPct": 2 } },
+    "S2_dual_fast_exit": { "rule": "long when SMA(50) > SMA(slow) and close > SMA(slow); exit when underlying close < SMA(50) OR the underlying's close falls trailingDD below its high since entry; re-enter only when the entry condition is true again", "canonical": { "slow": 200, "trailingDDPct": 10 }, "trailingDDMeasuredOn": "underlying close" },
+    "S3_vol_target": { "rule": "S1(n=200, band=2) gate; when long, weight = min(1, targetVol / (leverage * realizedVol20(underlying))); rest in cash leg", "canonical": { "targetVolPct": 20 }, "note": "secondary; weak fit for a $50 account; reported, not part of hypothesis H" },
+    "canonicalWhy": "S1, S2 and S3 are UNCHANGED from the cycle-3 run and from prereg v2's canonical configs. No grid search, no tuning and no selection happens in holdout mode; the configs were fixed before this window was examined."
+  },
+  "caps": [20, 30],
+  "costs": {
+    "expenseRatio": "NOT added: adjusted prices already net the fund's expense ratio out of NAV (adding it would double-count)",
+    "slippagePerSideBps": { "base": 5, "stress": 15 },
+    "cash": "BIL adjusted returns already include its yield"
+  },
+  "cashAccountRules": "engine forbids a round trip that opens and closes on the same day (no selling a position bought with unsettled funds). A same-open swap between traded ETF and BIL is allowed. Whether Alpaca applies further rules is UNVERIFIED.",
+  "primaryHypothesis": {
+    "id": "H",
+    "text": "On QQQ->TQQQ at cap $30 and 5 bps, for BOTH S1 and S2: after-cost CAGR > buy-and-hold QQQ CAGR AND max drawdown <= buy-and-hold QQQ max drawdown + 2 percentage points.",
+    "pair": "QQQ->TQQQ",
+    "cap": 30,
+    "configs": ["S1", "S2"],
+    "criteria": [
+      "after-cost CAGR > buy-and-hold QQQ CAGR",
+      "max drawdown <= buy-and-hold QQQ max drawdown + 2 percentage points"
+    ],
+    "drawdownTolerancePp": 2,
+    "window": "full evaluation window (first fill after warm-up through 2021-08-05); the sub-spans are reported, not gating",
+    "verdictRules": {
+      "HOLDS": "both S1 and S2 meet both conditions at 5 bps AND at 15 bps",
+      "PARTLY HOLDS": "it holds at 5 bps only, or for only one of S1/S2",
+      "DOES NOT HOLD": "otherwise"
+    }
+  },
+  "reportedNotGating": ["cap $20 results", "the other pairs (QQQ->QLD, QQQ->QQQ, SPY->UPRO, SPY->SSO, SPY->SPY)", "S3 (secondary)", "round trips", "trades/yr", "worst month", "ulcer index", "deflated Sharpe (N=36)", "decomposition vs TQQQ buy-and-hold", "the two sub-spans (calendar 2018, 2020-02-19..2020-12-31)"],
+  "multipleTesting": {
+    "deflatedSharpe": "Bailey & Lopez de Prado (2014): DSR = Phi( (SR_hat - SR0) * sqrt(T-1) / sqrt(1 - g3*SR_hat + ((g4-1)/4)*SR_hat^2) ), SR0 = sqrt(V[SR]) * ((1-gamma)*Phi^-1(1-1/N) + gamma*Phi^-1(1-1/(N*e))), gamma = 0.5772",
+    "varSr": "V[SR] = 1/(T-1)",
+    "N": "N = 36 (2 caps x 3 configs x 6 pairs)"
+  },
+  "oneShot": "The run happens once. A rerun is allowed only to fix a code bug, with a regression test shown to fail on the pre-fix code, and both reports kept. Enforced by a run lock: --holdout refuses if bus/fleet/data/lev-backtest-holdout-results.md already exists.",
+  "verdictVocabulary": "This is never reported as a pass. Even \"H HOLDS\" means only \"consistent with the cycle-3 finding on one more ~4.6-year window\"; it is not evidence of a durable edge and does not by itself justify raising C1's cap.",
+  "disclosures": [
+    "The rules and the $30 cap were chosen before this window was examined; the cap came from a different window.",
+    "The window has no 2008-style bear market; drawdowns are not worst-case for 3x ETFs.",
+    "Round-trip counts are small (S1 ~1-2 trades/yr); confidence intervals would be meaningless and are not computed.",
+    "Raising C1's cap changes bus/city/survive-budget-envelope.js (protected): the owner's decision, not this test's.",
+    "2020-07-27..2021-08-05 prices (IEX) were used as indicator warm-up by the v2 runs and in the cycle-4 SIP-vs-IEX price comparison -- used, never scored.",
+    "The cycle-4 SIP fetch was a raw price pull with a gap/sanity check only, no signal/return/equity computed on 2016-2021.",
+    "Hindsight: everyone involved knows how 2018 and 2020 played out, and 200-day trend rules are known to have sidestepped parts of both; the configs are canonical, which limits but does not remove this bias."
+  ],
+  "unverified": ["Alpaca free SIP-tier history depth beyond the cycle-4 spot check", "fractionability of traded ETFs (confirmed live 2026-09-29 for the descriptive prereg's symbol set, not re-verified here)", "cash-account good-faith/settlement handling beyond the same-day rule"],
+  "runLock": { "resultsPath": "bus/fleet/data/lev-backtest-holdout-results.md", "rule": "--holdout refuses to run if this file already exists; delete/move it only to knowingly allow a documented rerun per the one-shot rule above." },
+  "secrets": "error messages must redact APCA-API-KEY-ID and APCA-API-SECRET-KEY values; selftest asserts no key substring in any thrown error"
+}

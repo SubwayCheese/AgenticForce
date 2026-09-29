@@ -762,6 +762,219 @@ async function main() {
     assert.equal(/\b(fetch|https?:|readFileSync|writeFileSync)\b/.test(eng.replace(/\/\/.*$/gm, '')), false, 'engine does no I/O');
   });
 
+  // ------------------------------------------------------------- holdout mode (prereg v3, one-shot)
+  const v3Path = path.join(__dirname, 'data', 'lev-backtest-prereg.v3.json');
+  const v3Sha = cli.shaPathFor(v3Path);
+  const v3 = cli.loadPrereg(v3Path);
+
+  await test('prereg v3: verifies, is holdout, N=36, caps [20,30], canonical configs match v2, 6 pairs, 7 disclosures, no PASS', () => {
+    assert.equal(cli.verifyPrereg(v3Path, v3Sha).ok, true);
+    assert.equal(path.basename(v3Sha), 'lev-backtest-prereg.v3.sha256');
+    assert.equal(v3.version, 3);
+    assert.equal(v3.mode, 'holdout');
+    assert.deepEqual(v3.caps, [20, 30]);
+    assert.equal(cli.pairsOf(v3).length, 6);
+    assert.equal(cli.holdoutN(v3), 36);
+    assert.deepEqual(v3.strategies.S1_trend_band.canonical, { n: 200, bandPct: 2 });
+    assert.deepEqual(v3.strategies.S2_dual_fast_exit.canonical, { slow: 200, trailingDDPct: 10 });
+    assert.deepEqual(v3.strategies.S3_vol_target.canonical, { targetVolPct: 20 });
+    assert.equal(v3.warmupBars, 250);
+    assert.equal(v3.startingEquity, 50);
+    assert.equal(v3.windows.windowEnd, '2021-08-05');
+    assert.equal(v3.primaryHypothesis.cap, 30);
+    assert.equal(v3.primaryHypothesis.pair, 'QQQ->TQQQ');
+    assert.equal(v3.primaryHypothesis.drawdownTolerancePp, 2);
+    assert.equal(v3.subSpans.y2018.start, '2018-01-01');
+    assert.equal(v3.subSpans.crash2020.start, '2020-02-19');
+    assert.equal(JSON.stringify(v3).includes('PASS'), false);
+    for (const d of [
+      'The rules and the $30 cap were chosen before this window was examined; the cap came from a different window.',
+      'The window has no 2008-style bear market; drawdowns are not worst-case for 3x ETFs.',
+      'Round-trip counts are small (S1 ~1-2 trades/yr); confidence intervals would be meaningless and are not computed.',
+      "Raising C1's cap changes bus/city/survive-budget-envelope.js (protected): the owner's decision, not this test's.",
+      '2020-07-27..2021-08-05 prices (IEX) were used as indicator warm-up by the v2 runs and in the cycle-4 SIP-vs-IEX price comparison -- used, never scored.',
+      'The cycle-4 SIP fetch was a raw price pull with a gap/sanity check only, no signal/return/equity computed on 2016-2021.',
+      'Hindsight: everyone involved knows how 2018 and 2020 played out, and 200-day trend rules are known to have sidestepped parts of both; the configs are canonical, which limits but does not remove this bias.',
+    ]) assert.ok(v3.disclosures.includes(d), d);
+    assert.equal(v3.disclosures.length, 7);
+  });
+
+  await test('prereg v3 hash refusal: a modified copy is refused by every mode incl --holdout; the real file verifies from the CLI', async () => {
+    const copy = path.join(tmp, 'lev-backtest-prereg.v3.json');
+    fs.writeFileSync(copy, fs.readFileSync(v3Path, 'utf8') + ' ');
+    fs.copyFileSync(v3Sha, path.join(tmp, 'lev-backtest-prereg.v3.sha256')); // derived sha path next to the copy
+    assert.equal(cli.verifyPrereg(copy, cli.shaPathFor(copy)).ok, false);
+    for (const mode of ['--verify-prereg', '--tune', '--test', '--descriptive', '--holdout']) {
+      const logs = [];
+      const code = await cli.main(['--prereg', copy, mode], { paths: { frozen: path.join(tmp, 'x3.json'), results: path.join(tmp, 'x3.md'), descResults: path.join(tmp, 'x3-desc.md'), holdoutResults: path.join(tmp, 'x3-holdout.md') }, loadBars: noBars, log: (x) => logs.push(x) });
+      assert.notEqual(code, 0, mode);
+      assert.ok(logs.every((l) => /REFUSED/.test(l)), mode);
+    }
+    assert.equal(fs.existsSync(path.join(tmp, 'x3-holdout.md')), false);
+    const real = spawnSync(process.execPath, [path.join(__dirname, 'backtest-lev-trend.js'), '--prereg', v3Path, '--verify-prereg'], { encoding: 'utf8' });
+    assert.equal(real.status, 0, real.stdout + real.stderr);
+  });
+
+  await test('--holdout refuses a non-holdout prereg; --descriptive/--tune/--test refuse a holdout prereg; modes do not combine; --cap is refused with --holdout', async () => {
+    const logs = [];
+    assert.equal(await cli.main(['--holdout'], { loadBars: noBars, log: (x) => logs.push(x) }), 1); // default prereg = v1 (no mode)
+    assert.ok(logs.some((l) => /REFUSED.*holdout/.test(l)), logs.join('\n'));
+    const v2logs = [];
+    assert.equal(await cli.main(['--prereg', v2Path, '--holdout'], { paths: { holdoutResults: path.join(tmp, 'h-v2.md') }, loadBars: noBars, log: (x) => v2logs.push(x) }), 1);
+    assert.equal(fs.existsSync(path.join(tmp, 'h-v2.md')), false);
+    assert.ok(v2logs.some((l) => /REFUSED.*holdout/.test(l)));
+    for (const m of ['--tune', '--test', '--descriptive']) {
+      const l2 = [];
+      assert.equal(await cli.main(['--prereg', v3Path, m], { paths: { results: path.join(tmp, `x3-${m}.md`), descResults: path.join(tmp, `x3d-${m}.md`) }, loadBars: noBars, log: (x) => l2.push(x) }), 1, m);
+      assert.ok(l2.some((l) => /REFUSED/.test(l)), m);
+    }
+    assert.equal(await cli.main(['--prereg', v3Path, '--holdout', '--tune'], { loadBars: noBars, log: () => {} }), 1, 'modes must not combine');
+    const capLogs = [];
+    assert.equal(await cli.main(['--prereg', v3Path, '--holdout', '--cap', '25'], { paths: { holdoutResults: path.join(tmp, 'h-cap.md') }, loadBars: noBars, log: (x) => capLogs.push(x) }), 1);
+    assert.ok(capLogs.some((l) => /REFUSED.*--cap/.test(l)), capLogs.join('\n'));
+    assert.equal(fs.existsSync(path.join(tmp, 'h-cap.md')), false);
+  });
+
+  await test('judgeHoldout truth table: both hold at both costs -> HOLDS; 5 bps only -> PARTLY HOLDS; one strategy only -> PARTLY HOLDS; neither -> DOES NOT HOLD; the +2pp boundary exactly', () => {
+    const row = (cagr, maxDD, underCagr = 0.1, underDD = 0.3) => ({ strat: { cagr, maxDD }, underBH: { cagr: underCagr, maxDD: underDD } });
+    const holdRow = () => row(0.2, 0.28); // cagr 0.2 > 0.1; maxDD 0.28 <= 0.3 + 0.02
+    const failCagrRow = () => row(0.05, 0.28); // cagr fails, dd passes
+    const failDdRow = () => row(0.2, 0.35); // cagr passes, dd fails (0.35 > 0.32)
+
+    assert.equal(cli.judgeHoldout({ S1: { base: holdRow(), stress: holdRow() }, S2: { base: holdRow(), stress: holdRow() } }).verdict, 'HOLDS');
+
+    assert.equal(cli.judgeHoldout({ S1: { base: holdRow(), stress: failCagrRow() }, S2: { base: holdRow(), stress: holdRow() } }).verdict, 'PARTLY HOLDS', 'holds at 5 bps for both, not at 15 bps');
+
+    assert.equal(cli.judgeHoldout({ S1: { base: holdRow(), stress: holdRow() }, S2: { base: failCagrRow(), stress: failCagrRow() } }).verdict, 'PARTLY HOLDS', 'only S1 holds fully at both costs');
+
+    assert.equal(cli.judgeHoldout({ S1: { base: failCagrRow(), stress: failCagrRow() }, S2: { base: failDdRow(), stress: failDdRow() } }).verdict, 'DOES NOT HOLD');
+
+    // +2pp boundary exactly: maxDD == underBH.maxDD + 0.02 must PASS (<=, not strictly <)
+    const boundary = row(0.2, 0.32, 0.1, 0.3);
+    const jBoundary = cli.judgeHoldout({ S1: { base: boundary, stress: boundary }, S2: { base: boundary, stress: boundary } });
+    assert.equal(jBoundary.S1.base.ddPass, true, 'exact +2pp boundary must pass (<=), not fail');
+    assert.equal(jBoundary.verdict, 'HOLDS');
+    // one basis point over the boundary must fail
+    const overBoundary = row(0.2, 0.3201, 0.1, 0.3);
+    assert.equal(cli.judgeHoldout({ S1: { base: overBoundary, stress: overBoundary }, S2: { base: holdRow(), stress: holdRow() } }).S1.base.ddPass, false);
+
+    // sanity: whatever the inputs, the judge only ever returns one of the three verdicts
+    const r = prng(55);
+    for (let i = 0; i < 300; i++) {
+      const rr = () => row(r() * 0.6 - 0.2, r(), r() * 0.6 - 0.2, r());
+      const inp = { S1: { base: rr(), stress: rr() }, S2: { base: rr(), stress: rr() } };
+      assert.ok(['HOLDS', 'PARTLY HOLDS', 'DOES NOT HOLD'].includes(cli.judgeHoldout(inp).verdict));
+    }
+  });
+
+  await test('preregCommitSha: read-only, never fabricates; UNCOMMITTED for an untracked prereg or a nonexistent path', () => {
+    assert.equal(cli.preregCommitSha(v3Path), 'UNCOMMITTED', 'v3 prereg is not committed yet, so this must read UNCOMMITTED, never a fabricated sha');
+    assert.equal(cli.preregCommitSha('/nonexistent/path/x.json'), 'UNCOMMITTED');
+  });
+
+  // Synthetic world for holdout: identical up to windowEnd, independently random AFTER it (mirrors the tune/tuneEnd
+  // synthetic-world pattern above), spanning well before the 250-bar warm-up and well past windowEnd.
+  function buildHoldoutWorld(seed, futureSeed, windowEnd) {
+    const dates = weekdays('2015-06-01', 2300); // ~9 years: warm-up + both sub-spans + windowEnd + a post-window tail
+    const rU = prng(seed), rF = prng(futureSeed);
+    const out = {};
+    const mk = () => {
+      const closes = { QQQ: [], SPY: [] }, opens = { QQQ: [], SPY: [] };
+      for (const k of ['QQQ', 'SPY']) {
+        let p = 100; const rr = k === 'QQQ' ? rU : prng(seed + 1);
+        const rrF = k === 'QQQ' ? rF : prng(futureSeed + 1);
+        dates.forEach((d, i) => {
+          const rnd = d > windowEnd ? rrF : rr;
+          const gap = (rnd() - 0.5) * 0.004, intra = 0.0006 + (rnd() - 0.5) * 0.016;
+          const prev = i === 0 ? p : closes[k][i - 1];
+          opens[k].push(prev * (1 + gap));
+          closes[k].push(opens[k][i] * (1 + intra));
+          p = closes[k][i];
+        });
+      }
+      return { closes, opens };
+    };
+    const m = mk();
+    const etf = (u, L) => {
+      const c = [], o = [];
+      dates.forEach((d, i) => {
+        const pc = i === 0 ? 100 : c[i - 1], pu = i === 0 ? m.closes[u][0] : m.closes[u][i - 1];
+        o.push(pc * (1 + L * (m.opens[u][i] / pu - 1)));
+        c.push(pc * (1 + L * (m.closes[u][i] / pu - 1)));
+      });
+      return { o, c };
+    };
+    const barsOf = (o, c) => dates.map((d, i) => bar(d, o[i], c[i]));
+    for (const u of ['QQQ', 'SPY']) out[u] = barsOf(m.opens[u], m.closes[u]);
+    for (const [t, u, L] of [['TQQQ', 'QQQ', 3], ['QLD', 'QQQ', 2], ['UPRO', 'SPY', 3], ['SSO', 'SPY', 2]]) { const e = etf(u, L); out[t] = barsOf(e.o, e.c); }
+    for (const s of ['BIL', 'SHY']) {
+      const c = dates.map((d, i) => 100 * 1.00004 ** (2 * i + 1)), o = dates.map((d, i) => 100 * 1.00004 ** (2 * i));
+      out[s] = barsOf(o, c);
+    }
+    return { world: out, dates };
+  }
+  const runHoldoutCli = async (world, resultsPath, extraArgv = []) => {
+    const logs = [];
+    const paths = { holdoutResults: resultsPath };
+    const code = await cli.main(['--prereg', v3Path, '--holdout', ...extraArgv], { paths, loadBars: (sym) => world[sym], log: (x) => logs.push(x) });
+    return { code, logs, md: fs.existsSync(resultsPath) ? fs.readFileSync(resultsPath, 'utf8') : null };
+  };
+
+  await test('holdout: bars after windowEnd are dropped before computation (mutating them changes nothing in the report); run lock refuses a rerun and leaves the first file untouched', async () => {
+    const { world } = buildHoldoutWorld(31, 700, v3.windows.windowEnd);
+    const worldMutated = {};
+    for (const sym of Object.keys(world)) {
+      worldMutated[sym] = world[sym].map((b) => (b.date > v3.windows.windowEnd ? { ...b, open: b.open * 3.7, close: b.close * 0.2, high: b.high * 3.7, low: b.low * 0.1 } : b));
+    }
+    const resPath = path.join(tmp, 'holdout-a.md');
+    const r1 = await runHoldoutCli(world, resPath);
+    assert.equal(r1.code, 0, r1.logs.join('\n'));
+    assert.ok(r1.md.includes('dropped (after window end)'));
+    const mtimeAfterFirstRun = fs.statSync(resPath).mtimeMs;
+
+    const resPath2 = path.join(tmp, 'holdout-a-mutated.md');
+    const r2 = await runHoldoutCli(worldMutated, resPath2);
+    assert.equal(r2.code, 0, r2.logs.join('\n'));
+    assert.equal(r2.md, r1.md, 'mutating bars after windowEnd must not change any report number');
+
+    const before = fs.readFileSync(resPath, 'utf8');
+    const r3 = await cli.main(['--prereg', v3Path, '--holdout'], { paths: { holdoutResults: resPath }, loadBars: (sym) => world[sym], log: () => {} });
+    assert.notEqual(r3, 0, 'a second run against the same results path must be refused');
+    assert.equal(fs.readFileSync(resPath, 'utf8'), before, 'the first report must be untouched by the refused rerun');
+    assert.equal(fs.statSync(resPath).mtimeMs, mtimeAfterFirstRun);
+  });
+
+  await test('holdout: no equity/return is attributed before the warm-up completes', async () => {
+    const { world } = buildHoldoutWorld(41, 900, v3.windows.windowEnd);
+    const data = await cli.loadHoldoutData(v3, { loadBars: (sym) => world[sym] });
+    const al = data.aligned['QQQ->TQQQ'];
+    const warmupBars = v3.warmupBars;
+    const win = engine.windowIndices(al.dates, {}, warmupBars - 1);
+    assert.equal(win.base, warmupBars - 1);
+    const ev = engine.evaluateConfig(al, { family: 'S1', params: v3.strategies.S1_trend_band.canonical, leverage: 3 }, { window: {}, slippageBps: 5, variant: 'fractional', warmupBars, cap: 30, initialEquity: 50 });
+    assert.equal(ev.sim.dates[0], al.dates[warmupBars - 1]);
+    assert.ok(ev.sim.trades.every((t) => al.dates.indexOf(t.date) >= warmupBars), 'no fill before the warm-up completes');
+  });
+
+  await test('holdout report: verdict, per-criterion values, cap $20 results, other pairs, round trips, deflated Sharpe, every disclosure verbatim, prereg commit line, never PASS', async () => {
+    const { world } = buildHoldoutWorld(51, 950, v3.windows.windowEnd);
+    const resPath = path.join(tmp, 'holdout-report.md');
+    const r = await runHoldoutCli(world, resPath);
+    assert.equal(r.code, 0, r.logs.join('\n'));
+    assert.ok(/Verdict on hypothesis H: (HOLDS|PARTLY HOLDS|DOES NOT HOLD)/.test(r.md), r.md.slice(0, 400));
+    assert.equal(/\bPASS\b/.test(r.md), false);
+    assert.equal(r.logs.some((l) => /\bPASS\b/.test(l)), false);
+    for (const d of v3.disclosures) assert.ok(r.md.includes(d), `disclosure missing: ${d}`);
+    assert.ok(r.md.includes('cap $20'), 'cap $20 (informational) results must be reported');
+    assert.ok(r.md.includes('QQQ->QLD') && r.md.includes('SPY->UPRO') && r.md.includes('SPY->SSO'), 'other pairs must be reported');
+    assert.ok(r.md.includes('round trips'));
+    assert.ok(r.md.includes('Deflated Sharpe'));
+    assert.ok(r.md.includes('calendar 2018') && r.md.includes('2020 crash and recovery'), 'both sub-spans must be reported');
+    assert.ok(/Prereg commit \(read-only `git log`\): `(UNCOMMITTED|[0-9a-f]{40})`/.test(r.md));
+    assert.ok(r.logs.some((l) => /prereg commit:/.test(l)));
+    assert.ok(r.logs.some((l) => /Hypothesis H/.test(l)));
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length} passed, ${failed.length} failed of ${results.length}`);
