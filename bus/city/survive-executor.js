@@ -22,6 +22,7 @@ const budgetEnvelope = require('./survive-budget-envelope.js');
 const cityRegistry = require('./city-registry.js');
 const ntfy = require('../platform/ntfy.js');
 const { parseStopPrice } = require('../fleet/execute-portfolio-setup.js');
+const shadow = require('./survive-shadow.js');
 
 const VAULT_ROOT = avPaths.ROOT;
 const TASKS_SURVIVE_DIR = path.join(VAULT_ROOT, 'tasks', 'survive');
@@ -79,7 +80,18 @@ function extractSurviveDecision(taskId) {
   throw new Error(`No parseable decision JSON block found in ${taskPath}`);
 }
 
-function validateDecision(decision) {
+// The symbols a mission's research was actually shown: the fixed baseline universe plus that mission's scan symbols that
+// passed the liquidity floor, i.e. exactly the candidates recorded in the mission's shadow snapshot (written by
+// authorNewMission before the tasks are created). Returns a Set of upper-case symbols, or null when no snapshot exists.
+function allowedEntrySymbols(citizenId, missionId) {
+  const snap = shadow.readShadowEvents().filter((e) => e.type === 'snapshot' && e.citizenId === citizenId && e.missionId === missionId).pop();
+  return snap && Array.isArray(snap.candidates) ? new Set(snap.candidates.map((c) => String(c.symbol).trim().toUpperCase())) : null;
+}
+
+// opts.allowedSymbols (Set|null): when the key is present, an 'enter' must name one of them (null = fail closed: no
+// snapshot to check against). Omitting the key keeps the old shape-only check, so existing callers behave the same.
+// On success the symbol is normalized to trimmed upper case, because that exact string is what gets sent to Alpaca.
+function validateDecision(decision, opts = {}) {
   const allowed = ['enter', 'exit', 'hold', 'no-action'];
   if (!allowed.includes(decision.decision)) {
     throw new Error(`decision field must be one of ${allowed.join('/')}, got: ${decision.decision}`);
@@ -87,6 +99,14 @@ function validateDecision(decision) {
   if (decision.decision === 'enter') {
     if (!decision.symbol || typeof decision.notionalUsd !== 'number' || decision.notionalUsd <= 0) {
       throw new Error(`'enter' decision requires a symbol and a positive numeric notionalUsd -- refusing to guess a malformed decision`);
+    }
+    if ('allowedSymbols' in opts) {
+      if (!opts.allowedSymbols) throw new Error(`'enter' refused: no candidate snapshot recorded for this mission, so symbol ${JSON.stringify(decision.symbol)} cannot be checked against the universe the research saw`);
+      const sym = String(decision.symbol).trim().toUpperCase();
+      if (!opts.allowedSymbols.has(sym)) {
+        throw new Error(`'enter' refused: symbol ${JSON.stringify(decision.symbol)} is not in this mission's candidate universe (${[...opts.allowedSymbols].join(', ')})`);
+      }
+      decision.symbol = sym;
     }
   }
 }
@@ -192,6 +212,62 @@ async function alertMissingStop(citizenId, symbol, reason) {
   } catch (_) { /* best-effort */ }
 }
 
+// The entry order was (or may have been) placed but its fill status could not be established. Nothing is recorded in the
+// ledger, so the real account and the ledger may now disagree: freeze the citizen (human-only release) and page the owner.
+async function alertUnknownEntryFill(citizenId, symbol, orderId, detail) {
+  try {
+    cityRegistry.quarantineCitizen(citizenId, `entry order ${orderId || '(id unknown)'} for ${symbol}: fill status unknown, reconcile the real account before releasing`);
+  } catch (err) {
+    console.error(`Failed to quarantine citizen ${citizenId} after an unknown entry fill: ${err.message}`);
+  }
+  try {
+    await ntfy.sendNtfy({
+      topic: SURVIVE_NTFY_TOPIC,
+      title: `Citizen ${citizenId}: ENTRY ORDER STATUS UNKNOWN -- ${symbol}`,
+      message: `An entry order for ${symbol} (order id ${orderId || 'unknown'}) may have been placed or filled, but its status could not be read (${detail}). It is NOT in the ledger. The citizen is quarantined so nothing else is bought. Check the real Alpaca account (positions and orders), record or cancel what is there, then run 'node bus/city/city-security.js unquarantine ${citizenId} "note"'.`,
+      priority: 5,
+    });
+  } catch (_) { /* best-effort */ }
+}
+
+// After a failed submitOrder(): did Alpaca accept the order anyway? The client order id is deterministic per mission and Alpaca
+// keeps it unique, so asking for it answers that without a second submission. Uses the exact lookup
+// (client.getOrderByClientOrderId -> GET /orders:by_client_order_id) when the client has it, else scans getOrders('all'), which is an
+// UNPAGED-BY-US call (Alpaca's default page applies). The id is normalized exactly like submitOrder() does. Tried twice, one second
+// apart, because a just-accepted order can lag. Returns the order or null; "not found" and "lookup failed" both mean "not seen".
+function normalizeClientId(client, raw) {
+  if (client && typeof client.normalizeClientOrderId === 'function') return client.normalizeClientOrderId(raw);
+  const cleaned = String(raw).replace(/[^A-Za-z0-9._-]/g, '-');
+  return cleaned.length <= 128 ? cleaned : cleaned.slice(-128);
+}
+async function findOrderByClientOrderId(client, clientOrderId) {
+  const want = normalizeClientId(client, clientOrderId);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1000));
+    try {
+      if (typeof client.getOrderByClientOrderId === 'function') {
+        const o = await client.getOrderByClientOrderId(want);
+        if (o && o.id) return o;
+      } else {
+        const orders = await client.getOrders('all');
+        const hit = (Array.isArray(orders) ? orders : []).find((o) => o && o.client_order_id === want);
+        if (hit) return hit;
+      }
+    } catch (_) { /* a 404 (not found) or a transient failure: both mean "not seen"; retry once */ }
+  }
+  return null;
+}
+
+// A submit error is a DEFINITE refusal only when the broker answered with a 4xx (client.js's own message format,
+// "... -> 4xx: <msg>", and not a duplicate-client-id complaint, which means the order EXISTS) or the client refused before any
+// network call. Anything else (timeout, connection reset, 5xx, unknown text) has an unknown outcome: the order may exist.
+const PRE_NETWORK_REFUSAL_RE = /^(submitOrder requires|direction must be|limitPrice required|stopPrice required|Budget envelope refused|survive-alpaca-live-client\.js is long-only|Live Alpaca credentials|Refusing to run the LIVE|ALPACA_SURVIVE_LIVE_ENDPOINT)/;
+function isDefiniteSubmitRefusal(err, msg) {
+  if (err && err.outcomeUnknown) return false;
+  if (/-> 4\d\d:/.test(msg)) return !/client_order_id/i.test(msg);
+  return PRE_NETWORK_REFUSAL_RE.test(msg);
+}
+
 // Picks the protective stop level. Found live 2026-09-23 (mission010): the old code took the FIRST dollar figure in the
 // model-written exit condition, which was the entry bid ($100.61) -- not below the market, so Alpaca rejected the stop
 // (422 "stop price must be less than current price", checked against the live BID) and a real position sat unprotected.
@@ -290,16 +366,55 @@ async function executeEntry({ client, citizenId, missionId, decision }) {
 
   const lotId = `survive_${citizenId}_${crypto.randomUUID()}`;
   const orderType = decision.orderType === 'limit' ? 'limit' : 'market';
-  const entryOrder = await client.submitOrder({
-    citizenId, symbol: decision.symbol, direction: 'long', notional: decision.notionalUsd,
-    orderType, limitPrice: orderType === 'limit' ? decision.limitPrice : undefined,
-    timeInForce: 'day', intent: 'open', clientOrderId: `survive-${citizenId}-${missionId}-entry`,
-  });
+  const entryClientOrderId = `survive-${citizenId}-${missionId}-entry`;
+  let entryOrder;
+  try {
+    entryOrder = await client.submitOrder({
+      citizenId, symbol: decision.symbol, direction: 'long', notional: decision.notionalUsd,
+      orderType, limitPrice: orderType === 'limit' ? decision.limitPrice : undefined,
+      timeInForce: 'day', intent: 'open', clientOrderId: entryClientOrderId,
+    });
+  } catch (err) {
+    // A rejected submit used to escape runForCitizen with no mission-resolved event, so the same decision was re-run every
+    // wake (Alpaca rejects the duplicate client order id) and the citizen wedged for good. Resolve it as an error instead.
+    // But first find out whether Alpaca accepted the order anyway (lost response, duplicate id): if so, carry on with it.
+    const submitMsg = String(err && err.message ? err.message : err).slice(0, 300);
+    // A definite refusal never placed anything. Otherwise look for the order; if it is not visible either, its state is UNKNOWN
+    // (a timeout / lost response / still-processing order can appear, and fill, later), which is handled like an unknown fill.
+    if (!isDefiniteSubmitRefusal(err, submitMsg)) entryOrder = await findOrderByClientOrderId(client, entryClientOrderId);
+    if (!entryOrder) {
+      if (!isDefiniteSubmitRefusal(err, submitMsg)) {
+        const reason = `entry submit failed (${submitMsg}) and no order with client order id ${entryClientOrderId} is visible yet -- the order may exist or appear and fill later; the real account must be reconciled`;
+        appendMissionEvent({ type: 'mission-resolved', citizenId, missionId, outcome: 'error', reason });
+        await alertUnknownEntryFill(citizenId, decision.symbol, entryClientOrderId, submitMsg);
+        return { outcome: 'error', reason: 'entry-submit-unknown' };
+      }
+      appendMissionEvent({ type: 'mission-resolved', citizenId, missionId, outcome: 'error', reason: `entry order was not placed: ${submitMsg}` });
+      return { outcome: 'error', reason: 'entry-submit-failed' };
+    }
+  }
   let filled = entryOrder;
+  let pollError = null;
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 1000));
-    filled = await client.getOrder(entryOrder.id);
+    try { filled = await client.getOrder(entryOrder.id); pollError = null; } catch (err) { pollError = err; continue; }
     if (filled.status === 'filled') break;
+  }
+  if (pollError) {
+    // The last status read failed (network/API): one more read; then cancel (a no-op on an order that already filled) and
+    // read once more. If status is still unknown we must not guess: the order may be filled and absent from the ledger.
+    try { await new Promise((r) => setTimeout(r, 1000)); filled = await client.getOrder(entryOrder.id); pollError = null; } catch (err) { pollError = err; }
+    if (pollError) {
+      try { await client.cancelOrder(entryOrder.id); } catch (_) { /* best-effort */ }
+      try { await new Promise((r) => setTimeout(r, 1000)); filled = await client.getOrder(entryOrder.id); pollError = null; } catch (err) { pollError = err; }
+    }
+  }
+  if (pollError) {
+    const detail = String(pollError && pollError.message ? pollError.message : pollError).slice(0, 300);
+    const reason = `entry order ${entryOrder.id} was placed but its fill status could not be read (${detail}) -- it may be filled and is NOT recorded in the ledger; the real account must be reconciled`;
+    appendMissionEvent({ type: 'mission-resolved', citizenId, missionId, outcome: 'error', reason });
+    await alertUnknownEntryFill(citizenId, decision.symbol, entryOrder.id, detail);
+    return { outcome: 'error', reason: 'entry-fill-unknown', orderId: entryOrder.id };
   }
   if (filled.status !== 'filled') {
     // Round 12, real bug found via the first-ever real execution proof
@@ -429,7 +544,7 @@ async function runForCitizen(citizenId, { rehearsal = false } = {}) {
   let decision;
   try {
     decision = extractSurviveDecision(taskId);
-    validateDecision(decision);
+    validateDecision(decision, decision.decision === 'enter' ? { allowedSymbols: allowedEntrySymbols(citizenId, missionId) } : {});
   } catch (err) {
     appendMissionEvent({ type: 'mission-resolved', citizenId, missionId, outcome: 'error', reason: `could not parse/validate decision: ${err.message}` });
     return { ranAnything: true, outcome: 'error', reason: err.message };
@@ -459,6 +574,7 @@ module.exports = {
   readMissionEvents,
   extractSurviveDecision,
   validateDecision,
+  allowedEntrySymbols,
   findLatestUnresolvedDecision,
   runForCitizen,
   executeExit,

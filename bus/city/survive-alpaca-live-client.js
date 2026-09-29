@@ -38,9 +38,36 @@ function loadConfig() {
   return { key, secret, endpoint };
 }
 
+// Every network call gets a hard deadline of our own (found 2026-09-26: fetch() here had none, so a stalled connection was
+// bounded only by the runtime's defaults, and survive-supervisor.service sets no TimeoutStartSec). The deadline covers the response
+// BODY too (res.text() below runs inside it), which is why this returns { res, text } instead of just the Response.
+// A timed-out POST/DELETE has an UNKNOWN outcome: Alpaca may still have accepted it, so the error says so and callers must
+// look the order up (by client_order_id) rather than assume it did not happen. Nothing is retried here.
+const FETCH_TIMEOUT_MS = 15000;
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const method = options.method || 'GET';
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: ac.signal });
+    const text = await res.text();
+    return { res, text };
+  } catch (err) {
+    if (ac.signal.aborted) {
+      const e = new Error(`Live Alpaca request timed out after ${timeoutMs}ms: ${method} ${String(url).split('?')[0]}${method === 'GET' ? '' : ' -- OUTCOME UNKNOWN, the broker may have accepted it; check the order before retrying'}`);
+      e.code = 'ALPACA_TIMEOUT';
+      e.outcomeUnknown = method !== 'GET';
+      throw e;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function apiRequest(method, urlPath, body) {
   const { key, secret, endpoint } = loadConfig();
-  const res = await fetch(`${endpoint}${urlPath}`, {
+  const { res, text } = await fetchWithTimeout(`${endpoint}${urlPath}`, {
     method,
     headers: {
       'APCA-API-KEY-ID': key,
@@ -49,7 +76,6 @@ async function apiRequest(method, urlPath, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const text = await res.text();
   let parsed;
   try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = text; }
   if (!res.ok) {
@@ -69,8 +95,7 @@ async function apiRequest(method, urlPath, body) {
 async function getLatestQuote(symbol) {
   const { key, secret } = loadConfig();
   const url = `https://data.alpaca.markets/v2/stocks/quotes/latest?symbols=${encodeURIComponent(symbol)}`;
-  const res = await fetch(url, { headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret } });
-  const text = await res.text();
+  const { res, text } = await fetchWithTimeout(url, { headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret } });
   let parsed;
   try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = text; }
   if (!res.ok) {
@@ -98,6 +123,12 @@ function getOrders(status = 'all') {
 
 function getOrder(orderId) {
   return apiRequest('GET', `/orders/${encodeURIComponent(orderId)}`);
+}
+
+// Exact lookup by our own client order id (Alpaca: GET /orders:by_client_order_id). Answers "did that submit land?" after a
+// timeout or lost response without paging through the order list. A 404 means no such order (this client throws on it).
+function getOrderByClientOrderId(clientOrderId) {
+  return apiRequest('GET', `/orders:by_client_order_id?client_order_id=${encodeURIComponent(normalizeClientOrderId(clientOrderId))}`);
 }
 
 // Round 15: real asset metadata (tradable/fractionable/status) and the
@@ -175,10 +206,11 @@ function cancelOrder(orderId) {
 }
 
 module.exports = {
-  loadConfig, apiRequest, getLatestQuote, getAccount, getPositions, getOrders, getOrder,
+  loadConfig, apiRequest, fetchWithTimeout, FETCH_TIMEOUT_MS, getLatestQuote, getAccount, getPositions, getOrders, getOrder,
   getAsset, getClock,
   submitOrder, cancelOrder, assertLongOnlyOrder, normalizeClientOrderId, CLIENT_ORDER_ID_MAX,
 };
+module.exports.getOrderByClientOrderId = getOrderByClientOrderId;
 
 // CLI: node survive-alpaca-live-client.js account|positions|orders|asset <SYM>|clock
 if (require.main === module) {

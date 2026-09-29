@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "frozenOn": "2026-09-26",
+  "mode": "descriptive",
+  "purpose": "Predeclared rules for a DESCRIPTIVE leveraged-ETF trend backtest on Alpaca-only data. Canonical configs are fixed in advance; nothing is tuned or selected; the verdict can be INCONCLUSIVE or FAIL, never a pass. Edited only by adding a new version file; the CLI refuses to run if lev-backtest-prereg.v2.sha256 does not match this file.",
+  "supersedes": {
+    "file": "lev-backtest-prereg.json (archived byte-for-byte as lev-backtest-prereg.v1-archived.json; its hash stays in lev-backtest-prereg.sha256)",
+    "v1Sha256": "d7ac169b98f59b9fe3a189ec95a5ba5e357b4b7d4becb8afec1f230fd48eccb6",
+    "note": "v1 failed because Alpaca IEX history starts 2020-07-27, not ~2016: its tune window (through 2021-12-31) would have been ~17 months and could not carry a selection. No other data source is available to the owner. v1 is kept for its tune/test machinery but is NOT used. v2 replaces the frozen tune/test design with a descriptive design that has no tuning and no selection, so it cannot establish a durable edge."
+  },
+  "data": {
+    "source": "Alpaca IEX daily bars, adjustment=all (split+dividend adjusted), via fleet paper keys, read from the local cache bus/fleet/data/lev-bars/ (no network at backtest time)",
+    "symbols": ["QQQ", "SPY", "TQQQ", "QLD", "UPRO", "SSO", "BIL", "SHY"],
+    "startDate": "2020-07-27",
+    "excluded": ["SQQQ", "UVXY", "SOXL", "SGOV"],
+    "excludedWhy": "SQQQ/UVXY reverse splits and short exposure; SOXL sector-specific (limits multiplicity); SGOV only trades from 2020 so the cash leg is BIL for the whole period",
+    "firstDatePerSymbolRecorded": true,
+    "knownCacheIssues": "SPY has one stray bar dated 2018-11-01 (before every other series); BIL lacks 14 dates that the other series have. The CLI drops every bar dated before startDate (2020-07-27) BEFORE any computation and reports what it dropped; the engine then aligns each pair on the INTERSECTION of underlying, traded and BIL dates and the CLI reports the dates lost to alignment.",
+    "sanity": "flag a day when |ret_etf - L * ret_underlying| exceeds 0.10, or |log return| exceeds 0.70 (checked after the pre-startDate drop); a flag stops the run for manual review. There is NO fixed 0.35 cap (TQQQ fell ~35% on 2020-03-16, which is before the sample anyway)."
+  },
+  "pairs": [
+    { "underlying": "QQQ", "traded": ["TQQQ", "QLD", "QQQ"], "leverage": [3, 2, 1] },
+    { "underlying": "SPY", "traded": ["UPRO", "SSO", "SPY"], "leverage": [3, 2, 1] }
+  ],
+  "cashLeg": "BIL (adjusted total return) while out of market",
+  "execution": "signal on the underlying's close at t; fill at the traded ETF's open at t+1 (bars[i+1].open); no fill at the same bar as the signal",
+  "warmup": "no signal until the longest SMA window has a full set of closes; the first 250 aligned bars only fill the window (common warm-up for every config, so every config is scored over the identical span)",
+  "strategies": {
+    "S1_trend_band": { "rule": "long when underlying close > SMA(n)*(1+band); flat when close < SMA(n)*(1-band); otherwise keep the prior state", "canonical": { "n": 200, "bandPct": 2 }, "grid": { "n": [150, 175, 200, 225, 250], "bandPct": [0, 1, 2, 3] } },
+    "S2_dual_fast_exit": { "rule": "long when SMA(50) > SMA(slow) and close > SMA(slow); exit when underlying close < SMA(50) OR the underlying's close falls trailingDD below its high since entry; re-enter only when the entry condition is true again", "canonical": { "slow": 200, "trailingDDPct": 10 }, "grid": { "slow": [150, 200, 250], "trailingDDPct": [8, 10, 15] }, "trailingDDMeasuredOn": "underlying close" },
+    "S3_vol_target": { "rule": "S1(n=200, band=2) gate; when long, weight = min(1, targetVol / (leverage * realizedVol20(underlying))); rest in cash leg", "canonical": { "targetVolPct": 20 }, "grid": { "targetVolPct": [15, 20] }, "note": "secondary; weak fit for a $50 account" },
+    "benchmarks": ["buy-and-hold each traded ETF", "buy-and-hold underlying"],
+    "canonicalWhy": "S1 (200-day SMA, 2% band) and S2 (200-day slow, 10% trailing stop) are conventional textbook values; S3 target vol 20% is the middle of a plain 15/20 choice. They were fixed BEFORE any run on this cache and are never changed after seeing results."
+  },
+  "evaluation": {
+    "canonicalPairs": "each of the 6 pairs (QQQ->TQQQ, QQQ->QLD, QQQ->QQQ, SPY->UPRO, SPY->SSO, SPY->SPY) x S1, S2, S3, plus buy-and-hold of the traded ETF and of the underlying",
+    "warmupBars": 250,
+    "spans": {
+      "full": "every aligned date after the common 250-bar warm-up (the equity curve starts at the close of bar 250; the first possible fill is the open of bar 251)",
+      "y2022": { "start": "2022-01-01", "end": "2022-12-31", "note": "the one bear market in the sample, reported separately" },
+      "from2023": { "start": "2023-01-01", "end": null },
+      "firstHalf": "first half of the full span, split by number of daily returns (midpoint = base + 1 + floor(days/2); this date is the first day of the second half)",
+      "secondHalf": "second half of the full span"
+    },
+    "signalState": "signals are causal and computed on all earlier history, so a sub-span starts with whatever position state the rule already had; the sub-span equity curve starts at the close before its first day",
+    "sensitivity": "The same grids as v1 are evaluated on the FULL span at 5 bps, idealized fractional, for DESCRIPTIVE sensitivity only. It is a table. Nothing is chosen from it, no config is promoted, and it feeds no verdict."
+  },
+  "costs": {
+    "expenseRatio": "NOT added: adjusted prices already net the fund's expense ratio out of NAV (adding it would double-count)",
+    "slippagePerSideBps": { "base": 5, "stress": 15 },
+    "cash": "BIL adjusted returns already include its yield"
+  },
+  "cashAccountRules": "engine forbids a round trip that opens and closes on the same day (no selling a position bought with unsettled funds). A same-open swap between traded ETF and BIL is allowed. Whether Alpaca applies further rules is UNVERIFIED.",
+  "variants": ["idealized fractional", "whole-share with the $20 position cap (report the traded ETF's price against the cap; if one share exceeds $20 the variant can never buy and is reported as such)"],
+  "verdictRule": {
+    "allowedVerdicts": ["INCONCLUSIVE", "FAIL"],
+    "noPass": "Only INCONCLUSIVE or FAIL exist in this mode. A pass verdict is impossible by construction: the sample is ~6 years with one bear market and no independent validation window.",
+    "evaluatedOn": "the FULL span, canonical configs, the two primary hypotheses only (S1 on QQQ->TQQQ and S2 on QQQ->TQQQ), idealized fractional, 5 bps/side",
+    "criteriaPerHypothesis": [
+      "max drawdown smaller than buy-and-hold of the traded ETF (TQQQ) AND Calmar higher than that buy-and-hold",
+      "after-cost CAGR (5 bps/side) higher than buy-and-hold of the underlying (QQQ)"
+    ],
+    "FAIL": "if either primary hypothesis fails either criterion",
+    "INCONCLUSIVE": "otherwise (both hypotheses meet both criteria; this still establishes nothing durable)",
+    "reportedNotGating": ["the same criteria at 15 bps/side", "every secondary pair, span and variant", "round-trip counts per config (too few for confidence intervals to mean anything, stated in the report)", "deflated Sharpe ratio", "worst month", "ulcer index", "trades per year", "decomposition: strategy vs traded-ETF buy-and-hold (drawdown avoidance vs timing)", "the sensitivity grid"],
+    "confidenceIntervals": "not computed: with a handful of round trips a confidence interval would mean nothing"
+  },
+  "multipleTesting": {
+    "deflatedSharpe": "Bailey & Lopez de Prado (2014): DSR = Phi( (SR_hat - SR0) * sqrt(T-1) / sqrt(1 - g3*SR_hat + ((g4-1)/4)*SR_hat^2) ), SR0 = sqrt(V[SR]) * ((1-gamma)*Phi^-1(1-1/N) + gamma*Phi^-1(1-1/(N*e))), gamma = 0.5772",
+    "varSr": "V[SR] = 1/(T-1)",
+    "N": "count of every config in the descriptive sensitivity grid, treated as uncorrelated (conservative): (20 + 9 + 2) configs x 6 pairs = 186",
+    "configsPerPair": { "S1": 20, "S2": 9, "S3": 2, "total": 31 },
+    "configList": {
+      "S1 (n, bandPct)": ["150/0", "150/1", "150/2", "150/3", "175/0", "175/1", "175/2", "175/3", "200/0", "200/1", "200/2", "200/3", "225/0", "225/1", "225/2", "225/3", "250/0", "250/1", "250/2", "250/3"],
+      "S2 (slow, trailingDDPct)": ["150/8", "150/10", "150/15", "200/8", "200/10", "200/15", "250/8", "250/10", "250/15"],
+      "S3 (targetVolPct)": ["15", "20"]
+    },
+    "stepSizes": "n in steps of 25; band in steps of 1 percentage point; slow in {150,200,250}; trailingDD in {8,10,15}"
+  },
+  "disclosures": [
+    "Stress period 2008-2009 is absent from Alpaca IEX history; maximum-drawdown figures are NOT the historical worst case for these instruments.",
+    "IEX bars are one exchange's prints; the 'open' is IEX's first trade, not the official opening auction.",
+    "Round-trip counts in the evaluation span will be small; confidence intervals are illustrative only.",
+    "Sample is 2020-07-27 to 2026-09-25 (~6 years) with essentially one bear market; the tune window is not used; nothing here can establish a durable edge."
+  ],
+  "unverified": ["Alpaca free-tier history start date (recorded at first fetch: 2020-07-27)", "fractionability of traded ETFs (getAsset)", "cash-account good-faith/settlement handling beyond the same-day rule"],
+  "forwardLog": { "gateC": ">=60 trading days AND >=1 completed entry->exit round trip in the forward log, or an explicit owner waiver with a documented reason", "mustNotImport": "any order-submission path (survive-executor.js, alpaca submitOrder); selftest asserts no order calls" },
+  "secrets": "error messages must redact APCA-API-KEY-ID and APCA-API-SECRET-KEY values; selftest asserts no key substring in any thrown error"
+}
