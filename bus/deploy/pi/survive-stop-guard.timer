@@ -1,0 +1,16 @@
+# Companion timer for survive-stop-guard.service -- twice on each trading
+# day, shortly after the open (09:35 ET, once the opening quote has
+# settled) and again half an hour later (10:05 ET) as a second pass. The
+# job itself is a no-op outside market hours or inside the last 10 minutes
+# before close, so these times are deliberately early in the session.
+[Unit]
+Description=Run survive-stop-guard.service twice each trading morning
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:35:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10:05:00 America/New_York
+Persistent=false
+Unit=survive-stop-guard.service
+
+[Install]
+WantedBy=timers.target

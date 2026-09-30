@@ -11,7 +11,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | platform | shared infrastructure | 29 | 2 | 0 | 8 | 11 | 8 |
 | ops | dashboard and status aggregators (may read every domain) | 5 | 1 | 0 | 1 | 3 | 0 |
 | fleet | paper-trading fleet | 33 | 0 | 4 | 6 | 20 | 3 |
-| city | real-money agent city (survive) | 23 | 0 | 1 | 4 | 17 | 1 |
+| city | real-money agent city (survive) | 25 | 0 | 1 | 5 | 18 | 1 |
 | swarm | research swarm | 4 | 0 | 1 | 0 | 3 | 0 |
 | revenue | product builder, Apify and bounty tooling | 11 | 0 | 0 | 7 | 4 | 0 |
 | org | autonomous organization runtime (durable Director/AgentSpec decision loop + Plan-2 economic cells, all real-money-execution paths hard-denied in this phase) | 12 | 0 | 0 | 4 | 8 | 0 |
@@ -38,7 +38,7 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | git-sync | legacy | 0 | Pi-only autonomous vault sync. Commits and pushes whatever the trading pilot (or anything else running on the Pi) changed, so the Windows/Obsidian... **Note:** template only (targets /home/pi), never installed |
 | memory-query | manual | 0 | CLI for the durable fact store (memory-store.js, Phase 3 piece 3). |
 | memory-store | library | 16 | Phase 3 piece 3: a small, durable key/value fact store for /bus/. |
-| ntfy | library | 19 | shared notification helper for the /bus/ protocol. |
+| ntfy | library | 20 | shared notification helper for the /bus/ protocol. |
 | prune-memory | manual | 0 | manual compaction for bus/memory.jsonl. |
 | research-swarm-worker | library | 4 | The real concurrency primitive. |
 | run-backlog | legacy | 0 | processes a seeded list of task_ids in sequence (bus/backlog.json), writing live status to bus/status.json after every real status change, for the... |
@@ -108,10 +108,11 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 
 | File | Status | Used by | Purpose (from file header) |
 |---|---|---|---|
+| c1-execution-lock | library | 2 | OS-backed mutual-exclusion lock for every step that can move real money for C1 (the "survive" live-Alpaca citizen). **Note:** OS-backed (abstract unix socket) lock shared by survive-stop-guard.js and survive-supervisor.js around C1's money-moving steps |
 | citizen-lifecycle | library | 2 | the three ways real money moves to create or grow a citizen (ARCHITECTURE.md section 19, rounds 3-4). |
 | city-bank | library | 6 | the shared city-bank ledger for the "survive" branch (ARCHITECTURE.md section 19). |
 | city-leadership | library | 2 | the capped leader tier ("the board of directors") and its promotion algorithm (ARCHITECTURE.md section 19, rounds 3-4). |
-| city-registry | library | 11 | citizen identity, role, and lineage for the "survive" branch (ARCHITECTURE.md section 19). |
+| city-registry | library | 12 | citizen identity, role, and lineage for the "survive" branch (ARCHITECTURE.md section 19). |
 | city-reserve | library | 1 | the protected profit reserve (ARCHITECTURE.md section 19, round 4). |
 | city-security | library | 3 | a security layer structurally separate from the city's own chain of command (ARCHITECTURE.md section 19, round 7). |
 | city-spending | manual | 0 | how a citizen actually spends real money on something that ISN'T trading (ARCHITECTURE.md section 19, round 10, revised to Stripe Issuing after round... **Note:** built, unused: Stripe Issuing spend cards, no caller |
@@ -120,16 +121,17 @@ Code lives in `bus/<domain>/<file>.js` (see the tables). `bus/scripts/` holds on
 | mechanism-registry | library | 3 | auto-discovery for revenue mechanisms a "survive" citizen can choose among (ARCHITECTURE.md section 19). |
 | survive-alpaca-live-client | library | 1 | LIVE (real money, non-paper) Alpaca client for the "survive" city-bank branch (ARCHITECTURE.md section 19). |
 | survive-bootstrap-founder | manual | 0 | the one-time, human-run command that actually founds the city (ARCHITECTURE.md section 19). |
-| survive-budget-envelope | library | 10 | the hard, NEVER-RESET, per-citizen budget cap for the "survive" city-bank branch (ARCHITECTURE.md section 19). |
+| survive-budget-envelope | library | 11 | the hard, NEVER-RESET, per-citizen budget cap for the "survive" city-bank branch (ARCHITECTURE.md section 19). |
 | survive-email | library | 1 | email capability for the "survive" branch (ARCHITECTURE.md section 19, rounds 2, 5, and 6). |
-| survive-executor | library | 5 | the deterministic execution layer for the "survive" branch (ARCHITECTURE.md section 19). **Note:** exception: requires paper alpaca-client for --rehearsal mode |
+| survive-executor | library | 6 | the deterministic execution layer for the "survive" branch (ARCHITECTURE.md section 19). **Note:** exception: requires paper alpaca-client for --rehearsal mode |
 | survive-journal | library | 2 | "the stock is the teacher," for citizens. |
 | survive-leader-council | library | 1 | how leaders "communicate between each other to find the most profitable avenues and direct more funding to those" (ARCHITECTURE.md section 19, round... |
-| survive-market-data | library | 1 | Small READ-ONLY market-data client for shadow scoring. |
+| survive-market-data | library | 2 | Small READ-ONLY market-data client for shadow scoring. |
 | survive-market-scan | library | 2 | bus/city/survive-market-scan.js -- Round 27. **Note:** Round 27: proposes candidates beyond the fixed baseline; the real codex dispatch is decoupled onto market-scan-cycle.js, never called from survive-supervisor.js directly |
 | survive-mechanism-research | legacy | 0 | "this is NOT only a trading bot" (ARCHITECTURE.md section 19, direct user requirement). **Note:** retired in place, replaced by the research swarm |
 | survive-shadow-score | manual | 0 | Daily, no LLM, no codex. Scores every snapshot whose horizons have elapsed (idempotent: one score event per snapshot per run key) and prints the... |
 | survive-shadow | library | 3 | Credit-free, real-money-free evidence for "was that decision good". |
+| survive-stop-guard | manual | 0 | C1 live-money safety job: re-arms (never lowers) a protective stop for every open lot the broker doesn't already have one working for; NEVER cancels,... **Note:** LIVE-MONEY safety job (re-arms a protective stop, never cancels/replaces/market-sells); manual until the owner installs the timer |
 | survive-supervisor | paused | 1 | the schedule-invoked cadence/authoring script for the "survive" branch (ARCHITECTURE.md section 19), mirroring pilot-supervisor.js's own shape: not a... |
 
 ## swarm (bus/swarm/)

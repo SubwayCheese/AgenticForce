@@ -3,6 +3,18 @@
 Last updated: 2026-09-29 ~1:05 PM PDT, after cycle 5 (the one-shot out-of-sample test). Full history:
 `bus/fleet/data/research-loop-log.jsonl`. Loop mechanics and boundaries: `docs/HANDOFF.md`.
 
+## RESUMED 2026-09-29 ~5:50 PM PDT (owner said resume): routine re-enabled, `claude-paused` deleted, local loop wakes 8:14 AM PDT 9/30. Stop-guard fixes built (see HANDOFF). History of the pause below.
+## (was) PAUSED (owner, 2026-09-29 ~4:20 PM PDT): no Claude usage until the owner says resume
+- Cloud routine trig_01JMgBjoMcLdiBHEjdFXevU7 DISABLED (re-enable: RemoteTrigger update {"enabled": true}).
+- Local loop stopped; its 8:14 AM wake deleted.
+- C1 keeps running: while `bus/city-state/claude-paused` exists every mission goes to codex (delete the file to resume
+  the codex/claude-agent alternation).
+- Stop re-armer: built + rehearsed (dry run on the live account: stop at $100.11 for the SGOV lot), NOT enabled. Round-3
+  review fixes pending (codex reject: shared OS lock with the supervisor, quote freshness, decision-lookup errors,
+  dead-order check). Partial lock module parked at
+  /tmp/claude-1000/-home-subwaycheese/2a30f474-b678-4563-8cbd-e8b610c05697/scratchpad/c1-execution-lock.partial.js.
+  Review texts: same scratchpad, review3-*.txt. Resume = finish those fixes test-first, codex re-review, owner installs timer.
+
 ## Bottom line right now (after cycle 5, 2026-09-29)
 - **The leveraged-ETF trend idea did not survive its out-of-sample test.** On the never-examined 2016-12-29..2021-08-05
   window (Alpaca SIP, prereg v3, run once), at a $30 cap: S1 (200-day trend) returned 34.1%/yr vs QQQ's 28.7% but with a

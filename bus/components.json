@@ -158,6 +158,11 @@
       "domain": "ops",
       "status": "library"
     },
+    "c1-execution-lock.js": {
+      "domain": "city",
+      "status": "library",
+      "note": "OS-backed (abstract unix socket) lock shared by survive-stop-guard.js and survive-supervisor.js around C1's money-moving steps"
+    },
     "capability-registry.js": {
       "domain": "org",
       "status": "library",
@@ -500,6 +505,11 @@
     "survive-shadow.js": {
       "domain": "city",
       "status": "library"
+    },
+    "survive-stop-guard.js": {
+      "domain": "city",
+      "status": "manual",
+      "note": "LIVE-MONEY safety job (re-arms a protective stop, never cancels/replaces/market-sells); manual until the owner installs the timer"
     },
     "survive-supervisor.js": {
       "domain": "city",

@@ -37,6 +37,12 @@ const runTask = require('../platform/run-task.js');
 const codexHealth = require('../platform/codex-health.js');
 const shadow = require('./survive-shadow.js');
 const marketScan = require('./survive-market-scan.js');
+const c1Lock = require('./c1-execution-lock.js');
+
+// The execution lock shared with survive-stop-guard.js (see c1-execution-lock.js): held around the per-citizen
+// reconcile/execute/author section so the guard never reads positions or submits a stop mid-trade. The guard holds it
+// for well under a minute, so 90 s rides that out; past that the wake is skipped (the next one is ~2h later).
+const EXEC_LOCK_WAIT_MS = 90000;
 
 const VAULT_ROOT = avPaths.ROOT;
 const TASKS_SURVIVE_DIR = path.join(VAULT_ROOT, 'tasks', 'survive');
@@ -50,6 +56,8 @@ const MISSION_COOLDOWN_HOURS = 2; // Round 28: 4h -> 2h, offset by alternating c
 // specialist (WEB_SEARCH_CAPABLE in run-task.js) dispatched through the same generic runner, at zero codex
 // cost. Odd mission numbers -> codex, even -> claude-agent.
 function missionAgentFor(missionId) {
+  // Owner pause of Claude usage (2026-09-29): while bus/city-state/claude-paused exists, every mission goes to codex.
+  if (fs.existsSync(path.join(VAULT_ROOT, 'bus', 'city-state', 'claude-paused'))) return 'codex';
   const n = Number(String(missionId).replace(/\D/g, ''));
   return n % 2 === 0 ? 'claude-agent' : 'codex';
 }
@@ -478,6 +486,19 @@ async function main() {
     return;
   }
 
+  const execLock = await c1Lock.acquire({ wait_ms: EXEC_LOCK_WAIT_MS });
+  if (!execLock) {
+    log(`C1 execution lock still held after ${EXEC_LOCK_WAIT_MS / 1000}s (stop guard running?) -- skipping reconcile/execute/author this wake`);
+    return;
+  }
+  try {
+    await runCitizens(citizens, { rehearsal });
+  } finally {
+    execLock.release();
+  }
+}
+
+async function runCitizens(citizens, { rehearsal }) {
   for (const citizen of citizens) {
     const citizenId = citizen.citizenId;
 

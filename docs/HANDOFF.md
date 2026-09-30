@@ -1,6 +1,47 @@
 # HANDOFF -- read this first in a new session
 
-Last refreshed 2026-09-23 ~15:50 PDT. This repo already has a vault of context, so this file is a pointer-heavy briefing:
+## >>> RESUME HERE (refreshed 2026-09-29 ~6:00 PM PDT) <<<
+**RESUMED 2026-09-29 ~5:50 PM PDT** (owner: "resume accordingly"). Done: step 1 (C1 unchanged: SGOV 0.198672205 sh,
+cash $30, 0 open orders = NO stop); step 2 (routine re-enabled, next run 2026-09-30 7:17 AM PDT, mcp_connections `[]`;
+`claude-paused` deleted; local loop scheduled as a session-only one-shot for 8:14 AM PDT 9/30). Step 3: fixes (a)-(d)
+BUILT test-first (`bus/city/c1-execution-lock.js` new + registered; guard + supervisor patched; suite 206/206; live
+dry run correctly refuses a 4h-old after-hours quote). Codex round-4 review: see scratchpad
+`/tmp/claude-1000/-home-subwaycheese/add04751-c8e5-44a6-88de-a7e8d769dd57/scratchpad/review4-codex.txt`.
+**Open risk:** at 09:35 ET the free-feed SGOV quote may be >120 s old -> guard alerts instead of placing; verify with a
+real-market `--dry-run` (no `--assume-open`) after 09:35 ET before enabling the timer. Originals of the patched files:
+same scratchpad, `*.orig.js`. Original resume steps (kept for reference):
+**Status was: PAUSED by the owner** ("no Claude usage until I say resume"). When the owner
+says resume, do these in order (owner prefers short replies; decide routine things yourself -- memory "standing
+delegation"; probe codex before assuming it is out):
+1. **Check C1 read-only** (supervisor log tail, `getPositions`/`getOrders` via `bus/city/survive-alpaca-live-client.js`).
+   Last known: holds SGOV 0.198672205 sh (entry $100.618), cash ~$30, **no stop**; missions every ~4h, all hold/no-action.
+2. **Undo the pause:** re-enable the cloud routine (`RemoteTrigger update trig_01JMgBjoMcLdiBHEjdFXevU7 {"enabled":true}`,
+   daily 7:17 AM PDT research; verify `mcp_connections` stays `[]`); delete `bus/city-state/claude-paused` (while it
+   exists `missionAgentFor` in `bus/city/survive-supervisor.js` sends every C1 mission to codex); restart the local loop
+   with `/loop Follow ~/AgentVault/docs/LOCAL-LOOP.md.`
+3. **Finish the stop guard (top priority -- C1 is unprotected).** `bus/city/survive-stop-guard.js` (simple daily re-armer:
+   places ONE Alpaca DAY stop per open lot at a trailing level, 09:35 + 10:05 ET; never cancels/replaces/market-sells;
+   alerts instead). Built, 28 tests, suite 189/189, live dry run (`--dry-run --assume-open`) plans a stop at **$100.11**.
+   **Not enabled.** Codex rejected round 3; required fixes, test-first:
+   (a) OS-backed lock shared with the supervisor (abstract unix socket `\0agentvault-c1-execution`, new
+   `bus/city/c1-execution-lock.js`; partial draft parked at
+   `/tmp/claude-1000/-home-subwaycheese/2a30f474-b678-4563-8cbd-e8b610c05697/scratchpad/c1-execution-lock.partial.js`);
+   supervisor holds it around reconcile/execute/author (wait 90 s, else skip that wake); (b) fetch bars first, then
+   positions/orders, then the quote right before submitting; reject quotes whose `raw.t` is missing, >120 s old or >60 s
+   in the future; (c) decision-lookup error -> alert + skip, pending enter/exit -> alert + skip; (d) an order found by
+   client id counts only if its status is live, else priority-5 "unprotected" alert. Review texts: same scratchpad,
+   `review3-codex.txt`, `review3-ag.txt`. Then codex re-review, push to a new PR branch, and give the owner:
+   `cp bus/deploy/pi/survive-stop-guard.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload &&
+   systemctl --user enable --now survive-stop-guard.timer` (harness blocks agents from installing units).
+4. Then: apply cloud runs, next cloud-queue items (`docs/RESEARCH-LOOP-STATUS.md`), later the full guard (partial-fill
+   ledger fix first, split handling, broker-tested order replacement, auto gap-down selling).
+**Git:** PR `cloud-sync-2026-09-29` was MERGED to master. Everything after it (stop guard, claude-paused switch,
+cycle-5 docs, this file) is only in the live tree: commit it from a `git clone --no-hardlinks` throwaway on a new branch
++ PR (never git checkout/add -A in ~/AgentVault; the live tree's HEAD is stale vs origin/master -- do not pull/merge there
+blindly, untracked files would collide). Details of the day: `docs/RESEARCH-LOOP-STATUS.md`,
+`bus/fleet/data/research-loop-log.jsonl`, `docs/proposals/2026-09-29-*`.
+
+Last refreshed (sections below) 2026-09-23 ~15:50 PDT. This repo already has a vault of context, so this file is a pointer-heavy briefing:
 where we are, what is unsafe, what is next. It does not repeat `AGENTS.md` (rules, commands), `docs/DECISIONS.md` (every
 decision and why; newest at the BOTTOM despite its header), or `docs/SYSTEM-MAP.md` (generated map). Read `AGENTS.md` first.
 **First action in a new session: check C1's live state (below) before doing anything else.**
@@ -207,6 +248,8 @@ owner as proposals -- this loop does not weaken that rule, it just runs the rese
 `bus/fleet/data/research-loop-log.jsonl` (one JSON line per cycle), then list the cloud routine's recent runs.
 
 ## Gotchas and rules that matter
+- **Codex is NOT paused (2026-09-29):** probe `ok`, state ok since 2026-09-22. Older lines here saying "codex paused" are
+  stale. Usage limits reset: probe before assuming any agent is out (AGENTS.md rule 4).
 - **Several chats talking to each other:** how to open a chat in tmux the owner can attach to, message it, and run a 3-way
   discussion is in `docs/MULTI-SESSION.md` (verified 2026-09-24). Only touch sessions the owner names.
 - **Hard rules are in `AGENTS.md`:** never `git checkout/switch/reset --hard/clean/commit -a/add -A` in this tree (it holds live

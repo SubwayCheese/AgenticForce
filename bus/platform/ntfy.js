@@ -42,7 +42,11 @@ function sanitizeForNtfy(text) {
     .replace(/[^\x00-\x7F]/g, '?'); // any other non-ASCII -> safe fallback
 }
 
-function sendNtfy({ topic = 'ClaudeTeam', message, title, priority, tags } = {}) {
+// Absolute deadline for one send, response body included. Callers await alerts while holding the C1 execution lock
+// (survive-supervisor.js / survive-stop-guard.js), so a send that never completes must never hang them (codex round 4).
+const SEND_TIMEOUT_MS = 15000;
+
+function sendNtfy({ topic = 'ClaudeTeam', message, title, priority, tags, timeoutMs = SEND_TIMEOUT_MS, request = https.request, resolveTopicFn = resolveTopic } = {}) {
   return new Promise((resolve, reject) => {
     if (!message) {
       reject(new Error('sendNtfy requires a message'));
@@ -54,15 +58,23 @@ function sendNtfy({ topic = 'ClaudeTeam', message, title, priority, tags } = {})
     if (priority) headers['Priority'] = String(priority);
     if (tags) headers['Tags'] = tags;
 
-    const req = https.request(
-      { hostname: 'ntfy.sh', path: '/' + encodeURIComponent(resolveTopic(topic)), method: 'POST', headers },
+    let settled = false;
+    const settle = (fn, v) => { if (settled) return; settled = true; clearTimeout(timer); fn(v); };
+    const req = request(
+      { hostname: 'ntfy.sh', path: '/' + encodeURIComponent(resolveTopicFn(topic)), method: 'POST', headers },
       (res) => {
         let data = '';
         res.on('data', (c) => (data += c));
-        res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+        res.on('end', () => settle(resolve, { statusCode: res.statusCode, body: data }));
+        res.on('error', (err) => settle(reject, err));
       }
     );
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      const err = new Error(`ntfy send timed out after ${timeoutMs} ms`);
+      settle(reject, err);
+      try { req.destroy(err); } catch (_) { /* already gone */ }
+    }, timeoutMs);
+    req.on('error', (err) => settle(reject, err));
     req.write(body);
     req.end();
   });

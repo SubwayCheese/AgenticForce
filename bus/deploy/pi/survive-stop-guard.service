@@ -1,0 +1,22 @@
+# survive-stop-guard.service -- LIVE-MONEY safety job. Oneshot run of
+# survive-stop-guard.js: re-arms (never lowers) a protective stop for any
+# open lot the broker doesn't already have one working for. Never cancels,
+# replaces, or places a market sell (owner-approved design). Reads the real
+# live Alpaca account and can place a real stop order; --dry-run is NOT used
+# here (the timer wants the real thing).
+#
+# NOT installed. Install as a --user unit when ready:
+#   cp survive-stop-guard.service survive-stop-guard.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now survive-stop-guard.timer
+# Environment=PATH and TimeoutStartSec are explicit per the Round 17 lesson
+# (systemd does not inherit the interactive PATH; default timeout is 90s).
+[Unit]
+Description=AgentVault survive stop-guard -- re-arm C1's protective stop
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/subwaycheese/AgentVault
+Environment=PATH=/home/subwaycheese/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TimeoutStartSec=300
+ExecStart=/usr/bin/node bus/city/survive-stop-guard.js
